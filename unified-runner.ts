@@ -518,5 +518,20 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
+// 전역 에러 핸들러 (비정상 종료 방지)
+process.on('uncaughtException', (error) => {
+  console.error(`\n[FATAL] Uncaught Exception: ${error.message}`);
+  console.error(error.stack);
+  // 죽지 않고 계속 실행
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error(`\n[FATAL] Unhandled Rejection: ${reason?.message || reason}`);
+  // 죽지 않고 계속 실행
+});
+
 // 실행
-main().catch(console.error);
+main().catch((error) => {
+  console.error(`[FATAL] Main error: ${error.message}`);
+  process.exit(1);
+});
