@@ -370,7 +370,7 @@ export async function runV7Engine(
       const timeout = setTimeout(() => {
         ctx.log("engine:newtab_timeout");
         resolve(null);  // 타임아웃 시 null 반환 (에러 대신)
-      }, 15000);
+      }, 30000);  // 30초로 여유있게
 
       browser.once('targetcreated', async (target: any) => {
         clearTimeout(timeout);
@@ -449,14 +449,14 @@ export async function runV7Engine(
     if (productPage) {
       ctx.log("engine:newtab", { opened: true });
       try {
-        await productPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+        await productPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
       } catch {}
       await sleep(2000);
     } else {
       ctx.log("engine:newtab", { opened: false, fallback: "current page" });
       productPage = page;
       try {
-        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
       } catch {}
       await sleep(3000);
     }
