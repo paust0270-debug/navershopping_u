@@ -145,12 +145,18 @@ function shuffleWords(productName: string): string {
  * 1) 빠른 타이핑 (30~60ms)
  * - 오타 시뮬레이션 제거
  * - focus() 후 250~600ms 기다리기
+ * - PRB realClick 사용 (ghost-cursor 내장)
  */
 async function humanizedType(page: Page, selector: string, text: string, ctx: RunContext): Promise<void> {
   ctx.log("human:type", { length: text.length });
 
-  // focus 후 대기
-  await page.click(selector);
+  // focus 후 대기 - PRB realClick 사용 (있으면)
+  const prbPage = page as any;
+  if (typeof prbPage.realClick === 'function') {
+    await prbPage.realClick(selector);
+  } else {
+    await page.click(selector);
+  }
   await sleep(randomBetween(250, 600));
 
   // 빠른 타이핑 (오타 없이)
@@ -197,24 +203,35 @@ async function humanizedClick(page: Page, selector: string, ctx: RunContext): Pr
 }
 
 /**
- * 3) 요소 클릭 (베지어 곡선)
- * - 요소를 먼저 뷰포트에 스크롤
- * - 베지어 곡선으로 자연스럽게 이동 후 클릭
+ * 3) 요소 클릭 (PRB realClick 우선, fallback: 베지어 곡선)
+ * - PRB의 ghost-cursor 내장 realClick 사용
+ * - 없으면 베지어 곡선으로 fallback
  */
 async function humanizedClickElement(page: Page, element: any, ctx: RunContext): Promise<void> {
   // 1. 먼저 요소를 뷰포트로 스크롤
   await element.scrollIntoViewIfNeeded();
   await sleep(randomBetween(200, 400));
 
+  // 2. PRB realCursor 사용 시도 (ghost-cursor 내장)
+  const prbPage = page as any;
+  if (typeof prbPage.realCursor === 'object' && prbPage.realCursor) {
+    try {
+      ctx.log("human:click:realCursor");
+      await prbPage.realCursor.click(element);
+      return;
+    } catch (e) {
+      ctx.log("human:click:realCursor:failed");
+    }
+  }
+
+  // 3. Fallback: 베지어 곡선
   const box = await element.boundingBox();
   if (!box) {
-    // fallback: DOM 클릭
     ctx.log("human:click:fallback", { reason: "no bounding box" });
     await element.click();
     return;
   }
 
-  // 2. 뷰포트 확인 (화면 밖이면 fallback)
   const viewport = page.viewport();
   if (viewport && (box.y < 0 || box.y > viewport.height)) {
     ctx.log("human:click:fallback", { reason: "element outside viewport" });
@@ -225,17 +242,14 @@ async function humanizedClickElement(page: Page, element: any, ctx: RunContext):
   const targetX = box.x + box.width / 2 + randomBetween(-5, 5);
   const targetY = box.y + box.height / 2 + randomBetween(-3, 3);
 
-  ctx.log("human:click:coords", { x: Math.round(targetX), y: Math.round(targetY) });
+  ctx.log("human:click:bezier", { x: Math.round(targetX), y: Math.round(targetY) });
 
-  // 3. 현재 마우스 위치 추정 (화면 상단 영역에서 시작)
   const startX = viewport ? randomBetween(viewport.width * 0.3, viewport.width * 0.7) : 500;
   const startY = viewport ? randomBetween(100, viewport.height * 0.4) : 200;
 
-  // 4. 베지어 곡선으로 마우스 이동
   await bezierMouseMove(page, startX, startY, targetX, targetY);
   await sleep(randomBetween(50, 120));
 
-  // 5. 클릭 (down/up 분리로 더 자연스럽게)
   await page.mouse.down();
   await sleep(randomBetween(40, 100));
   await page.mouse.up();

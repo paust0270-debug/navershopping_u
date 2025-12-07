@@ -232,16 +232,80 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     result.productName = work.productName.substring(0, 30);
     log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid})`);
 
-    // 2. 브라우저 시작
+    // 2. 브라우저 시작 (강화된 anti-detection 옵션)
     const response = await connect({
       headless: profile.prb_options?.headless ?? false,
       turnstile: profile.prb_options?.turnstile ?? true,
+      fingerprint: true,  // 자동 fingerprint 생성
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-dev-shm-usage',
+        '--disable-infobars',
+        '--window-size=1280,720',
+        '--lang=ko-KR',
+      ],
+      connectOption: {
+        defaultViewport: {
+          width: 1280,
+          height: 720,
+        },
+      },
     });
 
     browser = response.browser as Browser;
     page = response.page as Page;
     page.setDefaultTimeout(30000);
     page.setDefaultNavigationTimeout(30000);
+
+    // WebGL/Canvas fingerprint spoof
+    await page.evaluateOnNewDocument(() => {
+      // WebGL Vendor/Renderer spoof
+      const getParameterProxyHandler = {
+        apply: function(target: any, thisArg: any, args: any[]) {
+          const param = args[0];
+          const gl = thisArg;
+          // UNMASKED_VENDOR_WEBGL
+          if (param === 37445) {
+            return 'Intel Inc.';
+          }
+          // UNMASKED_RENDERER_WEBGL
+          if (param === 37446) {
+            return 'Intel Iris OpenGL Engine';
+          }
+          return Reflect.apply(target, thisArg, args);
+        }
+      };
+
+      // WebGL getParameter
+      const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = new Proxy(originalGetParameter, getParameterProxyHandler);
+
+      // WebGL2 getParameter
+      if (typeof WebGL2RenderingContext !== 'undefined') {
+        const originalGetParameter2 = WebGL2RenderingContext.prototype.getParameter;
+        WebGL2RenderingContext.prototype.getParameter = new Proxy(originalGetParameter2, getParameterProxyHandler);
+      }
+
+      // Canvas fingerprint noise
+      const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function(type?: string) {
+        if (this.width > 16 && this.height > 16) {
+          const ctx = this.getContext('2d');
+          if (ctx) {
+            const imageData = ctx.getImageData(0, 0, this.width, this.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+              // Add tiny noise to RGB (not alpha)
+              imageData.data[i] = imageData.data[i] ^ (Math.random() > 0.5 ? 1 : 0);
+            }
+            ctx.putImageData(imageData, 0, 0);
+          }
+        }
+        return originalToDataURL.apply(this, arguments as any);
+      };
+    });
 
     // 3. Context 생성
     const ctx: RunContext = {
@@ -302,10 +366,14 @@ async function runBatch(profile: Profile): Promise<boolean> {
   log(`  배치 #${batchCount} 시작 (IP: ${currentIP})`);
   log(`${"=".repeat(50)}`);
 
-  // 5개 워커 동시 실행
+  // 5개 워커 순차 시작 (1~3초 간격으로 봇 감지 회피)
   const workerPromises: Promise<WorkerResult>[] = [];
   for (let i = 1; i <= PARALLEL_BROWSERS; i++) {
     workerPromises.push(runSingleWorker(i, profile));
+    // 마지막 워커가 아니면 1~3초 랜덤 대기 후 다음 워커 시작
+    if (i < PARALLEL_BROWSERS) {
+      await sleep(1000 + Math.random() * 2000);
+    }
   }
 
   // 모두 완료 대기
