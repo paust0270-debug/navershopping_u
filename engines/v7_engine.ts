@@ -34,6 +34,40 @@ function getDwellTime(): number {
   return randomBetween(1000, 3000);
 }
 
+// ============ Human Scroll (mouse.wheel 기반 - 탐지 우회) ============
+
+/**
+ * 인간화 스크롤 - mouse.wheel 기반 (scrollBy는 100% 탐지됨)
+ */
+async function humanScroll(page: Page, targetY: number): Promise<void> {
+  let scrolled = 0;
+  while (scrolled < targetY) {
+    const step = 100 + Math.random() * 150;
+    await page.mouse.wheel({ deltaY: step });
+    scrolled += step;
+    await sleep(80 + Math.random() * 60);
+  }
+}
+
+/**
+ * 요소까지 스크롤 (mouse.wheel 기반)
+ */
+async function scrollToElement(page: Page, element: any): Promise<void> {
+  const box = await element.boundingBox();
+  if (!box) return;
+
+  const viewport = page.viewport();
+  const viewportHeight = viewport?.height || 720;
+
+  // 요소가 화면 밖에 있으면 스크롤
+  if (box.y > viewportHeight * 0.7 || box.y < 100) {
+    const scrollAmount = box.y - viewportHeight / 2;
+    if (scrollAmount > 0) {
+      await humanScroll(page, scrollAmount);
+    }
+  }
+}
+
 // ============ 베지어 곡선 마우스 이동 ============
 
 interface Point {
@@ -203,20 +237,24 @@ async function humanizedClick(page: Page, selector: string, ctx: RunContext): Pr
 }
 
 /**
- * 3) 요소 클릭 (PRB realClick 우선, fallback: 베지어 곡선)
- * - PRB의 ghost-cursor 내장 realClick 사용
- * - 없으면 베지어 곡선으로 fallback
+ * 3) 요소 클릭 (hover → 대기 → 클릭 패턴)
+ * - 네이버 쇼핑은 hover 시간/가속도까지 체크
+ * - PRB realCursor 우선, fallback: 베지어 곡선
  */
 async function humanizedClickElement(page: Page, element: any, ctx: RunContext): Promise<void> {
-  // 1. 먼저 요소를 뷰포트로 스크롤
-  await element.scrollIntoViewIfNeeded();
+  // 1. mouse.wheel 기반 스크롤로 요소를 뷰포트로 이동
+  await scrollToElement(page, element);
   await sleep(randomBetween(200, 400));
 
   // 2. PRB realCursor 사용 시도 (ghost-cursor 내장)
   const prbPage = page as any;
   if (typeof prbPage.realCursor === 'object' && prbPage.realCursor) {
     try {
-      ctx.log("human:click:realCursor");
+      ctx.log("human:click:realCursor:hover");
+      // hover 먼저
+      await prbPage.realCursor.move(element);
+      await sleep(randomBetween(200, 400));  // hover 대기 (네이버 탐지 핵심)
+      // 클릭
       await prbPage.realCursor.click(element);
       return;
     } catch (e) {
@@ -224,7 +262,7 @@ async function humanizedClickElement(page: Page, element: any, ctx: RunContext):
     }
   }
 
-  // 3. Fallback: 베지어 곡선
+  // 3. Fallback: 베지어 곡선 + hover 패턴
   const box = await element.boundingBox();
   if (!box) {
     ctx.log("human:click:fallback", { reason: "no bounding box" });
@@ -242,14 +280,18 @@ async function humanizedClickElement(page: Page, element: any, ctx: RunContext):
   const targetX = box.x + box.width / 2 + randomBetween(-5, 5);
   const targetY = box.y + box.height / 2 + randomBetween(-3, 3);
 
-  ctx.log("human:click:bezier", { x: Math.round(targetX), y: Math.round(targetY) });
+  ctx.log("human:click:hover+bezier", { x: Math.round(targetX), y: Math.round(targetY) });
 
   const startX = viewport ? randomBetween(viewport.width * 0.3, viewport.width * 0.7) : 500;
   const startY = viewport ? randomBetween(100, viewport.height * 0.4) : 200;
 
+  // 베지어 곡선으로 이동 (hover)
   await bezierMouseMove(page, startX, startY, targetX, targetY);
-  await sleep(randomBetween(50, 120));
 
+  // hover 대기 (네이버 탐지 핵심 포인트)
+  await sleep(randomBetween(200, 400));
+
+  // 클릭 (down/up 분리)
   await page.mouse.down();
   await sleep(randomBetween(40, 100));
   await page.mouse.up();
@@ -317,13 +359,10 @@ export async function runV7Engine(
       return result;
     }
 
-    // 4. 스크롤 (3번) - 일반 scrollBy 사용
-    ctx.log("behavior:scroll", { times: 3, amount: 400 });
-    for (let s = 0; s < 3; s++) {
-      const scrollAmount = 300 + Math.random() * 200;
-      await page.evaluate((amt) => window.scrollBy(0, amt), scrollAmount);
-      await sleep(randomBetween(400, 700));
-    }
+    // 4. 스크롤 (mouse.wheel 기반 - scrollBy는 100% 탐지됨)
+    ctx.log("behavior:scroll", { method: "mouse.wheel", target: 1200 });
+    await humanScroll(page, 1200);
+    await sleep(randomBetween(400, 700));
 
     // 5. 새 탭 핸들링 Promise 설정 (타임아웃 시 null 반환)
     let productPage: Page | null = null;

@@ -240,6 +240,7 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
       args: [
         '--disable-blink-features=AutomationControlled',
         '--disable-features=IsolateOrigins,site-per-process',
+        '--disable-webrtc',
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-dev-shm-usage',
@@ -305,6 +306,22 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
         }
         return originalToDataURL.apply(this, arguments as any);
       };
+
+      // Navigator properties patch
+      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
+      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+      Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+
+      // Chrome object (real browser has this)
+      if (!window.chrome) {
+        (window as any).chrome = {
+          runtime: {},
+          loadTimes: function() {},
+          csi: function() {},
+          app: {}
+        };
+      }
     });
 
     // 3. Context 생성
