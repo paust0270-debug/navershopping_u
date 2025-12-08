@@ -278,7 +278,7 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     }
 
     result.productName = work.productName.substring(0, 30);
-    log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid})`);
+    log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
     // 2. 브라우저 시작 (강화된 anti-detection 옵션)
     const response = await connect({
@@ -569,9 +569,11 @@ async function main() {
         log("\nIP 로테이션 시작...");
         const rotationResult = await rotateIP(tetheringAdapter);
 
-        if (rotationResult.success) {
-          log(`IP 변경: ${rotationResult.oldIP} → ${rotationResult.newIP}`);
+        if (rotationResult.success && rotationResult.oldIP !== rotationResult.newIP) {
+          log(`IP 변경 성공: ${rotationResult.oldIP} → ${rotationResult.newIP}`);
           currentIP = rotationResult.newIP;
+        } else if (rotationResult.oldIP === rotationResult.newIP) {
+          log(`IP 변경 안됨! (동일 IP: ${rotationResult.oldIP})`, "warn");
         } else {
           log(`IP 로테이션 실패: ${rotationResult.error}`, "warn");
         }

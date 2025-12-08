@@ -269,7 +269,39 @@ export class ReceiptCaptchaSolverPRB {
   }
 
   /**
-   * Claude Vision API로 답 추출
+   * 응답이 유효한 답인지 검증
+   */
+  private isValidAnswer(answer: string): boolean {
+    const failPatterns = [
+      "인식할 수 없",
+      "확인할 수 없",
+      "보이지 않",
+      "읽을 수 없",
+      "알 수 없",
+      "불명확",
+      "죄송",
+      "sorry",
+      "cannot",
+      "unable",
+      "이미지",
+    ];
+
+    const lowerAnswer = answer.toLowerCase();
+    for (const pattern of failPatterns) {
+      if (lowerAnswer.includes(pattern)) return false;
+    }
+
+    // 답이 너무 길면 설명문으로 판단
+    if (answer.length > 20) return false;
+
+    // 빈 답
+    if (answer.length === 0) return false;
+
+    return true;
+  }
+
+  /**
+   * Claude Vision API로 답 추출 (인식 실패 시 재시도)
    */
   private async askClaudeVision(
     imageBase64: string,
@@ -300,39 +332,52 @@ export class ReceiptCaptchaSolverPRB {
 
 다른 설명 없이 정답만 출력하세요 (숫자 하나 또는 짧은 텍스트).`;
 
-    const response = await this.anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 50,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: "image/png",
-                data: imageBase64,
-              },
-            },
-            {
-              type: "text",
-              text: prompt,
-            },
-          ],
-        },
-      ],
-    });
+    const maxApiRetries = 3;
 
-    const content = response.content[0];
-    if (content.type === "text") {
-      let answer = content.text.trim();
-      answer = answer.replace(/입니다\.?$/, "").trim();
-      answer = answer.replace(/^답\s*:\s*/i, "").trim();
-      return answer;
+    for (let attempt = 1; attempt <= maxApiRetries; attempt++) {
+      const response = await this.anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 50,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: imageBase64,
+                },
+              },
+              {
+                type: "text",
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      });
+
+      const content = response.content[0];
+      if (content.type === "text") {
+        let answer = content.text.trim();
+        answer = answer.replace(/입니다\.?$/, "").trim();
+        answer = answer.replace(/^답\s*:\s*/i, "").trim();
+
+        if (this.isValidAnswer(answer)) {
+          return answer;
+        }
+
+        this.log(`API 응답 무효 (시도 ${attempt}/${maxApiRetries}): "${answer}"`);
+
+        if (attempt < maxApiRetries) {
+          await this.delay(500);
+        }
+      }
     }
 
-    throw new Error("Failed to get text response from Claude");
+    throw new Error("Claude Vision이 유효한 답을 반환하지 못함");
   }
 
   /**
