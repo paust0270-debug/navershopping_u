@@ -322,121 +322,16 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     result.productName = work.productName.substring(0, 30);
     log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
-    // 2. 브라우저 시작 (강화된 anti-detection 옵션)
+    // 2. 브라우저 시작 (12/5 버전 - 단순 옵션)
     const response = await connect({
-      headless: profile.prb_options?.headless ?? false,
-      turnstile: profile.prb_options?.turnstile ?? true,
-      fingerprint: true,  // 자동 fingerprint 생성
-      args: [
-        '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins,site-per-process',
-        '--disable-webrtc',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-dev-shm-usage',
-        '--disable-infobars',
-        '--window-size=1280,720',
-        '--lang=ko-KR',
-      ],
-      connectOption: {
-        defaultViewport: {
-          width: 1280,
-          height: 720,
-        },
-      },
+      headless: false,
+      turnstile: true,
     });
 
     browser = response.browser as Browser;
     page = response.page as Page;
     page.setDefaultTimeout(30000);
     page.setDefaultNavigationTimeout(30000);
-
-    // WebGL/Canvas fingerprint spoof (워커별 고유값)
-    await page.evaluateOnNewDocument((wId: number) => {
-      // 워커별 다른 GPU 프로필
-      const gpuProfiles = [
-        { vendor: 'Intel Inc.', renderer: 'Intel Iris OpenGL Engine' },
-        { vendor: 'Intel Inc.', renderer: 'Intel HD Graphics 630' },
-        { vendor: 'Intel Inc.', renderer: 'Intel UHD Graphics 620' },
-        { vendor: 'NVIDIA Corporation', renderer: 'NVIDIA GeForce GTX 1060' },
-        { vendor: 'ATI Technologies Inc.', renderer: 'AMD Radeon RX 580' },
-      ];
-      const gpu = gpuProfiles[wId % gpuProfiles.length];
-
-      // 워커별 다른 하드웨어 스펙
-      const hwProfiles = [
-        { cores: 4, memory: 8 },
-        { cores: 8, memory: 16 },
-        { cores: 6, memory: 8 },
-        { cores: 4, memory: 4 },
-        { cores: 8, memory: 8 },
-      ];
-      const hw = hwProfiles[wId % hwProfiles.length];
-
-      // 워커별 고유 Canvas noise seed
-      const noiseSeed = wId * 12345 + Date.now() % 10000;
-
-      // WebGL Vendor/Renderer spoof
-      const getParameterProxyHandler = {
-        apply: function(target: any, thisArg: any, args: any[]) {
-          const param = args[0];
-          // UNMASKED_VENDOR_WEBGL
-          if (param === 37445) {
-            return gpu.vendor;
-          }
-          // UNMASKED_RENDERER_WEBGL
-          if (param === 37446) {
-            return gpu.renderer;
-          }
-          return Reflect.apply(target, thisArg, args);
-        }
-      };
-
-      // WebGL getParameter
-      const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = new Proxy(originalGetParameter, getParameterProxyHandler);
-
-      // WebGL2 getParameter
-      if (typeof WebGL2RenderingContext !== 'undefined') {
-        const originalGetParameter2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = new Proxy(originalGetParameter2, getParameterProxyHandler);
-      }
-
-      // Canvas fingerprint noise (워커별 고유 seed)
-      const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-      HTMLCanvasElement.prototype.toDataURL = function(type?: string) {
-        if (this.width > 16 && this.height > 16) {
-          const ctx = this.getContext('2d');
-          if (ctx) {
-            const imageData = ctx.getImageData(0, 0, this.width, this.height);
-            // 워커별 다른 noise 패턴
-            let seed = noiseSeed;
-            for (let i = 0; i < imageData.data.length; i += 4) {
-              seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-              imageData.data[i] = imageData.data[i] ^ (seed % 2);
-            }
-            ctx.putImageData(imageData, 0, 0);
-          }
-        }
-        return originalToDataURL.apply(this, arguments as any);
-      };
-
-      // Navigator properties patch (워커별 다른 값)
-      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 0 });
-      Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => hw.cores });
-      Object.defineProperty(navigator, 'deviceMemory', { get: () => hw.memory });
-      Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
-
-      // Chrome object (real browser has this)
-      if (!window.chrome) {
-        (window as any).chrome = {
-          runtime: {},
-          loadTimes: function() {},
-          csi: function() {},
-          app: {}
-        };
-      }
-    }, workerId);
 
     // 3. Context 생성
     const ctx: RunContext = {
