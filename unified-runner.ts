@@ -596,6 +596,10 @@ process.on('SIGINT', () => {
 
 // 전역 에러 핸들러 (비정상 종료 방지)
 process.on('uncaughtException', (error) => {
+  // EPERM 에러는 무시 (chrome-launcher Temp 폴더 삭제 시 발생)
+  if (error.message?.includes('EPERM') && error.message?.includes('temp')) {
+    return;
+  }
   console.error(`\n[FATAL] Uncaught Exception: ${error.message}`);
   console.error(error.stack);
   // 죽지 않고 계속 실행
