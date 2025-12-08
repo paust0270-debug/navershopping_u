@@ -449,16 +449,84 @@ export async function runV7Engine(
     if (productPage) {
       ctx.log("engine:newtab", { opened: true });
       try {
-        await productPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
+        await productPage.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 });
       } catch {}
-      await sleep(2000);
+      await sleep(1000);
+
+      // 새 탭 열리자마자 캡챠 감지 (더 정확한 감지)
+      const earlyCapchaCheck = await productPage.evaluate(() => {
+        // 1. CAPTCHA 전용 요소가 있으면 확실한 CAPTCHA
+        const hasCaptchaElement = !!(
+          document.querySelector('#rcpt_form') ||
+          document.querySelector('.captcha_wrap') ||
+          document.querySelector('input[name*="captcha"]') ||
+          document.querySelector('img[src*="captcha"]')
+        );
+        if (hasCaptchaElement) return true;
+
+        // 2. 특정 조합의 텍스트가 있으면 CAPTCHA (단독 키워드는 무시)
+        const bodyText = document.body.innerText || '';
+        const hasSecurityCheck = bodyText.includes('보안 확인을 완료');
+        const hasReceiptNumber = bodyText.includes('영수증 번호') || bodyText.includes('4자리');
+        const hasRealUser = bodyText.includes('실제 사용자인지');
+
+        return hasSecurityCheck || hasReceiptNumber || hasRealUser;
+      });
+
+      if (earlyCapchaCheck) {
+        ctx.log("captcha:early_detect", { detected: true });
+        try {
+          const solver = new ReceiptCaptchaSolverPRB((msg) => ctx.log(msg));
+          const solved = await solver.solve(productPage);
+          if (solved) {
+            ctx.log("captcha:solved", { early: true });
+            await sleep(2000);
+          }
+        } catch (e: any) {
+          ctx.log("captcha:early_error", { error: e.message });
+        }
+      }
     } else {
       ctx.log("engine:newtab", { opened: false, fallback: "current page" });
       productPage = page;
       try {
-        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 });
+        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 10000 });
       } catch {}
-      await sleep(3000);
+      await sleep(1000);
+
+      // 현재 페이지에서도 캡챠 감지 (더 정확한 감지)
+      const earlyCapchaCheck = await page.evaluate(() => {
+        // 1. CAPTCHA 전용 요소가 있으면 확실한 CAPTCHA
+        const hasCaptchaElement = !!(
+          document.querySelector('#rcpt_form') ||
+          document.querySelector('.captcha_wrap') ||
+          document.querySelector('input[name*="captcha"]') ||
+          document.querySelector('img[src*="captcha"]')
+        );
+        if (hasCaptchaElement) return true;
+
+        // 2. 특정 조합의 텍스트가 있으면 CAPTCHA (단독 키워드는 무시)
+        const bodyText = document.body.innerText || '';
+        const hasSecurityCheck = bodyText.includes('보안 확인을 완료');
+        const hasReceiptNumber = bodyText.includes('영수증 번호') || bodyText.includes('4자리');
+        const hasRealUser = bodyText.includes('실제 사용자인지');
+
+        return hasSecurityCheck || hasReceiptNumber || hasRealUser;
+      });
+
+      if (earlyCapchaCheck) {
+        ctx.log("captcha:early_detect", { detected: true });
+        try {
+          const solver = new ReceiptCaptchaSolverPRB((msg) => ctx.log(msg));
+          const solved = await solver.solve(page);
+          if (solved) {
+            ctx.log("captcha:solved", { early: true });
+            await sleep(2000);
+          }
+        } catch (e: any) {
+          ctx.log("captcha:early_error", { error: e.message });
+        }
+      }
     }
 
     // 8. Bridge URL 리다이렉트 대기
