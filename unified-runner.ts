@@ -15,6 +15,15 @@ import * as dotenv from "dotenv";
 import * as path from "path";
 import * as fs from "fs";
 
+// Chrome/Puppeteer Temp 폴더를 D드라이브로 변경 (C드라이브 용량 문제 방지)
+const TEMP_DIR = 'D:\\temp';
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+process.env.TEMP = TEMP_DIR;
+process.env.TMP = TEMP_DIR;
+process.env.TMPDIR = TEMP_DIR;
+
 // .env 로드
 const envPaths = [
   path.join(process.cwd(), '.env'),
@@ -102,6 +111,45 @@ function log(msg: string, level: "info" | "warn" | "error" = "info") {
   const time = new Date().toISOString().substring(11, 19);
   const prefix = { info: "[INFO]", warn: "[WARN]", error: "[ERROR]" }[level];
   console.log(`[${time}] ${prefix} ${msg}`);
+}
+
+// ============ Chrome Temp 폴더 정리 (D드라이브) ============
+function cleanupChromeTempFolders(): void {
+  const tempDirs = ['D:\\temp', 'D:\\tmp'];
+  let totalCleaned = 0;
+
+  for (const tempDir of tempDirs) {
+    if (!fs.existsSync(tempDir)) continue;
+
+    try {
+      const entries = fs.readdirSync(tempDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        // Chrome/Puppeteer 관련 임시 폴더 패턴
+        if (entry.isDirectory() && (
+          entry.name.startsWith('puppeteer_') ||
+          entry.name.startsWith('lighthouse') ||
+          entry.name.startsWith('chrome_') ||
+          entry.name.startsWith('.org.chromium.') ||
+          entry.name.startsWith('scoped_dir')
+        )) {
+          const folderPath = path.join(tempDir, entry.name);
+          try {
+            fs.rmSync(folderPath, { recursive: true, force: true });
+            totalCleaned++;
+          } catch {
+            // 사용 중인 폴더는 무시
+          }
+        }
+      }
+    } catch {
+      // 폴더 접근 실패 무시
+    }
+  }
+
+  if (totalCleaned > 0) {
+    log(`Temp 폴더 정리: ${totalCleaned}개 삭제`);
+  }
 }
 
 // ============ 프로필 로드 ============
@@ -403,6 +451,10 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
 // ============ 배치 실행 (5개 동시 → IP 로테이션) ============
 async function runBatch(profile: Profile): Promise<boolean> {
   batchCount++;
+
+  // 배치 시작 전 Temp 폴더 정리 (ENOSPC 방지)
+  cleanupChromeTempFolders();
+
   log(`\n${"=".repeat(50)}`);
   log(`  배치 #${batchCount} 시작 (IP: ${currentIP})`);
   log(`${"=".repeat(50)}`);

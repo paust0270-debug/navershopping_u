@@ -114,35 +114,6 @@ async function checkAdbDeviceStatus(): Promise<"device" | "unauthorized" | null>
 }
 
 /**
- * ADB로 비행기 모드 제어 (IP 변경에 더 효과적)
- */
-async function setAirplaneMode(enable: boolean): Promise<boolean> {
-  try {
-    const value = enable ? "1" : "0";
-    const action = enable ? "ON" : "OFF";
-    log(`[ADB] Airplane mode ${action}...`);
-
-    // 비행기 모드 설정
-    await execAsync(`adb shell settings put global airplane_mode_on ${value}`, {
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
-    // 브로드캐스트로 시스템에 알림
-    await execAsync(`adb shell am broadcast -a android.intent.action.AIRPLANE_MODE`, {
-      encoding: "utf8",
-      timeout: 10000,
-      windowsHide: true,
-    });
-    log(`[ADB] Airplane mode ${action} - OK`);
-    return true;
-  } catch (e: any) {
-    logError(`Airplane mode ${enable ? "ON" : "OFF"} failed: ${e.message}`);
-    return false;
-  }
-}
-
-/**
  * ADB로 모바일 데이터 제어
  */
 async function setMobileData(enable: boolean): Promise<boolean> {
@@ -165,44 +136,36 @@ async function setMobileData(enable: boolean): Promise<boolean> {
 }
 
 /**
- * ADB를 통한 IP 로테이션 (비행기 모드 사용)
+ * ADB를 통한 IP 로테이션 (모바일 데이터 on/off)
  */
 async function rotateIPWithAdb(oldIP: string): Promise<IPRotationResult> {
-  log("Method: ADB (Airplane Mode)");
+  log("Method: ADB (Mobile Data)");
 
-  // 1. 비행기 모드 켜기
-  log("Airplane Mode ON...");
-  if (!(await setAirplaneMode(true))) {
-    // fallback: 모바일 데이터 끄기
-    log("Airplane failed, trying Mobile Data OFF...");
-    if (!(await setMobileData(false))) {
-      return {
-        success: false,
-        oldIP,
-        newIP: "",
-        method: "adb",
-        error: "ADB control failed",
-      };
-    }
+  // 1. 모바일 데이터 끄기
+  log("Mobile Data OFF...");
+  if (!(await setMobileData(false))) {
+    return {
+      success: false,
+      oldIP,
+      newIP: "",
+      method: "adb",
+      error: "ADB control failed",
+    };
   }
 
   log(`Waiting ${ADB_DATA_OFF_DELAY / 1000}s...`);
   await sleep(ADB_DATA_OFF_DELAY);
 
-  // 2. 비행기 모드 끄기
-  log("Airplane Mode OFF...");
-  if (!(await setAirplaneMode(false))) {
-    // fallback: 모바일 데이터 켜기
-    log("Airplane failed, trying Mobile Data ON...");
-    if (!(await setMobileData(true))) {
-      return {
-        success: false,
-        oldIP,
-        newIP: "",
-        method: "adb",
-        error: "ADB control failed",
-      };
-    }
+  // 2. 모바일 데이터 켜기
+  log("Mobile Data ON...");
+  if (!(await setMobileData(true))) {
+    return {
+      success: false,
+      oldIP,
+      newIP: "",
+      method: "adb",
+      error: "ADB control failed",
+    };
   }
 
   log(`Waiting for network (${ADB_DATA_ON_DELAY / 1000}s)...`);
