@@ -425,8 +425,14 @@ async function runBatch(profile: Profile): Promise<boolean> {
   if (blockedCount > 0) {
     log(`\n[경고] IP 차단 감지! 60초 쿨다운 후 IP 로테이션...`, "warn");
     await sleep(60000);  // 60초 대기
-    // IP 로테이션 강제 실행 (다음 배치에서)
     return true;  // 작업 있음으로 처리해서 IP 로테이션 트리거
+  }
+
+  // 전체 CAPTCHA 시 쿨다운 (4개 모두 CAPTCHA면 IP 의심)
+  if (captchaCount === PARALLEL_BROWSERS) {
+    log(`\n[경고] 전체 CAPTCHA 감지! 60초 쿨다운 후 IP 로테이션...`, "warn");
+    await sleep(60000);  // 60초 대기
+    return true;  // IP 로테이션 트리거
   }
 
   // 작업이 모두 없으면 false 반환
