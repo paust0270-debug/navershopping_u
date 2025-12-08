@@ -14,6 +14,7 @@
 import * as dotenv from "dotenv";
 import * as path from "path";
 import * as fs from "fs";
+import { execSync } from "child_process";
 
 // Chrome/Puppeteer Temp 폴더를 D드라이브로 변경 (C드라이브 용량 문제 방지)
 const TEMP_DIR = 'D:\\temp';
@@ -101,6 +102,47 @@ let tetheringAdapter: string | null = null;
 
 // ============ 작업 큐 락 (동시 접근 방지) ============
 let isClaimingTask = false;
+
+// ============ Git 업데이트 체크 ============
+const GIT_CHECK_INTERVAL = 3 * 60 * 1000; // 3분마다 체크
+let lastCommitHash = "";
+
+function getCurrentCommitHash(): string {
+  try {
+    return execSync("git rev-parse HEAD", { encoding: "utf8", timeout: 5000 }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function checkForUpdates(): boolean {
+  try {
+    // fetch만 (pull 안 함)
+    execSync("git fetch origin main", { encoding: "utf8", timeout: 30000 });
+    const remoteHash = execSync("git rev-parse origin/main", { encoding: "utf8", timeout: 5000 }).trim();
+    const localHash = getCurrentCommitHash();
+
+    if (remoteHash && localHash && remoteHash !== localHash) {
+      return true; // 업데이트 있음
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function startGitUpdateChecker(): void {
+  // 현재 커밋 해시 저장
+  lastCommitHash = getCurrentCommitHash();
+
+  setInterval(() => {
+    if (checkForUpdates()) {
+      log("Git update detected! Restarting to apply changes...", "warn");
+      // 런처가 재시작해줌
+      process.exit(0);
+    }
+  }, GIT_CHECK_INTERVAL);
+}
 
 // ============ 유틸 ============
 function sleep(ms: number): Promise<void> {
@@ -525,6 +567,10 @@ async function main() {
   console.log(`  IP 로테이션: ${IP_ROTATION_ENABLED ? '활성화' : '비활성화'}`);
   console.log(`${"=".repeat(60)}`);
 
+  // Git 업데이트 체커 시작
+  startGitUpdateChecker();
+  log(`Git update checker started (interval: ${GIT_CHECK_INTERVAL / 1000}s)`);
+
   // 프로필 로드
   const profile = loadProfile("pc_v7");
   log(`[Profile] ${profile.name}`);
@@ -598,8 +644,10 @@ process.on('SIGINT', () => {
 
 // 전역 에러 핸들러 (비정상 종료 방지)
 process.on('uncaughtException', (error) => {
-  // EPERM 에러는 무시 (chrome-launcher Temp 폴더 삭제 시 발생)
-  if (error.message?.includes('EPERM') && error.message?.includes('temp')) {
+  const msg = error.message || "";
+  // EPERM/ENOENT 에러는 무시 (chrome-launcher Temp 폴더 삭제 시 발생)
+  if ((msg.includes('EPERM') || msg.includes('ENOENT')) &&
+      (msg.includes('temp') || msg.includes('lighthouse') || msg.includes('puppeteer'))) {
     return;
   }
   console.error(`\n[FATAL] Uncaught Exception: ${error.message}`);

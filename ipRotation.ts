@@ -80,7 +80,7 @@ export async function getCurrentIP(): Promise<string> {
  */
 async function checkAdbDeviceStatus(): Promise<"device" | "unauthorized" | null> {
   try {
-    const { stdout } = await execAsync("adb devices", {
+    const { stdout, stderr } = await execAsync("adb devices", {
       encoding: "utf8",
       timeout: 10000,
       windowsHide: true,
@@ -96,19 +96,25 @@ async function checkAdbDeviceStatus(): Promise<"device" | "unauthorized" | null>
       if (parts.length >= 2) {
         const status = parts[1];
         if (status === "device") {
-          log(`ADB 기기 감지: ${parts[0]} (권한 허용됨)`);
+          log(`ADB device connected: ${parts[0]}`);
           return "device";
         } else if (status === "unauthorized") {
-          log(`ADB 기기 감지: ${parts[0]} (권한 미허용)`);
+          log(`ADB device unauthorized: ${parts[0]} - Please allow USB debugging`);
           return "unauthorized";
         }
       }
     }
 
-    log("ADB 기기 없음");
+    log("No ADB device found");
     return null;
   } catch (e: any) {
-    logError(`ADB 확인 실패: ${e.message}`);
+    // ADB not installed or not in PATH
+    const errMsg = e.message || "";
+    if (errMsg.includes("not recognized") || errMsg.includes("not found") || errMsg.includes("ENOENT")) {
+      logError("ADB not installed or not in PATH");
+    } else {
+      logError(`ADB check failed: ${errMsg.substring(0, 100)}`);
+    }
     return null;
   }
 }
@@ -195,7 +201,9 @@ async function rotateIPWithAdb(oldIP: string): Promise<IPRotationResult> {
 
   // 4. IP 변경 확인
   if (oldIP === newIP) {
-    log(`[RESULT] IP NOT CHANGED: ${oldIP}`);
+    console.log(`\n${"!".repeat(50)}`);
+    console.log(`  [ADB] IP NOT CHANGED: ${oldIP}`);
+    console.log(`${"!".repeat(50)}\n`);
     return {
       success: false,
       oldIP,
@@ -205,7 +213,9 @@ async function rotateIPWithAdb(oldIP: string): Promise<IPRotationResult> {
     };
   }
 
-  log(`[RESULT] IP CHANGED: ${oldIP} -> ${newIP}`);
+  console.log(`\n${"=".repeat(50)}`);
+  console.log(`  [ADB] IP CHANGED: ${oldIP} -> ${newIP}`);
+  console.log(`${"=".repeat(50)}\n`);
   return {
     success: true,
     oldIP,
