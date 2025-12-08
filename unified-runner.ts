@@ -53,6 +53,7 @@ const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
 
 const SUPABASE_URL = process.env.SUPABASE_PRODUCTION_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_PRODUCTION_KEY!;
+const EQUIPMENT_NAME = process.env.EQUIPMENT_NAME || '';
 
 // ============ Supabase 클라이언트 ============
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -443,6 +444,28 @@ async function runBatch(profile: Profile): Promise<boolean> {
   return true;
 }
 
+// ============ Heartbeat (장비현황 업데이트) ============
+async function sendHeartbeat(): Promise<void> {
+  if (!EQUIPMENT_NAME) return;
+
+  try {
+    const { error } = await supabase
+      .from('equipment_status')
+      .update({
+        ip_address: currentIP || 'unknown',
+        connection_status: 'connected',
+        last_heartbeat: new Date().toISOString(),
+      })
+      .eq('hostname', EQUIPMENT_NAME);
+
+    if (error) {
+      log(`Heartbeat 실패: ${error.message}`, "warn");
+    }
+  } catch (e: any) {
+    // 에러 무시 (heartbeat 실패해도 메인 작업 계속)
+  }
+}
+
 // ============ 통계 출력 ============
 function printStats(): void {
   const elapsed = (Date.now() - sessionStartTime) / 1000 / 60;
@@ -498,6 +521,13 @@ async function main() {
 
   // 통계 출력 인터벌
   setInterval(printStats, 60000);
+
+  // Heartbeat 시작 (30초마다)
+  if (EQUIPMENT_NAME) {
+    setInterval(sendHeartbeat, 30000);
+    sendHeartbeat(); // 즉시 한 번 전송
+    log(`장비명: ${EQUIPMENT_NAME}`);
+  }
 
   // 메인 루프
   while (true) {
