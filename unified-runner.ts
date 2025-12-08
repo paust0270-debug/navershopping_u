@@ -449,20 +449,25 @@ async function sendHeartbeat(): Promise<void> {
   if (!EQUIPMENT_NAME) return;
 
   try {
-    const { error } = await supabase
+    const { data, error, count } = await supabase
       .from('equipment_status')
       .update({
         ip_address: currentIP || 'unknown',
         connection_status: 'connected',
         last_heartbeat: new Date().toISOString(),
       })
-      .eq('equipment_name', EQUIPMENT_NAME);
+      .eq('equipment_name', EQUIPMENT_NAME)
+      .select();
 
     if (error) {
       log(`Heartbeat 실패: ${error.message}`, "warn");
+    } else if (!data || data.length === 0) {
+      log(`Heartbeat: 매칭되는 장비 없음 (equipment_name=${EQUIPMENT_NAME})`, "warn");
+    } else {
+      log(`Heartbeat OK (${EQUIPMENT_NAME})`);
     }
   } catch (e: any) {
-    // 에러 무시 (heartbeat 실패해도 메인 작업 계속)
+    log(`Heartbeat 에러: ${e.message}`, "error");
   }
 }
 
