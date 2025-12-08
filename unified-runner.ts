@@ -46,7 +46,7 @@ import { runV7Engine } from "./engines/v7_engine";
 import { rotateIP, getCurrentIP, getTetheringAdapter } from "./ipRotation";
 
 // ============ 설정 ============
-const PARALLEL_BROWSERS = 5;    // 동시 실행 브라우저 수
+const PARALLEL_BROWSERS = 4;    // 동시 실행 브라우저 수
 const BATCH_REST = 5 * 1000;    // 배치 간 휴식 (5초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
