@@ -456,7 +456,7 @@ async function sendHeartbeat(): Promise<void> {
         connection_status: 'connected',
         last_heartbeat: new Date().toISOString(),
       })
-      .eq('hostname', EQUIPMENT_NAME);
+      .eq('equipment_name', EQUIPMENT_NAME);
 
     if (error) {
       log(`Heartbeat 실패: ${error.message}`, "warn");
