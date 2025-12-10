@@ -453,32 +453,18 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await humanScroll(page, 1200);
     await sleep(randomBetween(400, 700));
 
-    // 6. 상품 링크 찾기 (MID 매칭 우선)
+    // 6. 상품 링크 찾기 (MID 일치만 허용)
     const linkInfo = await page.evaluate((targetMid: string) => {
       const links = Array.from(document.querySelectorAll('a'));
 
-      // 1차: MID 포함된 링크
+      // MID 포함된 링크만 찾기
       for (let i = 0; i < links.length; i++) {
         const link = links[i];
         const href = link.href || '';
         if (href.includes(`nv_mid=${targetMid}`) || href.includes(`/${targetMid}`)) {
           const rect = link.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) {
-            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2, method: 'MID-MATCH' };
-          }
-        }
-      }
-
-      // 2차: smartstore 직접 링크
-      for (let i = 0; i < links.length; i++) {
-        const link = links[i];
-        const href = link.href || '';
-        if (href.includes('/bridge') || href.includes('cr.shopping')) continue;
-        if ((href.includes('smartstore.naver.com') || href.includes('brand.naver.com')) &&
-            href.includes('/products/')) {
-          const rect = link.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2, method: 'ANY-SMARTSTORE' };
+            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
           }
         }
       }
@@ -487,12 +473,12 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }, mid);
 
     if (!linkInfo.found) {
-      log(`[Worker ${workerId}] 상품 링크 없음`, "warn");
-      result.error = 'NoLink';
+      log(`[Worker ${workerId}] MID 일치 상품 없음 - 실패 처리`, "warn");
+      result.error = 'NoMidMatch';
       return result;
     }
 
-    log(`[Worker ${workerId}] 링크 발견: ${linkInfo.method}`);
+    log(`[Worker ${workerId}] MID 일치 링크 발견`);
 
     // 7. 베지어 마우스로 hover + 클릭
     const startX = randomBetween(300, 700);
