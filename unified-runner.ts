@@ -48,6 +48,17 @@ const PARALLEL_BROWSERS = 4;    // 동시 실행 브라우저 수
 const BATCH_REST = 5 * 1000;    // 배치 간 휴식 (5초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
+const BROWSER_LAUNCH_DELAY = 3000; // 브라우저 시작 간격 (3초)
+
+// 브라우저 창 위치 (4분할 배치)
+const BROWSER_POSITIONS: { x: number; y: number }[] = [
+  { x: 0, y: 0 },      // Worker 1: 좌상단
+  { x: 960, y: 0 },    // Worker 2: 우상단
+  { x: 0, y: 540 },    // Worker 3: 좌하단
+  { x: 960, y: 540 },  // Worker 4: 우하단
+];
+const BROWSER_WIDTH = 940;   // 브라우저 너비 (여백 포함)
+const BROWSER_HEIGHT = 520;  // 브라우저 높이 (여백 포함)
 
 const SUPABASE_URL = process.env.SUPABASE_PRODUCTION_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_PRODUCTION_KEY!;
@@ -583,14 +594,19 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     result.productName = work.productName.substring(0, 30);
     log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
-    // 2. Patchright 브라우저 시작
+    // 2. Patchright 브라우저 시작 (4분할 위치 배치)
+    const pos = BROWSER_POSITIONS[(workerId - 1) % BROWSER_POSITIONS.length];
     browser = await chromium.launch({
       headless: false,
-      channel: 'chrome',  // 시스템 Chrome 사용
+      channel: 'chrome',
+      args: [
+        `--window-position=${pos.x},${pos.y}`,
+        `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
+      ],
     });
 
     context = await browser.newContext({
-      viewport: { width: 1920, height: 1080 },
+      viewport: { width: BROWSER_WIDTH - 20, height: BROWSER_HEIGHT - 100 }, // 창 테두리/탭바 제외
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     });
 
@@ -646,13 +662,14 @@ async function runBatch(profile: Profile): Promise<boolean> {
   log(`  배치 #${batchCount} 시작 (IP: ${currentIP})`);
   log(`${"=".repeat(50)}`);
 
-  // 5개 워커 순차 시작 (1~3초 간격으로 봇 감지 회피)
+  // 4개 워커 순차 시작 (BROWSER_LAUNCH_DELAY 간격)
   const workerPromises: Promise<WorkerResult>[] = [];
   for (let i = 1; i <= PARALLEL_BROWSERS; i++) {
     workerPromises.push(runSingleWorker(i, profile));
-    // 마지막 워커가 아니면 1~3초 랜덤 대기 후 다음 워커 시작
+    // 마지막 워커가 아니면 지연 후 다음 워커 시작
     if (i < PARALLEL_BROWSERS) {
-      await sleep(1000 + Math.random() * 2000);
+      log(`[Batch] 다음 브라우저까지 ${BROWSER_LAUNCH_DELAY/1000}초 대기...`);
+      await sleep(BROWSER_LAUNCH_DELAY + Math.random() * 1000);
     }
   }
 
