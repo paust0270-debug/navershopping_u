@@ -16,12 +16,18 @@ import { spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
+// pkg 빌드 시 process.pkg 타입 선언
+declare const process: NodeJS.Process & { pkg?: boolean; execPath: string };
+
 // dotenv 로드
 try {
   require('dotenv').config();
 } catch (e) {}
 
-const WORK_DIR = process.cwd();
+// exe 위치 또는 고정 경로 사용 (process.cwd()는 실행 위치라 문제됨)
+const WORK_DIR = process.pkg
+  ? path.dirname(process.execPath)  // pkg로 빌드된 exe인 경우 exe 위치
+  : process.cwd();                   // 개발 모드 (tsx)
 const RUNNER_FILE = 'unified-runner.ts';
 const GIT_PULL_INTERVAL = 3 * 60 * 1000; // 3분마다 git pull
 const RESTART_DELAY = 5000; // 에러 시 5초 후 재시작
