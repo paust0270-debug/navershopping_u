@@ -449,49 +449,81 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       return result;
     }
 
-    // 5. 스크롤
-    await humanScroll(page, 1200);
-    await sleep(randomBetween(400, 700));
+    // 5. 가격비교 컴포넌트 나올 때까지 스크롤
+    log(`[Worker ${workerId}] 가격비교 영역 탐색 중...`);
+    let priceCompareFound = false;
+    for (let i = 0; i < 30; i++) {
+      const visible = await page.evaluate(() => {
+        const el = document.querySelector('div.S1UGFJGx');
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        return rect.top >= 0 && rect.bottom <= window.innerHeight;
+      }).catch(() => false);
 
-    // 6. 상품 링크 찾기 (MID 일치만 허용)
-    const linkInfo = await page.evaluate((targetMid: string) => {
-      const links = Array.from(document.querySelectorAll('a'));
+      if (visible) {
+        priceCompareFound = true;
+        break;
+      }
 
-      // MID 포함된 링크만 찾기
-      for (let i = 0; i < links.length; i++) {
-        const link = links[i];
-        const href = link.href || '';
-        if (href.includes(`nv_mid=${targetMid}`) || href.includes(`/${targetMid}`)) {
+      await page.mouse.wheel(0, 300);
+      await sleep(randomBetween(300, 500));
+    }
+
+    if (!priceCompareFound) {
+      log(`[Worker ${workerId}] 가격비교 컴포넌트 미노출`, "warn");
+      result.error = 'NoPriceCompare';
+      return result;
+    }
+    log(`[Worker ${workerId}] 가격비교 영역 발견`);
+
+    // 6. MID 일치 상품 찾기 + 클릭
+    const clickResult = await page.evaluate((targetMid: string) => {
+      const links = document.querySelectorAll('a[href*="nv_mid="]');
+      for (const link of links) {
+        const href = (link as HTMLAnchorElement).href || '';
+        if (href.includes(`nv_mid=${targetMid}`)) {
           const rect = link.getBoundingClientRect();
           if (rect.width > 0 && rect.height > 0) {
-            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+            // 화면 중앙으로 스크롤
+            link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return { found: true, x: rect.x + rect.width/2, y: rect.y + rect.height/2, href };
           }
         }
       }
-
       return { found: false };
     }, mid);
 
-    if (!linkInfo.found) {
+    if (!clickResult.found) {
       log(`[Worker ${workerId}] MID 일치 상품 없음 - 실패 처리`, "warn");
       result.error = 'NoMidMatch';
       return result;
     }
 
     log(`[Worker ${workerId}] MID 일치 링크 발견`);
+    await sleep(randomBetween(300, 600)); // scrollIntoView 완료 대기
 
     // 7. 베지어 마우스로 hover + 클릭
     const startX = randomBetween(300, 700);
     const startY = randomBetween(100, 300);
-    await bezierMouseMove(page, startX, startY, linkInfo.x!, linkInfo.y!);
-    await sleep(randomBetween(200, 400));
+    // 스크롤 후 위치 재계산
+    const newPos = await page.evaluate((targetMid: string) => {
+      const link = document.querySelector(`a[href*="nv_mid=${targetMid}"]`);
+      if (!link) return null;
+      const rect = link.getBoundingClientRect();
+      return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
+    }, mid);
+
+    if (newPos) {
+      await bezierMouseMove(page, startX, startY, newPos.x, newPos.y);
+      await sleep(randomBetween(200, 400));
+    }
 
     // 새 탭 대기 + 클릭
     const context = page.context();
     const [newPage] = await Promise.all([
       context.waitForEvent('page', { timeout: 60000 }).catch(() => null),
       page.locator(`a[href*="nv_mid=${mid}"]`).first().click().catch(() =>
-        page.mouse.click(linkInfo.x!, linkInfo.y!)
+        page.mouse.click(newPos?.x || clickResult.x!, newPos?.y || clickResult.y!)
       )
     ]);
 
