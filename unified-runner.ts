@@ -434,7 +434,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     // 3. 엔터로 검색
     await page.keyboard.press('Enter');
-    await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
+    await page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch(() => {});
     await sleep(randomBetween(2500, 3500));
 
     // 4. CAPTCHA 체크
@@ -503,7 +503,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     // 새 탭 대기 + 클릭
     const context = page.context();
     const [newPage] = await Promise.all([
-      context.waitForEvent('page', { timeout: 15000 }).catch(() => null),
+      context.waitForEvent('page', { timeout: 60000 }).catch(() => null),
       page.locator(`a[href*="nv_mid=${mid}"]`).first().click().catch(() =>
         page.mouse.click(linkInfo.x!, linkInfo.y!)
       )
@@ -511,9 +511,9 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     const targetPage = newPage || page;
     if (newPage) {
-      await newPage.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
+      await newPage.waitForLoadState('load', { timeout: 60000 }).catch(() => {});
     } else {
-      await page.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
+      await page.waitForLoadState('load', { timeout: 60000 }).catch(() => {});
     }
     await sleep(3000);
 
