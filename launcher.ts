@@ -36,37 +36,49 @@ function log(msg: string) {
 }
 
 /**
- * Patchright 설치 체크 및 자동 설치
+ * 의존성 설치 (npm install + patchright 브라우저)
  */
-function installPatchright(): boolean {
+function installDependencies(): boolean {
   try {
-    const patchrightPath = path.join(WORK_DIR, 'node_modules', 'patchright');
+    const nodeModulesPath = path.join(WORK_DIR, 'node_modules');
+    const patchrightPath = path.join(nodeModulesPath, 'patchright');
 
-    if (fs.existsSync(patchrightPath)) {
-      log('Patchright 이미 설치됨');
-      return true;
+    // node_modules 없거나 patchright 없으면 npm install
+    if (!fs.existsSync(nodeModulesPath) || !fs.existsSync(patchrightPath)) {
+      log('의존성 설치 중... (최대 5분 소요)');
+      execSync('npm install', {
+        cwd: WORK_DIR,
+        encoding: 'utf-8',
+        timeout: 600000,  // 10분
+        stdio: 'inherit'
+      });
+    } else {
+      log('의존성 이미 설치됨');
     }
 
-    log('Patchright 설치 중...');
-    execSync('npm install patchright', {
-      cwd: WORK_DIR,
-      encoding: 'utf-8',
-      timeout: 120000,
-      stdio: 'inherit'
-    });
+    // Patchright 브라우저 설치 체크
+    const patchrightBrowserPath = path.join(
+      process.env.LOCALAPPDATA || '',
+      'patchright'
+    );
 
-    log('Patchright 브라우저 설치 중...');
-    execSync('npx patchright install chromium', {
-      cwd: WORK_DIR,
-      encoding: 'utf-8',
-      timeout: 300000,
-      stdio: 'inherit'
-    });
+    if (!fs.existsSync(patchrightBrowserPath)) {
+      log('Patchright 브라우저 설치 중... (최대 10분 소요)');
+      execSync('npx patchright install chromium', {
+        cwd: WORK_DIR,
+        encoding: 'utf-8',
+        timeout: 600000,  // 10분
+        stdio: 'inherit'
+      });
+    } else {
+      log('Patchright 브라우저 이미 설치됨');
+    }
 
-    log('Patchright 설치 완료');
+    log('설치 완료');
     return true;
   } catch (e: any) {
-    log('Patchright 설치 실패: ' + e.message);
+    log('설치 실패: ' + e.message);
+    log('수동 설치 필요: cd D:\\turafic && npm install && npx patchright install chromium');
     return false;
   }
 }
@@ -148,8 +160,8 @@ async function main() {
   // 시작 시 git pull
   gitPull();
 
-  // Patchright 설치 체크
-  installPatchright();
+  // 의존성 설치 체크
+  installDependencies();
 
   // 주기적 git pull (백그라운드)
   setInterval(() => {
