@@ -43,6 +43,36 @@ import { chromium, type Page, type Browser, type BrowserContext } from "patchrig
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter } from "./ipRotation";
 
+// ================================================================
+//  탐지 우회 계층 구조 (Detection Bypass Layers)
+// ================================================================
+//
+//  ┌─────────────────────────────────────────────────────────────┐
+//  │  1. 네트워크 계층 (Network Layer)                           │
+//  │     - IP 로테이션 (ipRotation.ts)                           │
+//  │     - 외부 IP 확인, 테더링 어댑터 관리                       │
+//  ├─────────────────────────────────────────────────────────────┤
+//  │  2. 브라우저 계층 (Browser Layer)                           │
+//  │     - Patchright (Playwright fork, 봇 탐지 우회)            │
+//  │     - 브라우저 창 위치/크기, 멀티 인스턴스                   │
+//  ├─────────────────────────────────────────────────────────────┤
+//  │  3. 디바이스 계층 (Device Layer)                            │
+//  │     - UserAgent, Viewport, 핑거프린트                       │
+//  │     - channel: 'chrome' 으로 시스템 Chrome 사용             │
+//  ├─────────────────────────────────────────────────────────────┤
+//  │  4. 세션/쿠키 계층 (Session/Cookie Layer)                   │
+//  │     - 프로필 관리 (profiles/*.json)                         │
+//  │     - 매번 새 context로 깨끗한 세션                         │
+//  ├─────────────────────────────────────────────────────────────┤
+//  │  5. 행동 계층 (Behavior Layer)                              │
+//  │     - 베지어 곡선 마우스 (cubicBezier, bezierMouseMove)     │
+//  │     - 인간화 타이핑 (humanizedType)                         │
+//  │     - 자연스러운 스크롤 (humanScroll)                       │
+//  │     - 랜덤 체류 시간                                         │
+//  └─────────────────────────────────────────────────────────────┘
+//
+// ================================================================
+
 // ============ 설정 ============
 const PARALLEL_BROWSERS = 4;    // 동시 실행 브라우저 수
 const BATCH_REST = 5 * 1000;    // 배치 간 휴식 (5초)
@@ -174,7 +204,8 @@ function randomKeyDelay(): number {
   return 30 + Math.random() * 30;
 }
 
-// ============ 베지어 곡선 마우스 ============
+// ============ [행동 계층] 베지어 곡선 마우스 ============
+// 봇 탐지 우회: 직선이 아닌 자연스러운 곡선으로 마우스 이동
 interface Point { x: number; y: number; }
 
 function cubicBezier(t: number, p0: Point, p1: Point, p2: Point, p3: Point): Point {
@@ -227,7 +258,8 @@ async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: nu
   }
 }
 
-// ============ 인간화 스크롤 ============
+// ============ [행동 계층] 인간화 스크롤 ============
+// 봇 탐지 우회: 일정하지 않은 스크롤 속도와 간격
 async function humanScroll(page: Page, targetY: number): Promise<void> {
   let scrolled = 0;
   while (scrolled < targetY) {
@@ -238,7 +270,8 @@ async function humanScroll(page: Page, targetY: number): Promise<void> {
   }
 }
 
-// ============ 인간화 타이핑 ============
+// ============ [행동 계층] 인간화 타이핑 ============
+// 봇 탐지 우회: 랜덤한 키 입력 딜레이 (30~60ms)
 async function humanizedType(page: Page, selector: string, text: string): Promise<void> {
   await page.click(selector);
   await sleep(randomBetween(250, 600));
@@ -248,7 +281,8 @@ async function humanizedType(page: Page, selector: string, text: string): Promis
   }
 }
 
-// ============ 상품명 단어 셔플 ============
+// ============ [행동 계층] 상품명 단어 셔플 ============
+// 봇 탐지 우회: 검색 패턴 다변화
 function shuffleWords(productName: string): string {
   const cleaned = productName
     .replace(/[\[\](){}]/g, ' ')
@@ -302,7 +336,8 @@ function cleanupChromeTempFolders(): void {
   }
 }
 
-// ============ 프로필 로드 ============
+// ============ [세션 계층] 프로필 로드 ============
+// 세션 관리: 프로필별 브라우저 설정 로드
 function loadProfile(profileName: string): Profile {
   const profilePath = path.join(__dirname, 'profiles', `${profileName}.json`);
   if (fs.existsSync(profilePath)) {
@@ -407,7 +442,11 @@ async function updateSlotStats(slotId: number, success: boolean): Promise<void> 
   }
 }
 
-// ============ Patchright 엔진 실행 ============
+// ============ [브라우저 계층] Patchright 엔진 실행 ============
+// Patchright: Playwright 포크로 봇 탐지 우회 내장
+// - navigator.webdriver 속성 제거
+// - Chrome DevTools Protocol 탐지 우회
+// - 자동화 플래그 숨김
 interface EngineResult {
   productPageEntered: boolean;
   captchaDetected: boolean;
@@ -421,10 +460,11 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
   };
 
   try {
-    // 1. 네이버 메인
+    // 1. 네이버 메인 (모바일 데이터 고려하여 충분히 대기)
     log(`[Worker ${workerId}] 네이버 접속...`);
-    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded" });
-    await sleep(randomBetween(1500, 2500));
+    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('input[name="query"]', { timeout: 30000 }).catch(() => {});
+    await sleep(randomBetween(2000, 3000));
 
     // 2. 검색어 입력 (상품명 셔플)
     const searchQuery = shuffleWords(productName).substring(0, 50);
@@ -432,16 +472,17 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await humanizedType(page, 'input[name="query"]', searchQuery);
     await sleep(randomBetween(300, 900));
 
-    // 3. 엔터로 검색
+    // 3. 엔터로 검색 (검색 결과 로딩 대기)
     await page.keyboard.press('Enter');
-    await page.waitForLoadState('domcontentloaded', { timeout: 60000 }).catch(() => {});
-    await sleep(randomBetween(2500, 3500));
+    await page.waitForLoadState('load', { timeout: 60000 }).catch(() => {});
+    await page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
+    await sleep(randomBetween(3000, 4500));  // 모바일 데이터 고려하여 대기 시간 증가
 
-    // 4. CAPTCHA 체크
+    // 4. CAPTCHA 체크 (body 로드 대기)
     const searchCaptcha = await page.evaluate(() => {
-      const bodyText = document.body.innerText || '';
+      const bodyText = document.body?.innerText || '';
       return bodyText.includes('보안 확인') || bodyText.includes('자동입력방지');
-    });
+    }).catch(() => false);
 
     if (searchCaptcha) {
       log(`[Worker ${workerId}] 검색 CAPTCHA 감지!`, "warn");
@@ -492,11 +533,11 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       }
 
       // 2) 더 내려갈 영역 없으면 종료
-      const prevHeight = await page.evaluate(() => document.body.scrollHeight);
+      const prevHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
       await page.mouse.wheel(0, 1200);
-      await sleep(400);  // 600 → 400으로 줄임
+      await sleep(600);  // 모바일 데이터 고려하여 600ms로 복원
 
-      const newHeight = await page.evaluate(() => document.body.scrollHeight);
+      const newHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
       if (newHeight === prevHeight) {
         log(`[Worker ${workerId}] 스크롤 끝 - MID 없음`, "warn");
         break;
@@ -530,9 +571,12 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       }
     }
 
-    // 9. 페이지 검증
+    // 9. 페이지 검증 (body 로드 대기 포함)
+    await targetPage.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await sleep(1000);  // 추가 대기 (모바일 데이터 고려)
+
     const pageCheck = await targetPage.evaluate(() => {
-      const bodyText = document.body.innerText || '';
+      const bodyText = document.body?.innerText || '';
       const url = window.location.href;
 
       const hasCaptcha = bodyText.includes('보안 확인') ||
@@ -551,7 +595,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       const isProductPage = isSmartStore && hasProductButtons && !hasCaptcha && !isDeleted;
 
       return { hasCaptcha, isDeleted, isProductPage, url };
-    });
+    }).catch(() => ({ hasCaptcha: false, isDeleted: false, isProductPage: false, url: 'unknown' }));
 
     if (pageCheck.hasCaptcha) {
       log(`[Worker ${workerId}] 상품페이지 CAPTCHA`, "warn");
@@ -590,7 +634,11 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
   }
 }
 
-// ============ 단일 워커 실행 (브라우저 생성 → 작업 실행 → 종료) ============
+// ============ [브라우저+디바이스 계층] 단일 워커 실행 ============
+// 브라우저 생성 → 디바이스 설정 → 작업 실행 → 종료
+// - 브라우저: Patchright chromium.launch()
+// - 디바이스: viewport, userAgent 설정
+// - 세션: 매번 새 context (깨끗한 쿠키/세션)
 async function runSingleWorker(workerId: number, profile: Profile): Promise<WorkerResult> {
   let browser: Browser | null = null;
   let context: BrowserContext | null = null;
@@ -690,7 +738,10 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
   return result;
 }
 
-// ============ 배치 실행 (5개 동시 → IP 로테이션) ============
+// ============ [네트워크 계층] 배치 실행 (N개 동시 → IP 로테이션) ============
+// - PARALLEL_BROWSERS개 동시 실행
+// - BATCHES_PER_ROTATION 배치마다 IP 로테이션
+// - IP 차단 감지 시 60초 쿨다운 후 IP 변경
 async function runBatch(profile: Profile): Promise<boolean> {
   batchCount++;
 
@@ -792,7 +843,13 @@ function printStats(): void {
   console.log(`${"=".repeat(60)}\n`);
 }
 
-// ============ 메인 ============
+// ============ 메인 (전체 계층 조율) ============
+// 실행 흐름:
+// 1. [네트워크] 테더링 어댑터 감지 + IP 확인
+// 2. [세션] 프로필 로드
+// 3. [반복] 배치 실행 → IP 로테이션
+//    └─ [브라우저+디바이스] 워커 생성
+//       └─ [행동] 검색/클릭/체류
 async function main() {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`  Unified Runner (Patchright + IP Rotation + Batch)`);
