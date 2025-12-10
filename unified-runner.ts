@@ -449,83 +449,68 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       return result;
     }
 
-    // 5. 가격비교 컴포넌트 나올 때까지 스크롤
-    log(`[Worker ${workerId}] 가격비교 영역 탐색 중...`);
-    let priceCompareFound = false;
-    for (let i = 0; i < 30; i++) {
-      const visible = await page.evaluate(() => {
-        const el = document.querySelector('div.S1UGFJGx');
-        if (!el) return false;
-        const rect = el.getBoundingClientRect();
-        return rect.top >= 0 && rect.bottom <= window.innerHeight;
-      }).catch(() => false);
+    // 5. 가격비교/네이버플러스스토어 컴포넌트 존재 확인 (없으면 바로 종료)
+    const hasShoppingComponent = await page.evaluate(() => {
+      // 가격비교 또는 네이버플러스스토어 컴포넌트 확인
+      const priceCompare = document.querySelector('div.S1UGFJGx');
+      const naverPlus = document.querySelector('[class*="product_list"]') ||
+                        document.querySelector('[class*="shopping"]') ||
+                        document.querySelectorAll('a[href*="nv_mid="]').length > 0;
+      return !!(priceCompare || naverPlus);
+    }).catch(() => false);
 
-      if (visible) {
-        priceCompareFound = true;
-        break;
-      }
-
-      await page.mouse.wheel(0, 300);
-      await sleep(randomBetween(300, 500));
-    }
-
-    if (!priceCompareFound) {
-      log(`[Worker ${workerId}] 가격비교 컴포넌트 미노출`, "warn");
-      result.error = 'NoPriceCompare';
-      return result;
-    }
-    log(`[Worker ${workerId}] 가격비교 영역 발견`);
-
-    // 6. MID 일치 상품 찾기 + 클릭
-    const clickResult = await page.evaluate((targetMid: string) => {
-      const links = document.querySelectorAll('a[href*="nv_mid="]');
-      for (const link of links) {
-        const href = (link as HTMLAnchorElement).href || '';
-        if (href.includes(`nv_mid=${targetMid}`)) {
-          const rect = link.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            // 화면 중앙으로 스크롤
-            link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return { found: true, x: rect.x + rect.width/2, y: rect.y + rect.height/2, href };
-          }
-        }
-      }
-      return { found: false };
-    }, mid);
-
-    if (!clickResult.found) {
-      log(`[Worker ${workerId}] MID 일치 상품 없음 - 실패 처리`, "warn");
+    if (!hasShoppingComponent) {
+      log(`[Worker ${workerId}] 쇼핑 컴포넌트 없음 - 바로 종료`, "warn");
       result.error = 'NoMidMatch';
       return result;
     }
 
-    log(`[Worker ${workerId}] MID 일치 링크 발견`);
-    await sleep(randomBetween(300, 600)); // scrollIntoView 완료 대기
+    // 6. 스크롤하면서 MID 찾기 + 클릭
+    log(`[Worker ${workerId}] MID 탐색 중...`);
+    const MAX_SCROLL = 10;  // 20 → 10으로 줄임
+    let midClicked = false;
 
-    // 7. 베지어 마우스로 hover + 클릭
-    const startX = randomBetween(300, 700);
-    const startY = randomBetween(100, 300);
-    // 스크롤 후 위치 재계산
-    const newPos = await page.evaluate((targetMid: string) => {
-      const link = document.querySelector(`a[href*="nv_mid=${targetMid}"]`);
-      if (!link) return null;
-      const rect = link.getBoundingClientRect();
-      return { x: rect.x + rect.width/2, y: rect.y + rect.height/2 };
-    }, mid);
+    for (let i = 0; i < MAX_SCROLL; i++) {
+      // 1) 현재 화면에서 MID 있는지 확인 + 클릭
+      const clicked = await page.evaluate((targetMid: string) => {
+        const links = document.querySelectorAll('a[href*="nv_mid="]');
+        for (const link of links) {
+          const href = (link as HTMLAnchorElement).href || '';
+          if (href.includes(`nv_mid=${targetMid}`)) {
+            link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            (link as HTMLAnchorElement).click();
+            return true;
+          }
+        }
+        return false;
+      }, mid).catch(() => false);
 
-    if (newPos) {
-      await bezierMouseMove(page, startX, startY, newPos.x, newPos.y);
-      await sleep(randomBetween(200, 400));
+      if (clicked) {
+        log(`[Worker ${workerId}] MID 일치 상품 클릭 성공`);
+        midClicked = true;
+        break;
+      }
+
+      // 2) 더 내려갈 영역 없으면 종료
+      const prevHeight = await page.evaluate(() => document.body.scrollHeight);
+      await page.mouse.wheel(0, 1200);
+      await sleep(400);  // 600 → 400으로 줄임
+
+      const newHeight = await page.evaluate(() => document.body.scrollHeight);
+      if (newHeight === prevHeight) {
+        log(`[Worker ${workerId}] 스크롤 끝 - MID 없음`, "warn");
+        break;
+      }
     }
 
-    // 새 탭 대기 + 클릭
+    if (!midClicked) {
+      result.error = 'NoMidMatch';
+      return result;
+    }
+
+    // 새 탭 대기
     const context = page.context();
-    const [newPage] = await Promise.all([
-      context.waitForEvent('page', { timeout: 60000 }).catch(() => null),
-      page.locator(`a[href*="nv_mid=${mid}"]`).first().click().catch(() =>
-        page.mouse.click(newPos?.x || clickResult.x!, newPos?.y || clickResult.y!)
-      )
-    ]);
+    const newPage = await context.waitForEvent('page', { timeout: 60000 }).catch(() => null);
 
     const targetPage = newPage || page;
     if (newPage) {
@@ -573,9 +558,9 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     if (pageCheck.isProductPage) {
       result.productPageEntered = true;
-      // 체류 시간
-      const dwellTime = randomBetween(2000, 4000);
-      log(`[Worker ${workerId}] 상품페이지 진입 성공! 체류: ${Math.round(dwellTime/1000)}초`);
+      // 체류 시간 (3초 이내 랜덤)
+      const dwellTime = randomBetween(1000, 3000);
+      log(`[Worker ${workerId}] 상품페이지 진입 성공! 체류: ${(dwellTime/1000).toFixed(1)}초`);
       await sleep(dwellTime);
     } else {
       result.error = 'NotProductPage';
@@ -584,7 +569,12 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     return result;
 
   } catch (e: any) {
-    result.error = e.message;
+    // 타임아웃 에러 식별
+    if (e.message?.includes('Timeout') || e.message?.includes('timeout') || e.name === 'TimeoutError') {
+      result.error = 'Timeout';
+    } else {
+      result.error = e.message || 'Unknown';
+    }
     return result;
   }
 }
@@ -636,26 +626,41 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     // 3. Patchright 엔진 실행
     const engineResult = await runPatchrightEngine(page, work.mid, work.productName, workerId);
 
-    // 4. 결과 처리
+    // 4. 결과 처리 (상세 로깅)
+    totalRuns++;
+    const productShort = work.productName.substring(0, 20);
+
     if (engineResult.productPageEntered) {
       result.success = true;
       totalSuccess++;
       await updateSlotStats(work.slotId, true);
-    } else if (engineResult.captchaDetected) {
-      result.captcha = true;
-      totalCaptcha++;
-      await updateSlotStats(work.slotId, false);
-    } else if (engineResult.error === 'Blocked') {
-      result.blocked = true;
-      log(`[Worker ${workerId}] IP 차단 감지!`, "warn");
-      await updateSlotStats(work.slotId, false);
+      log(`[Worker ${workerId}] ✅ 성공 | ${productShort}... | mid=${work.mid}`);
     } else {
-      result.error = engineResult.error;
-      totalFailed++;
+      // 실패 사유별 처리
       await updateSlotStats(work.slotId, false);
-    }
+      totalFailed++;
 
-    totalRuns++;
+      if (engineResult.captchaDetected) {
+        result.captcha = true;
+        totalCaptcha++;
+        log(`[Worker ${workerId}] ❌ 실패(CAPTCHA) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.error === 'Blocked') {
+        result.blocked = true;
+        log(`[Worker ${workerId}] ❌ 실패(IP차단) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.error === 'NoMidMatch') {
+        result.error = 'NoMidMatch';
+        log(`[Worker ${workerId}] ❌ 실패(MID없음) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.error === 'Timeout' || engineResult.error?.includes('Timeout')) {
+        result.error = 'Timeout';
+        log(`[Worker ${workerId}] ❌ 실패(타임아웃) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.error === 'Deleted') {
+        result.error = 'Deleted';
+        log(`[Worker ${workerId}] ❌ 실패(상품삭제) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else {
+        result.error = engineResult.error || 'Unknown';
+        log(`[Worker ${workerId}] ❌ 실패(${result.error}) | ${productShort}... | mid=${work.mid}`, "warn");
+      }
+    }
 
   } catch (e: any) {
     result.error = e.message;
