@@ -611,8 +611,8 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     });
 
     page = await context.newPage();
-    page.setDefaultTimeout(30000);
-    page.setDefaultNavigationTimeout(30000);
+    page.setDefaultTimeout(60000);       // 60초
+    page.setDefaultNavigationTimeout(60000);
 
     // 3. Patchright 엔진 실행
     const engineResult = await runPatchrightEngine(page, work.mid, work.productName, workerId);
