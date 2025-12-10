@@ -48,6 +48,7 @@ const PARALLEL_BROWSERS = 4;    // 동시 실행 브라우저 수
 const BATCH_REST = 5 * 1000;    // 배치 간 휴식 (5초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
+const BATCHES_PER_ROTATION = 5;   // 5배치(20건)마다 IP 로테이션
 const BROWSER_LAUNCH_DELAY = 3000; // 브라우저 시작 간격 (3초)
 
 // 브라우저 창 위치 (4분할 배치)
@@ -812,9 +813,9 @@ async function main() {
         continue;
       }
 
-      // IP 로테이션
-      if (IP_ROTATION_ENABLED && tetheringAdapter) {
-        log("\nIP 로테이션 시작...");
+      // IP 로테이션 (N배치마다)
+      if (IP_ROTATION_ENABLED && tetheringAdapter && batchCount % BATCHES_PER_ROTATION === 0) {
+        log(`\nIP 로테이션 시작... (${BATCHES_PER_ROTATION}배치 완료)`);
         const rotationResult = await rotateIP(tetheringAdapter);
 
         if (rotationResult.success && rotationResult.oldIP !== rotationResult.newIP) {
@@ -825,6 +826,8 @@ async function main() {
         } else {
           log(`IP 로테이션 실패: ${rotationResult.error}`, "warn");
         }
+      } else if (IP_ROTATION_ENABLED && tetheringAdapter) {
+        log(`다음 IP 로테이션까지 ${BATCHES_PER_ROTATION - (batchCount % BATCHES_PER_ROTATION)}배치 남음`);
       }
 
       // 배치 간 휴식
