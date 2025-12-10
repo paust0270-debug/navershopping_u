@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "TURAFIC 자동 업데이트 시스템 - 1000대 PC에 한 번만 배포",
   "main": "auto-updater.js",
-  "bin": "auto-updater.js",
+  "bin": {
+    "turafic-auto-updater": "auto-updater.js"
+  },
   "scripts": {
     "build": "esbuild auto-updater.ts --bundle --platform=node --target=node18 --outfile=auto-updater.js",
     "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:playwright --external:puppeteer-real-browser --external:puppeteer --external:@anthropic-ai/sdk --external:@supabase/supabase-js --outfile=worker-runner.js",
@@ -30,6 +32,7 @@
     "@anthropic-ai/sdk": "^0.52.0",
     "@supabase/supabase-js": "^2.86.2",
     "dotenv": "^16.0.0",
+    "patchright": "^1.49.1",
     "playwright": "^1.57.0",
     "puppeteer-real-browser": "^1.4.4"
   },
@@ -39,5 +42,19 @@
     "pkg": "^5.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
-  }
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mim1012/turafic_update.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mim1012/turafic_update/issues"
+  },
+  "homepage": "https://github.com/mim1012/turafic_update#readme"
 }

@@ -1,11 +1,11 @@
 /**
- * Unified Runner - PRB 엔진 + IP 로테이션 + 배치 실행
+ * Unified Runner - Patchright 엔진 + IP 로테이션 + 배치 실행
  *
  * 실행: npx tsx unified-runner.ts
  *
  * 워크플로우:
  * 1. 테더링 어댑터 감지 + 현재 IP 확인
- * 2. 5개 브라우저 동시 실행 (각각 작업 1개씩)
+ * 2. 4개 브라우저 동시 실행 (각각 작업 1개씩)
  * 3. 모두 완료 대기
  * 4. IP 로테이션 (테더링 껐다켜기)
  * 5. 다음 배치로 반복
@@ -39,10 +39,8 @@ for (const envPath of envPaths) {
   }
 }
 
-import { connect } from "puppeteer-real-browser";
-import type { Page, Browser } from "puppeteer-core";
+import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
 import { createClient } from "@supabase/supabase-js";
-import { runV7Engine } from "./engines/v7_engine";
 import { rotateIP, getCurrentIP, getTetheringAdapter } from "./ipRotation";
 
 // ============ 설정 ============
@@ -154,6 +152,103 @@ function log(msg: string, level: "info" | "warn" | "error" = "info") {
   const time = new Date().toISOString().substring(11, 19);
   const prefix = { info: "[INFO]", warn: "[WARN]", error: "[ERROR]" }[level];
   console.log(`[${time}] ${prefix} ${msg}`);
+}
+
+function randomBetween(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function randomKeyDelay(): number {
+  return 30 + Math.random() * 30;
+}
+
+// ============ 베지어 곡선 마우스 ============
+interface Point { x: number; y: number; }
+
+function cubicBezier(t: number, p0: Point, p1: Point, p2: Point, p3: Point): Point {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const mt = 1 - t;
+  const mt2 = mt * mt;
+  const mt3 = mt2 * mt;
+  return {
+    x: mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x,
+    y: mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y
+  };
+}
+
+function generateBezierPath(start: Point, end: Point, steps: number): Point[] {
+  const path: Point[] = [];
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const curvature = Math.min(distance * 0.3, 100);
+
+  const cp1: Point = {
+    x: start.x + dx * 0.25 + (Math.random() - 0.5) * curvature,
+    y: start.y + dy * 0.1 + (Math.random() - 0.5) * curvature
+  };
+  const cp2: Point = {
+    x: start.x + dx * 0.75 + (Math.random() - 0.5) * curvature,
+    y: start.y + dy * 0.9 + (Math.random() - 0.5) * curvature
+  };
+
+  for (let i = 0; i <= steps; i++) {
+    let t = i / steps;
+    t = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const point = cubicBezier(t, start, cp1, cp2, end);
+    point.x += (Math.random() - 0.5) * 2;
+    point.y += (Math.random() - 0.5) * 2;
+    path.push(point);
+  }
+  return path;
+}
+
+async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: number, toY: number): Promise<void> {
+  const distance = Math.sqrt(Math.pow(toX - fromX, 2) + Math.pow(toY - fromY, 2));
+  const steps = Math.floor(Math.min(40, Math.max(20, distance / 10)));
+  const path = generateBezierPath({ x: fromX, y: fromY }, { x: toX, y: toY }, steps);
+
+  for (const point of path) {
+    await page.mouse.move(point.x, point.y);
+    await sleep(randomBetween(2, 8));
+  }
+}
+
+// ============ 인간화 스크롤 ============
+async function humanScroll(page: Page, targetY: number): Promise<void> {
+  let scrolled = 0;
+  while (scrolled < targetY) {
+    const step = 100 + Math.random() * 150;
+    await page.mouse.wheel(0, step);
+    scrolled += step;
+    await sleep(80 + Math.random() * 60);
+  }
+}
+
+// ============ 인간화 타이핑 ============
+async function humanizedType(page: Page, selector: string, text: string): Promise<void> {
+  await page.click(selector);
+  await sleep(randomBetween(250, 600));
+
+  for (const char of text) {
+    await page.keyboard.type(char, { delay: randomKeyDelay() });
+  }
+}
+
+// ============ 상품명 단어 셔플 ============
+function shuffleWords(productName: string): string {
+  const cleaned = productName
+    .replace(/[\[\](){}]/g, ' ')
+    .replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ')
+    .trim();
+  const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+  if (words.length <= 1) return cleaned;
+  for (let i = words.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [words[i], words[j]] = [words[j], words[i]];
+  }
+  return words.join(' ');
 }
 
 // ============ Chrome Temp 폴더 정리 (D드라이브) ============
@@ -300,9 +395,174 @@ async function updateSlotStats(slotId: number, success: boolean): Promise<void> 
   }
 }
 
+// ============ Patchright 엔진 실행 ============
+interface EngineResult {
+  productPageEntered: boolean;
+  captchaDetected: boolean;
+  error?: string;
+}
+
+async function runPatchrightEngine(page: Page, mid: string, productName: string, workerId: number): Promise<EngineResult> {
+  const result: EngineResult = {
+    productPageEntered: false,
+    captchaDetected: false
+  };
+
+  try {
+    // 1. 네이버 메인
+    log(`[Worker ${workerId}] 네이버 접속...`);
+    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded" });
+    await sleep(randomBetween(1500, 2500));
+
+    // 2. 검색어 입력 (상품명 셔플)
+    const searchQuery = shuffleWords(productName).substring(0, 50);
+    log(`[Worker ${workerId}] 검색: ${searchQuery.substring(0, 30)}...`);
+    await humanizedType(page, 'input[name="query"]', searchQuery);
+    await sleep(randomBetween(300, 900));
+
+    // 3. 엔터로 검색
+    await page.keyboard.press('Enter');
+    await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
+    await sleep(randomBetween(2500, 3500));
+
+    // 4. CAPTCHA 체크
+    const searchCaptcha = await page.evaluate(() => {
+      const bodyText = document.body.innerText || '';
+      return bodyText.includes('보안 확인') || bodyText.includes('자동입력방지');
+    });
+
+    if (searchCaptcha) {
+      log(`[Worker ${workerId}] 검색 CAPTCHA 감지!`, "warn");
+      result.captchaDetected = true;
+      return result;
+    }
+
+    // 5. 스크롤
+    await humanScroll(page, 1200);
+    await sleep(randomBetween(400, 700));
+
+    // 6. 상품 링크 찾기 (MID 매칭 우선)
+    const linkInfo = await page.evaluate((targetMid: string) => {
+      const links = Array.from(document.querySelectorAll('a'));
+
+      // 1차: MID 포함된 링크
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        const href = link.href || '';
+        if (href.includes(`nv_mid=${targetMid}`) || href.includes(`/${targetMid}`)) {
+          const rect = link.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2, method: 'MID-MATCH' };
+          }
+        }
+      }
+
+      // 2차: smartstore 직접 링크
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        const href = link.href || '';
+        if (href.includes('/bridge') || href.includes('cr.shopping')) continue;
+        if ((href.includes('smartstore.naver.com') || href.includes('brand.naver.com')) &&
+            href.includes('/products/')) {
+          const rect = link.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            return { found: true, index: i, href, x: rect.x + rect.width/2, y: rect.y + rect.height/2, method: 'ANY-SMARTSTORE' };
+          }
+        }
+      }
+
+      return { found: false };
+    }, mid);
+
+    if (!linkInfo.found) {
+      log(`[Worker ${workerId}] 상품 링크 없음`, "warn");
+      result.error = 'NoLink';
+      return result;
+    }
+
+    log(`[Worker ${workerId}] 링크 발견: ${linkInfo.method}`);
+
+    // 7. 베지어 마우스로 hover + 클릭
+    const startX = randomBetween(300, 700);
+    const startY = randomBetween(100, 300);
+    await bezierMouseMove(page, startX, startY, linkInfo.x!, linkInfo.y!);
+    await sleep(randomBetween(200, 400));
+
+    // 새 탭 대기 + 클릭
+    const context = page.context();
+    const [newPage] = await Promise.all([
+      context.waitForEvent('page', { timeout: 15000 }).catch(() => null),
+      page.locator(`a[href*="nv_mid=${mid}"]`).first().click().catch(() =>
+        page.mouse.click(linkInfo.x!, linkInfo.y!)
+      )
+    ]);
+
+    const targetPage = newPage || page;
+    if (newPage) {
+      await newPage.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
+    } else {
+      await page.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
+    }
+    await sleep(3000);
+
+    // 8. Bridge URL 대기
+    let finalUrl = targetPage.url();
+    if (finalUrl.includes('/bridge') || finalUrl.includes('cr.shopping')) {
+      for (let i = 0; i < 10; i++) {
+        await sleep(1000);
+        finalUrl = targetPage.url();
+        if (!finalUrl.includes('/bridge') && !finalUrl.includes('cr.shopping')) break;
+      }
+    }
+
+    // 9. 페이지 검증
+    const pageCheck = await targetPage.evaluate(() => {
+      const bodyText = document.body.innerText || '';
+      const hasCaptcha = bodyText.includes('보안 확인') ||
+                        bodyText.includes('영수증 번호') ||
+                        bodyText.includes('자동입력방지') ||
+                        !!document.querySelector('#rcpt_form');
+      const isDeleted = bodyText.includes('상품이 존재하지 않습니다') ||
+                        bodyText.includes('상품이 삭제되었거나') ||
+                        bodyText.includes('페이지를 찾을 수 없습니다');
+      const isProductPage = (bodyText.includes('구매하기') || bodyText.includes('장바구니')) &&
+                           !hasCaptcha && !isDeleted;
+      return { hasCaptcha, isDeleted, isProductPage };
+    });
+
+    if (pageCheck.hasCaptcha) {
+      log(`[Worker ${workerId}] 상품페이지 CAPTCHA`, "warn");
+      result.captchaDetected = true;
+      return result;
+    }
+
+    if (pageCheck.isDeleted) {
+      result.error = 'Deleted';
+      return result;
+    }
+
+    if (pageCheck.isProductPage) {
+      result.productPageEntered = true;
+      // 체류 시간
+      const dwellTime = randomBetween(2000, 4000);
+      log(`[Worker ${workerId}] 상품페이지 진입 성공! 체류: ${Math.round(dwellTime/1000)}초`);
+      await sleep(dwellTime);
+    } else {
+      result.error = 'NotProductPage';
+    }
+
+    return result;
+
+  } catch (e: any) {
+    result.error = e.message;
+    return result;
+  }
+}
+
 // ============ 단일 워커 실행 (브라우저 생성 → 작업 실행 → 종료) ============
 async function runSingleWorker(workerId: number, profile: Profile): Promise<WorkerResult> {
   let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
   let page: Page | null = null;
 
   const result: WorkerResult = {
@@ -323,36 +583,25 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     result.productName = work.productName.substring(0, 30);
     log(`[Worker ${workerId}] 작업: ${result.productName}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
-    // 2. 브라우저 시작 (12/5 버전 - 단순 옵션)
-    const response = await connect({
+    // 2. Patchright 브라우저 시작
+    browser = await chromium.launch({
       headless: false,
-      turnstile: true,
+      channel: 'chrome',  // 시스템 Chrome 사용
     });
 
-    browser = response.browser as Browser;
-    page = response.page as Page;
+    context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    });
+
+    page = await context.newPage();
     page.setDefaultTimeout(30000);
     page.setDefaultNavigationTimeout(30000);
 
-    // 3. Context 생성
-    const ctx: RunContext = {
-      log: (event: string) => log(`[Worker ${workerId}] ${event}`),
-      profile,
-      login: false
-    };
+    // 3. Patchright 엔진 실행
+    const engineResult = await runPatchrightEngine(page, work.mid, work.productName, workerId);
 
-    // 4. Product 객체
-    const product = {
-      id: work.slotId,
-      keyword: work.keyword,
-      product_name: work.productName,
-      mid: work.mid
-    };
-
-    // 5. V7 엔진 실행
-    const engineResult = await runV7Engine(page, browser, product, ctx);
-
-    // 6. 결과 처리
+    // 4. 결과 처리
     if (engineResult.productPageEntered) {
       result.success = true;
       totalSuccess++;
@@ -490,7 +739,7 @@ function printStats(): void {
 // ============ 메인 ============
 async function main() {
   console.log(`\n${"=".repeat(60)}`);
-  console.log(`  Unified Runner (PRB + IP Rotation + Batch)`);
+  console.log(`  Unified Runner (Patchright + IP Rotation + Batch)`);
   console.log(`${"=".repeat(60)}`);
   console.log(`  동시 브라우저: ${PARALLEL_BROWSERS}개`);
   console.log(`  IP 로테이션: ${IP_ROTATION_ENABLED ? '활성화' : '비활성화'}`);

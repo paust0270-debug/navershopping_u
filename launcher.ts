@@ -32,6 +32,42 @@ function log(msg: string) {
 }
 
 /**
+ * Patchright 설치 체크 및 자동 설치
+ */
+function installPatchright(): boolean {
+  try {
+    const patchrightPath = path.join(WORK_DIR, 'node_modules', 'patchright');
+
+    if (fs.existsSync(patchrightPath)) {
+      log('Patchright 이미 설치됨');
+      return true;
+    }
+
+    log('Patchright 설치 중...');
+    execSync('npm install patchright', {
+      cwd: WORK_DIR,
+      encoding: 'utf-8',
+      timeout: 120000,
+      stdio: 'inherit'
+    });
+
+    log('Patchright 브라우저 설치 중...');
+    execSync('npx patchright install chromium', {
+      cwd: WORK_DIR,
+      encoding: 'utf-8',
+      timeout: 300000,
+      stdio: 'inherit'
+    });
+
+    log('Patchright 설치 완료');
+    return true;
+  } catch (e: any) {
+    log('Patchright 설치 실패: ' + e.message);
+    return false;
+  }
+}
+
+/**
  * git pull 실행
  */
 function gitPull(): boolean {
@@ -107,6 +143,9 @@ async function main() {
 
   // 시작 시 git pull
   gitPull();
+
+  // Patchright 설치 체크
+  installPatchright();
 
   // 주기적 git pull (백그라운드)
   setInterval(() => {
