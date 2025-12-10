@@ -24,10 +24,8 @@ try {
   require('dotenv').config();
 } catch (e) {}
 
-// exe 위치 또는 고정 경로 사용 (process.cwd()는 실행 위치라 문제됨)
-const WORK_DIR = process.pkg
-  ? path.dirname(process.execPath)  // pkg로 빌드된 exe인 경우 exe 위치
-  : process.cwd();                   // 개발 모드 (tsx)
+// 엔진 폴더 고정 경로 (exe는 D:\에, 엔진은 D:\turafic에 있음)
+const WORK_DIR = 'D:\\turafic';
 const RUNNER_FILE = 'unified-runner.ts';
 const GIT_PULL_INTERVAL = 3 * 60 * 1000; // 3분마다 git pull
 const RESTART_DELAY = 5000; // 에러 시 5초 후 재시작
