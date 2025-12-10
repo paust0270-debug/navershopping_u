@@ -533,16 +533,24 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     // 9. 페이지 검증
     const pageCheck = await targetPage.evaluate(() => {
       const bodyText = document.body.innerText || '';
+      const url = window.location.href;
+
       const hasCaptcha = bodyText.includes('보안 확인') ||
                         bodyText.includes('영수증 번호') ||
                         bodyText.includes('자동입력방지') ||
                         !!document.querySelector('#rcpt_form');
+
+      // 상품 삭제 체크 (스마트스토어 전용 메시지)
       const isDeleted = bodyText.includes('상품이 존재하지 않습니다') ||
-                        bodyText.includes('상품이 삭제되었거나') ||
-                        bodyText.includes('페이지를 찾을 수 없습니다');
-      const isProductPage = (bodyText.includes('구매하기') || bodyText.includes('장바구니')) &&
-                           !hasCaptcha && !isDeleted;
-      return { hasCaptcha, isDeleted, isProductPage };
+                        bodyText.includes('판매가 중단된 상품') ||
+                        bodyText.includes('삭제된 상품입니다');
+
+      // 상품 페이지 판단 (URL + 버튼 존재)
+      const isSmartStore = url.includes('smartstore.naver.com') || url.includes('brand.naver.com');
+      const hasProductButtons = bodyText.includes('구매하기') || bodyText.includes('장바구니');
+      const isProductPage = isSmartStore && hasProductButtons && !hasCaptcha && !isDeleted;
+
+      return { hasCaptcha, isDeleted, isProductPage, url };
     });
 
     if (pageCheck.hasCaptcha) {
@@ -552,19 +560,22 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
 
     if (pageCheck.isDeleted) {
+      log(`[Worker ${workerId}] 상품삭제 URL: ${pageCheck.url}`, "warn");
       result.error = 'Deleted';
       return result;
     }
 
-    if (pageCheck.isProductPage) {
-      result.productPageEntered = true;
-      // 체류 시간 (3초 이내 랜덤)
-      const dwellTime = randomBetween(1000, 3000);
-      log(`[Worker ${workerId}] 상품페이지 진입 성공! 체류: ${(dwellTime/1000).toFixed(1)}초`);
-      await sleep(dwellTime);
-    } else {
+    if (!pageCheck.isProductPage) {
+      log(`[Worker ${workerId}] 상품페이지 아님 URL: ${pageCheck.url}`, "warn");
       result.error = 'NotProductPage';
+      return result;
     }
+
+    // 성공!
+    result.productPageEntered = true;
+    const dwellTime = randomBetween(1000, 3000);
+    log(`[Worker ${workerId}] 상품페이지 진입 성공! 체류: ${(dwellTime/1000).toFixed(1)}초`);
+    await sleep(dwellTime);
 
     return result;
 
@@ -656,6 +667,9 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
       } else if (engineResult.error === 'Deleted') {
         result.error = 'Deleted';
         log(`[Worker ${workerId}] ❌ 실패(상품삭제) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.error === 'NotProductPage') {
+        result.error = 'NotProductPage';
+        log(`[Worker ${workerId}] ❌ 실패(페이지오류) | ${productShort}... | mid=${work.mid}`, "warn");
       } else {
         result.error = engineResult.error || 'Unknown';
         log(`[Worker ${workerId}] ❌ 실패(${result.error}) | ${productShort}... | mid=${work.mid}`, "warn");
@@ -666,8 +680,9 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     result.error = e.message;
     log(`[Worker ${workerId}] ERROR: ${e.message}`, "error");
   } finally {
-    // 브라우저 종료
+    // 브라우저 종료 (1초 이내 랜덤 지연)
     if (browser) {
+      await sleep(randomBetween(100, 1000));
       await browser.close().catch(() => {});
     }
   }
