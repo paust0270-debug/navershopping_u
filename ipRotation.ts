@@ -21,6 +21,11 @@ const ADAPTER_OFF_DELAY = 3000;    // 어댑터 끄고 3초 대기
 const ADAPTER_ON_DELAY = 5000;     // 어댑터 켜고 5초 대기
 const IP_CHECK_RETRY = 3;
 const IP_CHECK_RETRY_DELAY = 2000;
+const RECOVERY_DAEMON_INTERVAL = 5000;  // 복구 데몬 주기 (5초)
+
+// ============ 복구 데몬 상태 ============
+let recoveryDaemonRunning = false;
+let recoveryDaemonInterval: NodeJS.Timeout | null = null;
 
 // ============ 타입 정의 ============
 export interface IPRotationResult {
@@ -70,6 +75,56 @@ export async function getCurrentIP(): Promise<string> {
       throw new Error("IP 확인 실패: 네트워크 연결 확인 필요");
     }
   }
+}
+
+// ============ 복구 데몬 ============
+
+/**
+ * ADB 복구 데몬 시작
+ * - 5초마다 모바일 데이터 활성화 명령 실행
+ * - 데이터가 꺼져있으면 켜지고, 이미 켜져있으면 무시됨
+ * - 프로그램 시작 시 한 번만 호출
+ */
+export function startRecoveryDaemon(): void {
+  if (recoveryDaemonRunning) {
+    log("[RecoveryDaemon] 이미 실행 중");
+    return;
+  }
+
+  recoveryDaemonRunning = true;
+  log("[RecoveryDaemon] 시작 - 5초마다 모바일 데이터 자동 복구");
+
+  recoveryDaemonInterval = setInterval(async () => {
+    try {
+      await execAsync("adb shell svc data enable", {
+        encoding: "utf8",
+        timeout: 5000,
+        windowsHide: true,
+      });
+      // 성공해도 로그 안 찍음 (너무 자주 찍히니까)
+    } catch {
+      // 실패해도 무시 (ADB 연결 안됐을 때 등)
+    }
+  }, RECOVERY_DAEMON_INTERVAL);
+}
+
+/**
+ * 복구 데몬 중지
+ */
+export function stopRecoveryDaemon(): void {
+  if (recoveryDaemonInterval) {
+    clearInterval(recoveryDaemonInterval);
+    recoveryDaemonInterval = null;
+    recoveryDaemonRunning = false;
+    log("[RecoveryDaemon] 중지됨");
+  }
+}
+
+/**
+ * 복구 데몬 실행 여부 확인
+ */
+export function isRecoveryDaemonRunning(): boolean {
+  return recoveryDaemonRunning;
 }
 
 // ============ ADB 관련 ============
@@ -143,6 +198,8 @@ async function setMobileData(enable: boolean): Promise<boolean> {
 
 /**
  * ADB를 통한 IP 로테이션 (모바일 데이터 on/off)
+ * - 복구 데몬 실행 중: OFF만 보내고 대기 (데몬이 자동으로 ON)
+ * - 복구 데몬 미실행: 기존 방식 (OFF -> ON 직접 실행)
  */
 async function rotateIPWithAdb(oldIP: string): Promise<IPRotationResult> {
   log("Method: ADB (Mobile Data)");
@@ -163,15 +220,22 @@ async function rotateIPWithAdb(oldIP: string): Promise<IPRotationResult> {
   await sleep(ADB_DATA_OFF_DELAY);
 
   // 2. 모바일 데이터 켜기
-  log("Mobile Data ON...");
-  if (!(await setMobileData(true))) {
-    return {
-      success: false,
-      oldIP,
-      newIP: "",
-      method: "adb",
-      error: "ADB control failed",
-    };
+  if (recoveryDaemonRunning) {
+    // 복구 데몬이 실행 중이면 자동으로 켜질 때까지 대기
+    log("[RecoveryDaemon] 자동 복구 대기 중...");
+    await sleep(RECOVERY_DAEMON_INTERVAL + 1000);  // 데몬 주기 + 여유시간
+  } else {
+    // 복구 데몬 없으면 직접 켜기
+    log("Mobile Data ON...");
+    if (!(await setMobileData(true))) {
+      return {
+        success: false,
+        oldIP,
+        newIP: "",
+        method: "adb",
+        error: "ADB control failed",
+      };
+    }
   }
 
   log(`Waiting for network (${ADB_DATA_ON_DELAY / 1000}s)...`);

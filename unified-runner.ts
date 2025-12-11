@@ -41,7 +41,7 @@ for (const envPath of envPaths) {
 
 import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
 import { createClient } from "@supabase/supabase-js";
-import { rotateIP, getCurrentIP, getTetheringAdapter } from "./ipRotation";
+import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -866,7 +866,7 @@ async function main() {
   const profile = loadProfile("pc_v7");
   log(`[Profile] ${profile.name}`);
 
-  // 테더링 어댑터 감지
+  // 테더링 어댑터 감지 및 복구 데몬 시작
   if (IP_ROTATION_ENABLED) {
     log("\n테더링 어댑터 감지 중...");
     tetheringAdapter = await getTetheringAdapter();
@@ -875,6 +875,9 @@ async function main() {
     } else {
       log("테더링 어댑터 없음 - IP 로테이션 비활성화", "warn");
     }
+
+    // ADB 복구 데몬 시작 (5초마다 자동으로 모바일 데이터 켜기)
+    startRecoveryDaemon();
   }
 
   // 현재 IP 확인
