@@ -19,3 +19,17 @@ export { MassReplayEngine, type MassReplayConfig, type ReplayTask, type ReplayRe
 export { IdentityGenerator, type UserIdentity } from "./IdentityGenerator";
 export { ProxyPool, loadProxiesFromEnv, type ProxyInfo, type ProxyPoolConfig } from "./ProxyPool";
 export { RequestBuilder } from "./RequestBuilder";
+export {
+  ProfileManager,
+  type ProfileConfig,
+  type ProfileDevice,
+  type ProfileInstance,
+  type ProfileStats,
+} from "./ProfileManager";
+export {
+  BatchScheduler,
+  type BatchConfig,
+  type SubBatch,
+  type BatchResult,
+  type ScheduleSummary,
+} from "./BatchScheduler";
