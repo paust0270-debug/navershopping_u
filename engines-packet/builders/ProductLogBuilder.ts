@@ -101,7 +101,7 @@ export class ProductLogBuilder {
   }
 
   /**
-   * 패킷 빌드 (동일 body, 약간의 타이밍 변화)
+   * 패킷 빌드 (동적 값 재생성 + 노이즈)
    */
   build(): BuiltProductLogPacket | null {
     if (!this.template) {
@@ -109,26 +109,66 @@ export class ProductLogBuilder {
       return null;
     }
 
-    // x-client-version 업데이트 (현재 날짜 기반)
     const headers = { ...this.template.headers };
     const now = new Date();
-    const version = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, "0") +
-      String(now.getDate()).padStart(2, "0") +
-      String(now.getHours()).padStart(2, "0") +
-      String(now.getMinutes()).padStart(2, "0") +
-      String(now.getSeconds()).padStart(2, "0");
+
+    // 1. x-client-version 업데이트 (현재 시간 + 랜덤 초)
+    const jitterSec = Math.floor(Math.random() * 60);
+    const versionDate = new Date(now.getTime() - jitterSec * 1000);
+    const version = versionDate.getFullYear().toString() +
+      String(versionDate.getMonth() + 1).padStart(2, "0") +
+      String(versionDate.getDate()).padStart(2, "0") +
+      String(versionDate.getHours()).padStart(2, "0") +
+      String(versionDate.getMinutes()).padStart(2, "0") +
+      String(versionDate.getSeconds()).padStart(2, "0");
     headers["x-client-version"] = version;
 
-    // 쿠키에서 민감한 세션 정보 유지
-    // (실제 브라우저 세션의 쿠키 사용)
+    // 2. page_uid는 브라우저 원본 유지 (서버에서 검증할 수 있음)
+    // 랜덤 생성하면 서버가 "이 page_uid 없음" 하고 무시할 수 있음
+    // headers["cookie"]는 그대로 유지
+
+    // 3. referer에 노이즈 추가 (ackey 파라미터 랜덤화)
+    const body = { ...this.template.body };
+    if (body.referer && body.referer.includes("ackey=")) {
+      body.referer = body.referer.replace(
+        /ackey=[^&]+/,
+        `ackey=${this.generateRandomKey(8)}`
+      );
+    }
 
     return {
       url: this.template.url,
       method: this.template.method,
       headers,
-      body: JSON.stringify(this.template.body),
+      body: JSON.stringify(body),
     };
+  }
+
+  /**
+   * page_uid 생성 (네이버 형식)
+   * 형식: {timestamp}_{random8chars} 또는 랜덤 문자열
+   */
+  private generatePageUid(): string {
+    const timestamp = Date.now();
+    const random = this.generateRandomKey(10);
+    // 네이버 page_uid 형식 중 하나 선택
+    const formats = [
+      `${timestamp}_${random}`,  // 1765386988440_q2xgs47qj
+      `${this.generateRandomKey(24)}`,  // jgEq8dqVW9hssk8PUZh-029662
+    ];
+    return formats[Math.floor(Math.random() * formats.length)];
+  }
+
+  /**
+   * 랜덤 키 생성
+   */
+  private generateRandomKey(length: number): string {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < length; i++) {
+      result += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return result;
   }
 
   /**

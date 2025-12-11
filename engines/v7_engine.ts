@@ -12,6 +12,12 @@
 import type { Page, Browser } from "puppeteer-core";
 import type { RunContext, EngineResult, Product } from "../runner/types";
 import { ReceiptCaptchaSolverPRB } from "../captcha/ReceiptCaptchaSolverPRB";
+import { NetworkCapture } from "../utils/networkCapture";
+
+// 네트워크 캡처 활성화 여부 (런타임에 체크)
+function isNetworkCaptureEnabled(): boolean {
+  return process.env.NETWORK_CAPTURE === 'true';
+}
 
 // ============ 유틸리티 함수 ============
 
@@ -303,7 +309,8 @@ export async function runV7Engine(
   page: Page,
   browser: Browser,
   product: Product,
-  ctx: RunContext
+  ctx: RunContext,
+  workerId?: number  // 워커 ID (네트워크 캡처용)
 ): Promise<EngineResult> {
   const result: EngineResult = {
     success: false,
@@ -315,6 +322,14 @@ export async function runV7Engine(
   };
 
   const startTime = Date.now();
+
+  // 네트워크 캡처 초기화 (런타임에 환경변수 체크)
+  let networkCapture: NetworkCapture | null = null;
+  if (isNetworkCaptureEnabled()) {
+    networkCapture = new NetworkCapture(page, (msg) => ctx.log(msg));
+    networkCapture.start();
+    ctx.log("network:capture_started", { env: process.env.NETWORK_CAPTURE });
+  }
 
   try {
     // 1. 네이버 메인
@@ -674,6 +689,32 @@ export async function runV7Engine(
     ctx.log("engine:exception", { error: e.message });
   } finally {
     result.duration = Date.now() - startTime;
+
+    // 네트워크 캡처 저장
+    if (networkCapture) {
+      networkCapture.stop();
+
+      // 시나리오 판단: captcha / success / unknown
+      let scenario: 'captcha' | 'success' | 'unknown' = 'unknown';
+      if (result.captchaDetected) {
+        scenario = 'captcha';
+      } else if (result.productPageEntered) {
+        scenario = 'success';
+      }
+
+      // 파일로 저장
+      try {
+        const filepath = networkCapture.saveToFile(scenario, workerId);
+        ctx.log("network:capture_saved", { scenario, filepath });
+
+        // CAPTCHA와 SUCCESS만 요약 출력
+        if (scenario !== 'unknown') {
+          networkCapture.printSummary();
+        }
+      } catch (saveError: any) {
+        ctx.log("network:capture_save_error", { error: saveError.message });
+      }
+    }
   }
 
   return result;
