@@ -24,7 +24,6 @@ import {
 } from "../engines-packet/mass-replay";
 import { MultiSendEngine } from "../engines-packet/replay/MultiSendEngine";
 import { BehaviorLogBuilder } from "../engines-packet/builders/BehaviorLogBuilder";
-import { ProductLogBuilder } from "../engines-packet/builders/ProductLogBuilder";
 import { BehaviorLogCaptor } from "../engines-packet/capture/BehaviorLogCaptor";
 import type { Page } from "patchright";
 
@@ -374,19 +373,42 @@ class MassRotationRunner {
     try {
       // 1. 네이버 메인 접속
       this.logger.log("Navigating to Naver...");
-      await page.goto("https://www.naver.com", {
+      const naverResponse = await page.goto("https://www.naver.com", {
         waitUntil: "domcontentloaded",
         timeout: 30000,
       });
+
+      // 응답 상태 확인
+      if (naverResponse) {
+        const status = naverResponse.status();
+        if (status === 418 || status === 429 || status >= 400) {
+          this.logger.error(`Naver blocked with status ${status}`);
+          this.profileManager.blacklistProfile(profile.id);
+          this.stats.blockedProfiles++;
+          throw new Error(`Blocked: HTTP ${status}`);
+        }
+      }
       await page.waitForTimeout(this.randomBetween(1500, 2500));
 
-      // 2. 검색
+      // 2. 통합검색에서 검색
       this.logger.log(`Searching: ${this.config.product.keyword}`);
       await this.typeSearch(page, this.config.product.keyword);
       await page.keyboard.press("Enter");
-      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 });
 
-      // 차단 확인
+      // 검색 결과 응답 확인
+      const searchResponse = await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 });
+      if (searchResponse) {
+        const status = searchResponse.status();
+        if (status === 418 || status === 429 || status >= 400) {
+          this.logger.error(`Search blocked with status ${status}`);
+          this.profileManager.blacklistProfile(profile.id);
+          this.stats.blockedProfiles++;
+          throw new Error(`Search blocked: HTTP ${status}`);
+        }
+      }
+      await page.waitForTimeout(this.randomBetween(1000, 2000));
+
+      // 차단 확인 (페이지 내용 기반)
       if (await detectBlock(page)) {
         this.logger.warn(`Profile ${profile.id} blocked on search`);
         this.profileManager.blacklistProfile(profile.id);
@@ -394,114 +416,202 @@ class MassRotationRunner {
         throw new Error("Blocked on search page");
       }
 
-      // 3. 쇼핑 탭 클릭
+      // 3. 스크롤 (상품이 보이도록)
+      await this.humanScroll(page, 500);
       await page.waitForTimeout(this.randomBetween(500, 1000));
-      const shoppingTab = await page.$('a[href*="shopping"]');
-      if (shoppingTab) {
-        await shoppingTab.click();
-        await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 });
-      }
 
-      // 4. 스크롤하면서 상품 찾기
+      // 4. 스크롤하면서 상품 찾기 (통합검색 결과에서)
       this.logger.log(`Finding product: MID ${this.config.product.mid}`);
-      const productFound = await this.findAndClickProduct(page, this.config.product.mid);
+      const targetPage = await this.findAndClickProduct(page, this.config.product.mid);
 
-      if (!productFound) {
+      if (!targetPage) {
         throw new Error(`Product MID ${this.config.product.mid} not found`);
       }
 
+      const isNewTab = targetPage !== page;
+      this.logger.log(`Using ${isNewTab ? "new tab" : "same page"} for capture`);
+
       // 5. 상품 페이지 로드 대기
-      await page.waitForTimeout(this.randomBetween(2000, 3000));
+      await targetPage.waitForTimeout(this.randomBetween(2000, 3000));
 
       // 차단 확인
-      if (await detectBlock(page)) {
+      if (await detectBlock(targetPage)) {
         this.logger.warn(`Profile ${profile.id} blocked on product page`);
         this.profileManager.blacklistProfile(profile.id);
         this.stats.blockedProfiles++;
         throw new Error("Blocked on product page");
       }
 
-      // 6. 행동 로그 캡처
+      // 6. 행동 로그 캡처 (픽셀 비콘)
       this.logger.log("Capturing behavior logs...");
       const captor = new BehaviorLogCaptor((msg) => this.logger.log(msg));
-      captor.attach(page);
+      captor.attach(targetPage);
 
-      // 약간의 스크롤 및 대기 (로그 발생 유도)
-      await this.humanScroll(page, 500);
-      await page.waitForTimeout(this.randomBetween(1000, 2000));
-      await this.humanScroll(page, 300);
-      await page.waitForTimeout(this.randomBetween(1000, 2000));
+      // 페이지 새로고침하여 nlog 요청 재발생 (캐시 문제 해결)
+      this.logger.log("Reloading page to capture fresh logs...");
+      const reloadResponse = await targetPage.reload({ waitUntil: "domcontentloaded", timeout: 30000 });
+
+      // 리로드 응답 상태 확인
+      if (reloadResponse) {
+        const status = reloadResponse.status();
+        this.logger.log(`Product page status: ${status}`);
+        if (status === 418 || status === 429) {
+          this.logger.error(`Product page blocked with status ${status}`);
+          this.profileManager.blacklistProfile(profile.id);
+          this.stats.blockedProfiles++;
+          throw new Error(`Product page blocked: HTTP ${status}`);
+        }
+      }
+      await targetPage.waitForTimeout(this.randomBetween(2000, 3000));
+
+      // 스크롤해서 로그 트리거
+      await this.humanScroll(targetPage, 500);
+      await targetPage.waitForTimeout(this.randomBetween(1000, 1500));
+      await this.humanScroll(targetPage, 400);
+      await targetPage.waitForTimeout(this.randomBetween(1000, 1500));
 
       // 캡처된 로그 확인
       const capturedLogs = captor.getCapturedLogs();
       this.logger.log(`Captured ${capturedLogs.length} logs`);
 
-      // product-logs 찾기
-      const productLog = capturedLogs.find((l) => l.url.includes("product-logs"));
-
-      if (!productLog) {
-        this.logger.warn("No product-logs captured - using direct page fetch");
-        // 직접 페이지에서 fetch 시도
-      }
-
-      // 7. Builder 설정
-      const productLogBuilder = new ProductLogBuilder((msg) => this.logger.log(msg));
-      if (productLog) {
-        productLogBuilder.setTemplateFromCapture(productLog);
-      }
-
-      const behaviorLogBuilder = new BehaviorLogBuilder((msg) => this.logger.log(msg));
-      const templates = captor.getAllTemplates();
-      for (const [type, template] of templates) {
-        behaviorLogBuilder.setTemplate(type, template);
-      }
-
-      // 8. 다중 전송
-      this.logger.log(`Sending ${batch.count} requests...`);
-      const multiSend = new MultiSendEngine(behaviorLogBuilder, (msg) => this.logger.log(msg));
-      multiSend.setPage(page);
-
-      if (productLogBuilder.hasTemplate()) {
-        const result = await multiSend.sendProductLogs(productLogBuilder, batch.count, {
-          minDelay: this.config.request.minDelay,
-          maxDelay: this.config.request.maxDelay,
-          jitterPercent: this.config.request.jitterPercent,
-          failFast: false,
+      // 캡처된 URL 디버깅
+      if (capturedLogs.length > 0) {
+        this.logger.log("Captured URLs:");
+        capturedLogs.forEach((l, i) => {
+          this.logger.log(`  [${i}] ${l.type}: ${l.url.substring(0, 70)}...`);
         });
+      }
 
-        success = result.success;
-        failed = result.failed;
-        errors.push(...result.errors.slice(0, 5));  // 처음 5개 에러만
+      // ============================================================
+      // 7. 네이버 조회수 시퀀스 (정확한 순서 필수!)
+      // ============================================================
+      // ① 페이지 로드 완료 후 200~600ms 대기
+      // ② product-logs POST (초기: dwell=0, scroll=0)
+      // ③ nlog GET pixel beacon
+      // ④ commerce GET pixel beacon
+      // ⑤ 행동 시뮬레이션 (3~5초 dwell, scroll 20~70%)
+      // ⑥ product-logs POST (행동 후: dwell≥3000, scroll≥20)
+      // ⑦ 추가 nlog GET pixel beacon
+      // ============================================================
 
-        this.logger.log(`Product logs: ${success}/${result.total} success`);
-      } else {
-        // product-logs 없으면 행동 로그만 전송
-        this.logger.warn("No product-logs template, sending behavior logs only");
+      // product-logs 찾기 (smartstore product-logs API)
+      const productLog = capturedLogs.find((l) =>
+        l.url.includes("product-logs") && l.url.includes("smartstore.naver.com")
+      );
 
-        const availableTypes = behaviorLogBuilder.getAvailableTypes();
-        this.logger.log(`Available behavior types: ${availableTypes.join(", ")}`);
+      // nlog.naver.com 픽셀 비콘 필터링
+      const nlogLogs = capturedLogs.filter(l =>
+        l.url.includes("nlog.naver.com") && !l.url.includes("product-logs")
+      );
 
-        for (const type of availableTypes) {
-          const typeCount = Math.ceil(batch.count / availableTypes.length);
-          const result = await multiSend.sendBehaviorLog(
-            type,
-            typeCount,
-            { nvMid: this.config.product.mid, page_uid: `test_${Date.now()}`, timestamp: Date.now() },
-            {
-              minDelay: this.config.request.minDelay,
-              maxDelay: this.config.request.maxDelay,
-              jitterPercent: this.config.request.jitterPercent,
-            }
-          );
-          success += result.success;
-          failed += result.failed;
+      // nlog.commerce 픽셀 비콘 필터링
+      const commerceLogs = capturedLogs.filter(l =>
+        l.url.includes("nlog.commerce.naver.com")
+      );
+
+      this.logger.log(`Found: product-logs=${productLog ? "✓" : "✗"}, nlog=${nlogLogs.length}, commerce=${commerceLogs.length}`);
+
+      // MultiSendEngine 생성 (픽셀 전송용)
+      const nlogBuilder = new BehaviorLogBuilder((msg) => this.logger.log(msg));
+      const multiSend = new MultiSendEngine(nlogBuilder, (msg) => this.logger.log(msg));
+      multiSend.setPage(targetPage);
+
+      // ============================================================
+      // 시퀀스 반복 (batch.count 만큼)
+      // ============================================================
+      //
+      // 서버 관점에서 자연스러운 패턴:
+      // [1회만] product-log(dwell=0) → 페이지 최초 로드
+      // [반복]  행동 → product-log(dwell>0) → nlog → commerce
+      //
+      // ✔ 초기 product-log = 1회만
+      // ✔ 행동 후 product-log = 반복 OK
+      // ✖ 초기 product-logs 반복 = 봇 탐지됨
+      // ============================================================
+
+      const totalIterations = batch.count;
+      this.logger.log(`Starting ${totalIterations} sequence iterations...`);
+
+      // ★ 초기 product-logs POST는 딱 1회만! (페이지 로드 시점)
+      const initialDelay = this.randomBetween(200, 600);
+      this.logger.log(`Initial delay: ${initialDelay}ms`);
+      await targetPage.waitForTimeout(initialDelay);
+
+      if (productLog) {
+        this.logger.log(`Sending product-logs POST (initial - ONCE)...`);
+        const initialResult = await multiSend.sendProductLogPost(
+          { url: productLog.url, headers: productLog.headers, body: productLog.body },
+          { dwellTime: 0, scrollDepth: 0 }
+        );
+        if (initialResult.success) {
+          success++;
         }
       }
 
-      // 9. 체류 시간
-      const dwellTime = this.randomBetween(3000, 8000);
-      this.logger.log(`Dwell time: ${(dwellTime / 1000).toFixed(1)}s`);
-      await page.waitForTimeout(dwellTime);
+      // 누적 체류 시간 (사람처럼 점점 증가)
+      let cumulativeDwell = 0;
+
+      for (let iter = 0; iter < totalIterations; iter++) {
+        // 진행률 로그 (10회마다 또는 처음/마지막)
+        if (iter === 0 || iter === totalIterations - 1 || (iter + 1) % 10 === 0) {
+          this.logger.log(`[${iter + 1}/${totalIterations}] Sending behavior sequence...`);
+        }
+
+        // ① 행동 시뮬레이션 (500~1500ms dwell, scroll 20~70%)
+        const dwellTime = this.randomBetween(500, 1500);
+        const scrollDepth = this.randomBetween(20, 70);
+        cumulativeDwell += dwellTime;
+
+        // 스크롤 시뮬레이션 (5회마다)
+        if (iter % 5 === 0) {
+          await this.humanScroll(targetPage, this.randomBetween(100, 300));
+        }
+        await targetPage.waitForTimeout(dwellTime);
+
+        // ② product-logs POST (행동 후: dwell > 0, scroll > 0)
+        if (productLog) {
+          const behaviorResult = await multiSend.sendProductLogPost(
+            { url: productLog.url, headers: productLog.headers, body: productLog.body },
+            { dwellTime: cumulativeDwell, scrollDepth: scrollDepth }
+          );
+          if (behaviorResult.success) {
+            success++;
+          }
+        }
+
+        // ③ nlog GET pixel beacon
+        for (const nlog of nlogLogs.slice(0, 2)) {
+          const result = await multiSend.sendSinglePixelBeacon(nlog.url);
+          if (result.success) success++;
+        }
+
+        // ④ commerce GET pixel beacon
+        for (const commerce of commerceLogs.slice(0, 1)) {
+          const result = await multiSend.sendSinglePixelBeacon(commerce.url);
+          if (result.success) success++;
+        }
+
+        // iteration 간 쿨다운 (100~300ms)
+        if (iter < totalIterations - 1) {
+          await targetPage.waitForTimeout(this.randomBetween(100, 300));
+        }
+      }
+
+      // 성공/실패 계산
+      // 초기 1회 + (행동후 product-log + nlog×2 + commerce×1) × iterations
+      const stepsPerIter = (productLog ? 1 : 0) + Math.min(nlogLogs.length, 2) + Math.min(commerceLogs.length, 1);
+      const totalExpected = (productLog ? 1 : 0) + stepsPerIter * totalIterations;
+      failed = totalExpected - success;
+      this.logger.log(`All sequences complete: ${success}/${totalExpected} success (${totalIterations} iterations)`);
+
+      // 추가 체류 시간 (자연스러움)
+      const extraDwell = this.randomBetween(1000, 2000);
+      await targetPage.waitForTimeout(extraDwell);
+
+      // 새 탭이면 닫기
+      if (isNewTab) {
+        await targetPage.close().catch(() => {});
+      }
 
     } finally {
       // 프로필 해제
@@ -521,9 +631,24 @@ class MassRotationRunner {
    * 검색어 입력 (인간처럼)
    */
   private async typeSearch(page: Page, keyword: string): Promise<void> {
-    await page.click('input[name="query"]');
+    // 검색창이 준비될 때까지 대기
+    const searchInput = page.locator('input[name="query"]');
+    await searchInput.waitFor({ state: "visible", timeout: 10000 });
+
+    // 혹시 팝업이 있으면 ESC로 닫기
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(300);
+
+    // 검색창 클릭 (force 옵션으로 오버레이 무시)
+    await searchInput.click({ force: true, timeout: 10000 });
     await page.waitForTimeout(this.randomBetween(200, 400));
 
+    // 기존 텍스트 클리어
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Backspace");
+    await page.waitForTimeout(100);
+
+    // 한 글자씩 입력
     for (const char of keyword) {
       await page.type('input[name="query"]', char, {
         delay: this.randomBetween(50, 150),
@@ -534,9 +659,9 @@ class MassRotationRunner {
   }
 
   /**
-   * 상품 찾기 및 클릭
+   * 상품 찾기 및 클릭 - 새 탭이 열리면 해당 Page 반환
    */
-  private async findAndClickProduct(page: Page, mid: string): Promise<boolean> {
+  private async findAndClickProduct(page: Page, mid: string): Promise<Page | null> {
     // 최대 3번 스크롤하면서 찾기
     for (let scroll = 0; scroll < 3; scroll++) {
       const found = await page.evaluate((targetMid) => {
@@ -559,7 +684,7 @@ class MassRotationRunner {
       if (found.found) {
         await page.waitForTimeout(this.randomBetween(500, 1000));
 
-        // 클릭
+        // 클릭 - 새 탭 대기
         const context = page.context();
         const [newPage] = await Promise.all([
           context.waitForEvent("page", { timeout: 5000 }).catch(() => null),
@@ -572,12 +697,15 @@ class MassRotationRunner {
         ]);
 
         if (newPage) {
-          this.logger.log("New tab opened");
+          this.logger.log("New tab opened - switching to product page");
           await newPage.waitForLoadState("domcontentloaded", { timeout: 10000 });
-          // 새 탭으로 전환이 필요하면 여기서 처리
+          return newPage as Page;  // 새 탭 반환
         }
 
-        return true;
+        // 새 탭이 없으면 현재 페이지에서 네비게이션 대기
+        this.logger.log("Same tab navigation");
+        await page.waitForLoadState("domcontentloaded", { timeout: 10000 }).catch(() => {});
+        return page;  // 현재 페이지 반환
       }
 
       // 스크롤
@@ -585,7 +713,7 @@ class MassRotationRunner {
       await page.waitForTimeout(this.randomBetween(500, 1000));
     }
 
-    return false;
+    return null;  // 못 찾으면 null
   }
 
   /**

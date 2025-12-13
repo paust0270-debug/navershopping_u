@@ -53,9 +53,16 @@ export class BehaviorLogCaptor {
   private async onRequest(request: Request): Promise<void> {
     const url = request.url();
 
-    // 디버그: 모든 로그 관련 URL 출력
-    if (url.includes("log") || url.includes("wcs") || url.includes("siape") || url.includes("veta") || url.includes("product-logs") || url.includes("nlog")) {
-      this.log(`[BehaviorLogCaptor] Potential log URL: ${url.substring(0, 80)}`);
+    // 디버그: 조회수 관련 가능성 있는 모든 URL 출력
+    const viewCountPatterns = [
+      "log", "wcs", "siape", "veta", "product-logs", "nlog",
+      "view", "hit", "count", "stat", "track", "collect",
+      "impression", "expose", "visit", "analytics", "beacon"
+    ];
+
+    const isViewCountRelated = viewCountPatterns.some(p => url.toLowerCase().includes(p));
+    if (isViewCountRelated && !url.includes("youtube") && !url.includes("google")) {
+      this.log(`[BehaviorLogCaptor] Potential log URL: ${url.substring(0, 100)}`);
     }
 
     // log.shopping.naver.com 또는 관련 로그 도메인 필터

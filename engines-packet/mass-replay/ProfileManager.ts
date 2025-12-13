@@ -3,21 +3,20 @@
  *
  * 핵심 기능:
  * - launchPersistentContext로 프로필 재사용
- * - Stealth 플러그인 적용 (탐지 방지)
+ * - patchright 사용 (내장 stealth 기능)
  * - UA + sec-ch-ua Client Hints 완전 일치
  * - 라운드 로빈 로테이션
  * - 프로필당 일일 제한
  */
 
-import { chromium as playwrightChromium } from "playwright-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { chromium } from "patchright";
 import type { BrowserContext, Page } from "patchright";
 import * as fs from "fs";
 import * as path from "path";
 import type { LogFunction } from "../types";
 
-// Stealth 플러그인 적용
-playwrightChromium.use(StealthPlugin());
+// 실제 Chrome 경로
+const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 
 // ============================================================
 //  타입 정의
@@ -446,9 +445,9 @@ export class ProfileManager {
 
     this.log(`[ProfileManager] Launching profile ${profileId}: ${instance.device.platform} ${instance.device.viewport.width}x${instance.device.viewport.height}`);
 
-    // Stealth 플러그인이 적용된 playwright-extra 사용
-    const context = await playwrightChromium.launchPersistentContext(instance.profilePath, {
-      channel: "chrome",
+    // patchright + 실제 Chrome 사용 (아이콘/fingerprint 일치)
+    const context = await chromium.launchPersistentContext(instance.profilePath, {
+      executablePath: CHROME_PATH,  // 실제 설치된 Chrome 사용
       headless: this.config.headless,
       viewport: instance.device.viewport,
       userAgent: instance.device.userAgent,
@@ -461,7 +460,7 @@ export class ProfileManager {
         "--no-default-browser-check",
       ],
       ignoreDefaultArgs: ["--enable-automation"],
-    }) as unknown as BrowserContext;
+    });
 
     const page = await context.newPage();
 

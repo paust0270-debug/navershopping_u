@@ -276,6 +276,26 @@ export class BehaviorLogBuilder {
   }
 
   /**
+   * 단일 패킷 빌드 (실시간 타임스탬프용)
+   */
+  buildSingle(type: BehaviorLogType, options: BuildOptions): BuiltPacket | null {
+    switch (type) {
+      case "viewProduct":
+        return this.buildViewProduct(options);
+      case "scroll":
+        return this.buildScroll(options);
+      case "dwellStart":
+      case "dwellEnd":
+        return this.buildDwell(options);
+      case "expose":
+        return this.buildExpose(options);
+      default:
+        this.log(`[BehaviorLogBuilder] Unknown type: ${type}`);
+        return null;
+    }
+  }
+
+  /**
    * 템플릿 존재 여부 확인
    */
   hasTemplate(type: BehaviorLogType): boolean {
