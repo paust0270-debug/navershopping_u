@@ -131,7 +131,7 @@ function getTodayDate(): string {
 }
 
 // ============ 워커 Heartbeat ============
-async function sendHeartbeat(status: "online" | "working" | "idle" | "error" = "online"): Promise<void> {
+async function sendHeartbeat(): Promise<void> {
   if (!controlDb) return;
 
   try {
@@ -146,7 +146,7 @@ async function sendHeartbeat(status: "online" | "working" | "idle" | "error" = "
         nodeId: WORKER_ID,
         nodeType: "worker",  // enum: experiment, worker, playwright, prb
         hostname: HOSTNAME,
-        status: status,
+        status: "online",    // enum: online만 허용
         lastHeartbeat: now,
         currentTaskId: taskCount > 0 ? taskCount : null,  // integer: 현재 처리 중인 슬롯 수
         updatedAt: now,
@@ -157,7 +157,7 @@ async function sendHeartbeat(status: "online" | "working" | "idle" | "error" = "
     if (error) {
       log(`[Heartbeat] 전송 실패: ${error.message}`, "warn");
     } else {
-      log(`[Heartbeat] ${status}, 작업 슬롯: ${taskCount}개`);
+      log(`[Heartbeat] online, 작업 슬롯: ${taskCount}개`);
     }
   } catch (e: any) {
     log(`[Heartbeat] 예외: ${e.message}`, "error");
@@ -171,12 +171,11 @@ function startHeartbeat(): void {
   }
 
   // 즉시 첫 heartbeat 전송
-  sendHeartbeat("online");
+  sendHeartbeat();
 
   // 5분마다 heartbeat
   heartbeatTimer = setInterval(() => {
-    const status = currentProcessingSlots.length > 0 ? "working" : "idle";
-    sendHeartbeat(status);
+    sendHeartbeat();
   }, HEARTBEAT_INTERVAL);
 
   log(`[Heartbeat] 시작 (${HEARTBEAT_INTERVAL / 60000}분 간격)`);
@@ -187,7 +186,7 @@ function stopHeartbeat(): void {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;
   }
-  sendHeartbeat("idle");
+  sendHeartbeat();
 }
 
 // ============ 프로필 충돌 방지 ============
