@@ -132,20 +132,19 @@ async function sendHeartbeat(status: "online" | "working" | "idle" | "error" = "
 
   try {
     const now = new Date().toISOString();
-    const taskInfo = currentProcessingSlots.length > 0
-      ? currentProcessingSlots.join(", ")
-      : null;
+    const activeSlots = Object.values(currentProcessingSlots).filter(Boolean);
+    const taskCount = activeSlots.length;
 
-    // upsert: hostname으로 찾아서 업데이트, 없으면 생성
+    // upsert: nodeId로 찾아서 업데이트, 없으면 생성
     const { error } = await controlDb
       .from("workerNodes")
       .upsert({
         nodeId: WORKER_ID,
-        nodeType: "slot-naver",
+        nodeType: "worker",  // enum: experiment, worker, playwright, prb
         hostname: HOSTNAME,
         status: status,
         lastHeartbeat: now,
-        currentTaskId: taskInfo,
+        currentTaskId: taskCount > 0 ? taskCount : null,  // integer: 현재 처리 중인 슬롯 수
         updatedAt: now,
       }, {
         onConflict: "nodeId",
@@ -154,7 +153,7 @@ async function sendHeartbeat(status: "online" | "working" | "idle" | "error" = "
     if (error) {
       log(`[Heartbeat] 전송 실패: ${error.message}`, "warn");
     } else {
-      log(`[Heartbeat] 전송: ${status}, 작업: ${taskInfo || "없음"}`);
+      log(`[Heartbeat] ${status}, 작업 슬롯: ${taskCount}개`);
     }
   } catch (e: any) {
     log(`[Heartbeat] 예외: ${e.message}`, "error");
@@ -242,6 +241,7 @@ async function acquireMultipleSlots(count: number): Promise<SlotNaver[]> {
     .select("*")
     .eq("status", "작동중")
     .not("mid", "is", null)
+    .not("product_name", "is", null)
     .order("id", { ascending: true });
 
   if (error || !slots) {
@@ -425,27 +425,24 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     // 프로필 잠금 정리
     await cleanupProfileLock(profilePath);
 
-    // 독립된 브라우저 인스턴스 생성 (고유 프로필 사용)
-    browser = await chromium.launch({
+    // 독립된 브라우저 인스턴스 생성 (launchPersistentContext로 프로필 사용)
+    const context = await chromium.launchPersistentContext(profilePath, {
       channel: "chrome",
       headless: IS_HEADLESS,
+      viewport: { width: BROWSER_WIDTH - 20, height: BROWSER_HEIGHT - 100 },
+      locale: "ko-KR",
+      timezoneId: "Asia/Seoul",
       args: [
         `--window-position=${pos.x},${pos.y}`,
         `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
-        `--user-data-dir=${profilePath}`,
         "--disable-blink-features=AutomationControlled",
         "--no-first-run",
         "--no-default-browser-check",
       ],
     });
 
-    const context = await browser.newContext({
-      viewport: { width: BROWSER_WIDTH - 20, height: BROWSER_HEIGHT - 100 },
-      locale: "ko-KR",
-      timezoneId: "Asia/Seoul",
-    });
-
-    const page = await context.newPage();
+    browser = context.browser();
+    const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(60000);
 
     // 1. 네이버 접속
