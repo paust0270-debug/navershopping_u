@@ -6,3 +6,27 @@
 
 # Node modules (설치 시 자동 생성)
 node_modules/
+
+# 환경변수 (민감 정보)
+.env
+.env.local
+.env.remote
+
+# 로컬 데이터
+backup/
+logs/
+dist/
+profiles/profile_*/
+
+# IDE / 에디터
+.claude/
+.vscode/
+.idea/
+
+# 실행 파일 (로컬 빌드)
+*.exe
+*.zip
+
+# 기타
+nul
+npx

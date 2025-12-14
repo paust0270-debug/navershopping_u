@@ -42,6 +42,7 @@ for (const envPath of envPaths) {
 import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
+import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -425,20 +426,50 @@ async function claimWorkItem(): Promise<WorkItem | null> {
 }
 
 // ============ slot_naver 통계 업데이트 ============
-async function updateSlotStats(slotId: number, success: boolean): Promise<void> {
-  const column = success ? "success_count" : "fail_count";
-  const { data: current } = await supabase
-    .from("slot_naver")
-    .select(column)
-    .eq("id", slotId)
-    .single();
+async function updateSlotStats(
+  slotId: number,
+  success: boolean,
+  failReason?: FailReason,
+  captchaSolved?: boolean
+): Promise<void> {
+  try {
+    if (success) {
+      // 성공: success_count 증가
+      const { data: current } = await supabase
+        .from("slot_naver")
+        .select("success_count, captcha_solved_count")
+        .eq("id", slotId)
+        .single();
 
-  if (current) {
-    const newValue = ((current as any)[column] || 0) + 1;
-    await supabase
-      .from("slot_naver")
-      .update({ [column]: newValue })
-      .eq("id", slotId);
+      if (current) {
+        const updates: Record<string, any> = {
+          success_count: ((current as any).success_count || 0) + 1
+        };
+        if (captchaSolved) {
+          updates.captcha_solved_count = ((current as any).captcha_solved_count || 0) + 1;
+        }
+        await supabase.from("slot_naver").update(updates).eq("id", slotId);
+      }
+    } else {
+      // 실패: fail_count 증가 + 실패 이유 기록
+      const { data: current } = await supabase
+        .from("slot_naver")
+        .select("fail_count")
+        .eq("id", slotId)
+        .single();
+
+      if (current) {
+        await supabase
+          .from("slot_naver")
+          .update({
+            fail_count: ((current as any).fail_count || 0) + 1,
+            last_fail_reason: failReason || null,
+          })
+          .eq("id", slotId);
+      }
+    }
+  } catch (e: any) {
+    log(`[Stats] Update failed: ${e.message}`, "warn");
   }
 }
 
@@ -447,16 +478,33 @@ async function updateSlotStats(slotId: number, success: boolean): Promise<void> 
 // - navigator.webdriver 속성 제거
 // - Chrome DevTools Protocol 탐지 우회
 // - 자동화 플래그 숨김
+
+type FailReason =
+  | 'NO_MID_MATCH'
+  | 'CAPTCHA_UNSOLVED'
+  | 'PAGE_NOT_LOADED'
+  | 'PRODUCT_DELETED'
+  | 'TIMEOUT'
+  | 'IP_BLOCKED';
+
 interface EngineResult {
   productPageEntered: boolean;
   captchaDetected: boolean;
+  captchaSolved: boolean;
+  midMatched: boolean;
+  failReason?: FailReason;
   error?: string;
 }
 
 async function runPatchrightEngine(page: Page, mid: string, productName: string, workerId: number): Promise<EngineResult> {
+  // CAPTCHA 솔버 초기화
+  const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log(`[Worker ${workerId}] ${msg}`));
+
   const result: EngineResult = {
     productPageEntered: false,
-    captchaDetected: false
+    captchaDetected: false,
+    captchaSolved: false,
+    midMatched: false
   };
 
   try {
@@ -478,16 +526,44 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await page.waitForSelector('body', { timeout: 10000 }).catch(() => {});
     await sleep(randomBetween(3000, 4500));  // 모바일 데이터 고려하여 대기 시간 증가
 
-    // 4. CAPTCHA 체크 (body 로드 대기)
+    // 4. IP 차단 체크
+    const isBlocked = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || '';
+      return bodyText.includes('비정상적인 접근') ||
+             bodyText.includes('자동화된 접근') ||
+             bodyText.includes('접근이 제한') ||
+             bodyText.includes('잠시 후 다시') ||
+             bodyText.includes('비정상적인 요청') ||
+             bodyText.includes('이용이 제한');
+    }).catch(() => false);
+
+    if (isBlocked) {
+      log(`[Worker ${workerId}] IP 차단 감지!`, "warn");
+      result.failReason = 'IP_BLOCKED';
+      result.error = 'Blocked';
+      return result;
+    }
+
+    // 5. CAPTCHA 체크 (body 로드 대기)
     const searchCaptcha = await page.evaluate(() => {
       const bodyText = document.body?.innerText || '';
       return bodyText.includes('보안 확인') || bodyText.includes('자동입력방지');
     }).catch(() => false);
 
     if (searchCaptcha) {
-      log(`[Worker ${workerId}] 검색 CAPTCHA 감지!`, "warn");
+      log(`[Worker ${workerId}] 검색 CAPTCHA 감지 - 해결 시도...`);
       result.captchaDetected = true;
-      return result;
+      const solved = await captchaSolver.solve(page);
+      if (solved) {
+        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 성공!`);
+        result.captchaSolved = true;
+        result.captchaDetected = false;
+        // 계속 진행 (return 하지 않음)
+      } else {
+        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 실패`, "warn");
+        result.failReason = 'CAPTCHA_UNSOLVED';
+        return result;
+      }
     }
 
     // 5. 가격비교/네이버플러스스토어 컴포넌트 존재 확인 (없으면 바로 종료)
@@ -514,7 +590,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     for (let i = 0; i < MAX_SCROLL; i++) {
       // 1) 현재 화면에서 MID 있는지 확인 + 클릭
       const clicked = await page.evaluate((targetMid: string) => {
-        const links = document.querySelectorAll('a[href*="nv_mid="]');
+        const links = Array.from(document.querySelectorAll('a[href*="nv_mid="]'));
         for (const link of links) {
           const href = (link as HTMLAnchorElement).href || '';
           if (href.includes(`nv_mid=${targetMid}`)) {
@@ -546,8 +622,13 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     if (!midClicked) {
       result.error = 'NoMidMatch';
+      result.failReason = 'NO_MID_MATCH';
+      result.midMatched = false;
       return result;
     }
+
+    // MID 클릭 성공
+    result.midMatched = true;
 
     // 새 탭 대기
     const context = page.context();
@@ -579,6 +660,14 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       const bodyText = document.body?.innerText || '';
       const url = window.location.href;
 
+      // IP 차단 체크
+      const isBlocked = bodyText.includes('비정상적인 접근') ||
+                        bodyText.includes('자동화된 접근') ||
+                        bodyText.includes('접근이 제한') ||
+                        bodyText.includes('잠시 후 다시') ||
+                        bodyText.includes('비정상적인 요청') ||
+                        bodyText.includes('이용이 제한');
+
       const hasCaptcha = bodyText.includes('보안 확인') ||
                         bodyText.includes('영수증 번호') ||
                         bodyText.includes('자동입력방지') ||
@@ -592,26 +681,65 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       // 상품 페이지 판단 (URL + 버튼 존재)
       const isSmartStore = url.includes('smartstore.naver.com') || url.includes('brand.naver.com');
       const hasProductButtons = bodyText.includes('구매하기') || bodyText.includes('장바구니');
-      const isProductPage = isSmartStore && hasProductButtons && !hasCaptcha && !isDeleted;
+      const isProductPage = isSmartStore && hasProductButtons && !hasCaptcha && !isDeleted && !isBlocked;
 
-      return { hasCaptcha, isDeleted, isProductPage, url };
-    }).catch(() => ({ hasCaptcha: false, isDeleted: false, isProductPage: false, url: 'unknown' }));
+      return { hasCaptcha, isDeleted, isProductPage, isBlocked, url };
+    }).catch(() => ({ hasCaptcha: false, isDeleted: false, isProductPage: false, isBlocked: false, url: 'unknown' }));
+
+    // IP 차단 체크
+    if (pageCheck.isBlocked) {
+      log(`[Worker ${workerId}] 상품페이지 IP 차단 감지!`, "warn");
+      result.failReason = 'IP_BLOCKED';
+      result.error = 'Blocked';
+      return result;
+    }
 
     if (pageCheck.hasCaptcha) {
-      log(`[Worker ${workerId}] 상품페이지 CAPTCHA`, "warn");
+      log(`[Worker ${workerId}] 상품페이지 CAPTCHA - 해결 시도...`);
       result.captchaDetected = true;
-      return result;
+      const solved = await captchaSolver.solve(targetPage);
+      if (solved) {
+        log(`[Worker ${workerId}] 상품페이지 CAPTCHA 해결 성공! 재검증 중...`);
+        result.captchaSolved = true;
+        result.captchaDetected = false;
+
+        // 페이지 재검증
+        await sleep(2000);
+        const recheck = await targetPage.evaluate(() => {
+          const bodyText = document.body?.innerText || '';
+          const url = window.location.href;
+          const isSmartStore = url.includes('smartstore.naver.com') || url.includes('brand.naver.com');
+          const hasButtons = bodyText.includes('구매하기') || bodyText.includes('장바구니');
+          const hasCaptcha = bodyText.includes('보안 확인') || bodyText.includes('자동입력방지');
+          return { isProductPage: isSmartStore && hasButtons && !hasCaptcha };
+        }).catch(() => ({ isProductPage: false }));
+
+        if (recheck.isProductPage) {
+          result.productPageEntered = true;
+          // 성공으로 계속 진행
+        } else {
+          result.captchaDetected = true;
+          result.failReason = 'PAGE_NOT_LOADED';
+          return result;
+        }
+      } else {
+        log(`[Worker ${workerId}] 상품페이지 CAPTCHA 해결 실패`, "warn");
+        result.failReason = 'CAPTCHA_UNSOLVED';
+        return result;
+      }
     }
 
     if (pageCheck.isDeleted) {
       log(`[Worker ${workerId}] 상품삭제 URL: ${pageCheck.url}`, "warn");
       result.error = 'Deleted';
+      result.failReason = 'PRODUCT_DELETED';
       return result;
     }
 
     if (!pageCheck.isProductPage) {
       log(`[Worker ${workerId}] 상품페이지 아님 URL: ${pageCheck.url}`, "warn");
       result.error = 'NotProductPage';
+      result.failReason = 'PAGE_NOT_LOADED';
       return result;
     }
 
@@ -627,6 +755,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     // 타임아웃 에러 식별
     if (e.message?.includes('Timeout') || e.message?.includes('timeout') || e.name === 'TimeoutError') {
       result.error = 'Timeout';
+      result.failReason = 'TIMEOUT';
     } else {
       result.error = e.message || 'Unknown';
     }
@@ -690,37 +819,49 @@ async function runSingleWorker(workerId: number, profile: Profile): Promise<Work
     const productShort = work.productName.substring(0, 20);
 
     if (engineResult.productPageEntered) {
+      // 성공: CAPTCHA 해결 후 진입도 성공!
       result.success = true;
       totalSuccess++;
-      await updateSlotStats(work.slotId, true);
-      log(`[Worker ${workerId}] ✅ 성공 | ${productShort}... | mid=${work.mid}`);
+      await updateSlotStats(work.slotId, true, undefined, engineResult.captchaSolved);
+
+      if (engineResult.captchaSolved) {
+        log(`[Worker ${workerId}] SUCCESS(CAPTCHA해결) | ${productShort}... | mid=${work.mid}`);
+      } else {
+        log(`[Worker ${workerId}] SUCCESS | ${productShort}... | mid=${work.mid}`);
+      }
     } else {
       // 실패 사유별 처리
-      await updateSlotStats(work.slotId, false);
       totalFailed++;
 
-      if (engineResult.captchaDetected) {
+      if (engineResult.failReason === 'CAPTCHA_UNSOLVED') {
         result.captcha = true;
         totalCaptcha++;
-        log(`[Worker ${workerId}] ❌ 실패(CAPTCHA) | ${productShort}... | mid=${work.mid}`, "warn");
-      } else if (engineResult.error === 'Blocked') {
-        result.blocked = true;
-        log(`[Worker ${workerId}] ❌ 실패(IP차단) | ${productShort}... | mid=${work.mid}`, "warn");
-      } else if (engineResult.error === 'NoMidMatch') {
+        await updateSlotStats(work.slotId, false, 'CAPTCHA_UNSOLVED', false);
+        log(`[Worker ${workerId}] FAIL(CAPTCHA미해결) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.failReason === 'NO_MID_MATCH') {
         result.error = 'NoMidMatch';
-        log(`[Worker ${workerId}] ❌ 실패(MID없음) | ${productShort}... | mid=${work.mid}`, "warn");
-      } else if (engineResult.error === 'Timeout' || engineResult.error?.includes('Timeout')) {
-        result.error = 'Timeout';
-        log(`[Worker ${workerId}] ❌ 실패(타임아웃) | ${productShort}... | mid=${work.mid}`, "warn");
-      } else if (engineResult.error === 'Deleted') {
+        await updateSlotStats(work.slotId, false, 'NO_MID_MATCH', false);
+        log(`[Worker ${workerId}] FAIL(MID없음) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.failReason === 'IP_BLOCKED' || engineResult.error === 'Blocked') {
+        result.blocked = true;
+        await updateSlotStats(work.slotId, false, 'IP_BLOCKED', false);
+        log(`[Worker ${workerId}] FAIL(IP차단) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.failReason === 'PRODUCT_DELETED' || engineResult.error === 'Deleted') {
         result.error = 'Deleted';
-        log(`[Worker ${workerId}] ❌ 실패(상품삭제) | ${productShort}... | mid=${work.mid}`, "warn");
-      } else if (engineResult.error === 'NotProductPage') {
+        await updateSlotStats(work.slotId, false, 'PRODUCT_DELETED', false);
+        log(`[Worker ${workerId}] FAIL(상품삭제) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.failReason === 'PAGE_NOT_LOADED' || engineResult.error === 'NotProductPage') {
         result.error = 'NotProductPage';
-        log(`[Worker ${workerId}] ❌ 실패(페이지오류) | ${productShort}... | mid=${work.mid}`, "warn");
+        await updateSlotStats(work.slotId, false, 'PAGE_NOT_LOADED', false);
+        log(`[Worker ${workerId}] FAIL(페이지오류) | ${productShort}... | mid=${work.mid}`, "warn");
+      } else if (engineResult.failReason === 'TIMEOUT' || engineResult.error === 'Timeout' || engineResult.error?.includes('Timeout')) {
+        result.error = 'Timeout';
+        await updateSlotStats(work.slotId, false, 'TIMEOUT', false);
+        log(`[Worker ${workerId}] FAIL(타임아웃) | ${productShort}... | mid=${work.mid}`, "warn");
       } else {
         result.error = engineResult.error || 'Unknown';
-        log(`[Worker ${workerId}] ❌ 실패(${result.error}) | ${productShort}... | mid=${work.mid}`, "warn");
+        await updateSlotStats(work.slotId, false, undefined, false);
+        log(`[Worker ${workerId}] FAIL(${result.error}) | ${productShort}... | mid=${work.mid}`, "warn");
       }
     }
 

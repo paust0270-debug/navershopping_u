@@ -113,13 +113,17 @@ function formatTime(hour: number, minute: number): string {
 
 async function runMassRotation(count: number): Promise<{ success: boolean; output: string }> {
   return new Promise((resolve) => {
-    log(`실행 시작: ${count}회 요청`);
+    log(`실행 시작: ${count}회 요청 [${PRODUCT_NAME}]`);
 
     const startTime = Date.now();
     const outputFile = path.join(CONFIG.logDir, `run-${new Date().toISOString().replace(/[:.]/g, "-")}.log`);
     const outputStream = fs.createWriteStream(outputFile);
 
-    const child = spawn("npx", ["tsx", CONFIG.scriptPath, "--count", count.toString()], {
+    // 기본 인자 + 상품 정보 인자
+    const spawnArgs = ["tsx", CONFIG.scriptPath, "--count", count.toString(), ...PRODUCT_ARGS];
+    log(`명령어: npx ${spawnArgs.join(" ")}`);
+
+    const child = spawn("npx", spawnArgs, {
       cwd: path.join(__dirname, ".."),
       shell: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -200,6 +204,8 @@ function printSchedule() {
 ║           SCHEDULED MASS ROTATION RUNNER                       ║
 ╚════════════════════════════════════════════════════════════════╝
 
+상품: ${PRODUCT_NAME}
+상품 인자: ${PRODUCT_ARGS.length > 0 ? PRODUCT_ARGS.join(" ") : "(기본값)"}
 실행 간격: ${CONFIG.intervalHours}시간마다
 하루 실행 횟수: ${dailyRuns}회
 하루 총 요청 수: ~${dailyRequests}회
@@ -214,6 +220,10 @@ Ctrl+C로 종료
 `);
 }
 
+// 상품 정보 (CLI 인자로 덮어쓰기 가능)
+let PRODUCT_ARGS: string[] = [];
+let PRODUCT_NAME = "기본상품";
+
 // 메인 실행
 async function main() {
   // CLI 인자 파싱
@@ -226,6 +236,24 @@ async function main() {
     if (interval >= 1 && interval <= 12) {
       CONFIG.intervalHours = interval;
     }
+  }
+
+  // 상품 정보 파싱 (mass-rotation-runner에 전달)
+  const midIdx = args.findIndex(a => a === "--mid");
+  if (midIdx !== -1 && args[midIdx + 1]) {
+    PRODUCT_ARGS.push("--mid", args[midIdx + 1]);
+    PRODUCT_NAME = `MID:${args[midIdx + 1]}`;
+  }
+
+  const keywordIdx = args.findIndex(a => a === "--keyword");
+  if (keywordIdx !== -1 && args[keywordIdx + 1]) {
+    PRODUCT_ARGS.push("--keyword", args[keywordIdx + 1]);
+    PRODUCT_NAME = args[keywordIdx + 1];
+  }
+
+  const mallIdx = args.findIndex(a => a === "--mall");
+  if (mallIdx !== -1 && args[mallIdx + 1]) {
+    PRODUCT_ARGS.push("--mall", args[mallIdx + 1]);
   }
 
   // 스케줄 재생성 (customSchedule이 없을 때만)

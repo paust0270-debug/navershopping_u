@@ -447,7 +447,7 @@ export class ProfileManager {
 
     // patchright + 실제 Chrome 사용 (아이콘/fingerprint 일치)
     const context = await chromium.launchPersistentContext(instance.profilePath, {
-      executablePath: CHROME_PATH,  // 실제 설치된 Chrome 사용
+      // executablePath: CHROME_PATH,  // 실제 설치된 Chrome 사용 - 비활성화 (크래시 문제)
       headless: this.config.headless,
       viewport: instance.device.viewport,
       userAgent: instance.device.userAgent,
@@ -462,7 +462,9 @@ export class ProfileManager {
       ignoreDefaultArgs: ["--enable-automation"],
     });
 
-    const page = await context.newPage();
+    // launchPersistentContext는 이미 첫 페이지를 생성하므로 newPage() 불필요
+    const pages = context.pages();
+    const page = pages.length > 0 ? pages[0] : await context.newPage();
 
     // 추가 Anti-detection 스크립트
     await page.addInitScript(() => {

@@ -8,7 +8,23 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import type { Page } from "puppeteer-core";
+
+/**
+ * Patchright/Puppeteer 호환 범용 Page 인터페이스
+ * unified-runner.ts (Patchright)와 기존 Puppeteer 모두에서 사용 가능
+ */
+interface GenericPage {
+  evaluate: <T>(fn: () => T) => Promise<T>;
+  $(selector: string): Promise<any>;
+  screenshot(options?: any): Promise<string | Buffer>;
+  keyboard: {
+    type(text: string, options?: { delay: number }): Promise<void>;
+    press(key: string): Promise<void>;
+    down(key: string): Promise<void>;
+    up(key: string): Promise<void>;
+  };
+  waitForSelector(selector: string, options?: { timeout: number }): Promise<any>;
+}
 
 interface CaptchaDetectionResult {
   detected: boolean;
@@ -18,7 +34,7 @@ interface CaptchaDetectionResult {
 
 export class ReceiptCaptchaSolverPRB {
   private anthropic: Anthropic;
-  private maxRetries = 2;
+  private maxRetries = 3;  // 2 → 3으로 변경
   private logFn: (msg: string) => void;
 
   constructor(logFn?: (msg: string) => void) {
@@ -40,7 +56,7 @@ export class ReceiptCaptchaSolverPRB {
    * CAPTCHA 해결 시도
    * @returns true if solved, false if failed or no CAPTCHA
    */
-  async solve(page: Page): Promise<boolean> {
+  async solve(page: GenericPage): Promise<boolean> {
     if (!process.env.ANTHROPIC_API_KEY) {
       this.log("API key not configured, skipping");
       return false;
@@ -124,7 +140,7 @@ export class ReceiptCaptchaSolverPRB {
   /**
    * CAPTCHA 페이지 감지
    */
-  private async detectCaptcha(page: Page): Promise<CaptchaDetectionResult> {
+  private async detectCaptcha(page: GenericPage): Promise<CaptchaDetectionResult> {
     return await page.evaluate(() => {
       const bodyText = document.body.innerText || "";
 
@@ -153,9 +169,9 @@ export class ReceiptCaptchaSolverPRB {
 
       // 방법 2: 빨간색 스타일 텍스트
       if (!question) {
-        const redElements = document.querySelectorAll(
+        const redElements = Array.from(document.querySelectorAll(
           '[style*="color: rgb(255, 68, 68)"], [style*="color:#ff4444"], [style*="color: red"]'
-        );
+        ));
         for (const elem of redElements) {
           const text = elem.textContent?.trim();
           if (text && (text.includes("[?]") || text.includes("무엇입니까") || text.includes("번째"))) {
@@ -212,7 +228,7 @@ export class ReceiptCaptchaSolverPRB {
   /**
    * 영수증 이미지 캡처
    */
-  private async captureReceiptImage(page: Page): Promise<string> {
+  private async captureReceiptImage(page: GenericPage): Promise<string> {
     const selectors = [
       "#rcpt_img",
       ".captcha_img",
@@ -383,7 +399,7 @@ export class ReceiptCaptchaSolverPRB {
   /**
    * 답 입력 및 제출
    */
-  private async submitAnswer(page: Page, answer: string): Promise<void> {
+  private async submitAnswer(page: GenericPage, answer: string): Promise<void> {
     const inputSelectors = [
       'input[type="text"]',
       'input[placeholder*="입력"]',
@@ -460,7 +476,7 @@ export class ReceiptCaptchaSolverPRB {
   /**
    * 사람처럼 타이핑
    */
-  private async humanType(page: Page, selector: string, text: string): Promise<void> {
+  private async humanType(page: GenericPage, selector: string, text: string): Promise<void> {
     const input = await page.$(selector);
     if (!input) throw new Error(`Input not found: ${selector}`);
 
@@ -477,7 +493,7 @@ export class ReceiptCaptchaSolverPRB {
   /**
    * CAPTCHA 해결 여부 확인
    */
-  private async verifySolved(page: Page): Promise<boolean> {
+  private async verifySolved(page: GenericPage): Promise<boolean> {
     const stillCaptcha = await page.evaluate(() => {
       const bodyText = document.body.innerText || "";
       return (

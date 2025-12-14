@@ -5,6 +5,7 @@
  *   npx tsx scripts/mass-rotation-runner.ts --count 300
  *   npx tsx scripts/mass-rotation-runner.ts --test
  *   npx tsx scripts/mass-rotation-runner.ts --count 50 --profile 1
+ *   npx tsx scripts/mass-rotation-runner.ts --count 300 --mid 12345 --keyword "상품명"
  *
  * 옵션:
  *   --count <n>    : 실행할 총 요청 수 (default: 100)
@@ -12,6 +13,9 @@
  *   --profile <n>  : 특정 프로필만 사용
  *   --headless     : 헤드리스 모드
  *   --dry-run      : 실제 요청 없이 스케줄만 확인
+ *   --mid <id>     : 상품 MID
+ *   --keyword <kw> : 검색 키워드
+ *   --mall <name>  : 스토어명
  */
 
 import * as fs from "fs";
@@ -93,6 +97,9 @@ interface CliArgs {
   profile?: number;
   headless: boolean;
   dryRun: boolean;
+  mid?: string;
+  keyword?: string;
+  mall?: string;
 }
 
 function parseArgs(): CliArgs {
@@ -103,6 +110,9 @@ function parseArgs(): CliArgs {
     profile: undefined,
     headless: false,
     dryRun: false,
+    mid: undefined,
+    keyword: undefined,
+    mall: undefined,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -122,6 +132,15 @@ function parseArgs(): CliArgs {
         break;
       case "--dry-run":
         result.dryRun = true;
+        break;
+      case "--mid":
+        result.mid = args[++i];
+        break;
+      case "--keyword":
+        result.keyword = args[++i];
+        break;
+      case "--mall":
+        result.mall = args[++i];
         break;
     }
   }
@@ -843,7 +862,19 @@ async function main() {
 
   console.log("Args:", args);
 
-  const runner = new MassRotationRunner(DEFAULT_CONFIG, args);
+  // CLI 인자로 상품 정보 덮어쓰기
+  const config = { ...DEFAULT_CONFIG };
+  if (args.mid) {
+    config.product = { ...config.product, mid: args.mid };
+  }
+  if (args.keyword) {
+    config.product = { ...config.product, keyword: args.keyword };
+  }
+  if (args.mall) {
+    config.product = { ...config.product, mallName: args.mall };
+  }
+
+  const runner = new MassRotationRunner(config, args);
 
   try {
     await runner.run();
