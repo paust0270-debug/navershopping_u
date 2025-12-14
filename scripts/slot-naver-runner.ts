@@ -38,12 +38,16 @@ for (const envPath of envPaths) {
   }
 }
 
-import { chromium, type Page, type Browser } from "patchright";
+import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "../ipRotation";
 import { BehaviorLogCaptor } from "../engines-packet/capture/BehaviorLogCaptor";
 import { BehaviorLogBuilder } from "../engines-packet/builders/BehaviorLogBuilder";
 import { MultiSendEngine } from "../engines-packet/replay/MultiSendEngine";
+import { ReceiptCaptchaSolverPRB } from "../captcha/ReceiptCaptchaSolverPRB";
+
+// 캡챠 솔버 인스턴스
+const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log(msg));
 
 // ============ 설정 ============
 const PARALLEL_BROWSERS = 4;
@@ -349,15 +353,46 @@ async function humanType(page: Page, text: string): Promise<void> {
   }
 }
 
-// ============ 차단 감지 ============
-async function detectBlock(page: Page): Promise<boolean> {
-  return await page.evaluate(() => {
+// ============ 차단 감지 및 캡챠 해결 ============
+async function detectAndSolveBlock(page: Page, workerId: number): Promise<boolean> {
+  const blockInfo = await page.evaluate(() => {
     const text = document.body?.innerText || "";
-    return text.includes("비정상적인 접근") ||
-           text.includes("보안 확인") ||
-           text.includes("자동입력방지") ||
-           !!document.querySelector("#rcpt_form");
-  }).catch(() => false);
+    const isCaptcha = text.includes("보안 확인") ||
+                      text.includes("자동입력방지") ||
+                      text.includes("영수증") ||
+                      !!document.querySelector("#rcpt_form") ||
+                      !!document.querySelector("#rcpt_img");
+    const isHardBlock = text.includes("비정상적인 접근") ||
+                        text.includes("접근이 차단");
+    return { isCaptcha, isHardBlock };
+  }).catch(() => ({ isCaptcha: false, isHardBlock: false }));
+
+  // 완전 차단 (복구 불가)
+  if (blockInfo.isHardBlock) {
+    log(`[Worker ${workerId}] 하드 차단 감지 - IP 변경 필요`, "error");
+    return true;
+  }
+
+  // 캡챠 감지 시 풀기 시도
+  if (blockInfo.isCaptcha) {
+    log(`[Worker ${workerId}] 캡챠 감지 - 풀기 시도...`);
+    try {
+      const solved = await captchaSolver.solve(page as any);
+      if (solved) {
+        log(`[Worker ${workerId}] 캡챠 해결 성공!`);
+        await sleep(2000);
+        return false;  // 계속 진행
+      } else {
+        log(`[Worker ${workerId}] 캡챠 해결 실패`, "warn");
+        return true;  // 중단
+      }
+    } catch (e: any) {
+      log(`[Worker ${workerId}] 캡챠 솔버 오류: ${e.message}`, "error");
+      return true;
+    }
+  }
+
+  return false;  // 차단 없음
 }
 
 // ============ 상품 찾기 및 클릭 ============
@@ -412,7 +447,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
   const sequencesLimit = IS_TEST_MODE ? TEST_SEQUENCES : SEQUENCES_PER_SLOT;
   const pos = BROWSER_POSITIONS[workerId % 4];
   const profilePath = getProfilePath(workerId);
-  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
   let success = 0;
   let failed = 0;
 
@@ -426,7 +461,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     await cleanupProfileLock(profilePath);
 
     // 독립된 브라우저 인스턴스 생성 (launchPersistentContext로 프로필 사용)
-    const context = await chromium.launchPersistentContext(profilePath, {
+    context = await chromium.launchPersistentContext(profilePath, {
       channel: "chrome",
       headless: IS_HEADLESS,
       viewport: { width: BROWSER_WIDTH - 20, height: BROWSER_HEIGHT - 100 },
@@ -441,7 +476,6 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
       ],
     });
 
-    browser = context.browser();
     const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(60000);
 
@@ -450,9 +484,8 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     await page.goto("https://www.naver.com", { waitUntil: "domcontentloaded", timeout: 30000 });
     await sleep(randomBetween(1500, 2500));
 
-    if (await detectBlock(page)) {
-      log(`[Worker ${workerId}] 차단 감지 (네이버)`, "warn");
-      await browser.close();
+    if (await detectAndSolveBlock(page, workerId)) {
+      await context.close();
       return { success: 0, failed: sequencesLimit };
     }
 
@@ -465,9 +498,8 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
     await sleep(randomBetween(2000, 3000));
 
-    if (await detectBlock(page)) {
-      log(`[Worker ${workerId}] 차단 감지 (검색결과)`, "warn");
-      await browser.close();
+    if (await detectAndSolveBlock(page, workerId)) {
+      await context.close();
       return { success: 0, failed: sequencesLimit };
     }
 
@@ -489,7 +521,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
 
     if (!targetPage) {
       log(`[Worker ${workerId}] 상품 못 찾음`, "warn");
-      await browser.close();
+      await context.close();
       return { success: 0, failed: sequencesLimit };
     }
 
@@ -500,9 +532,8 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     }
     await sleep(randomBetween(2000, 3000));
 
-    if (await detectBlock(targetPage)) {
-      log(`[Worker ${workerId}] 차단 감지 (상품페이지)`, "warn");
-      await browser.close();
+    if (await detectAndSolveBlock(targetPage, workerId)) {
+      await context.close();
       return { success: 0, failed: sequencesLimit };
     }
 
@@ -529,7 +560,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     // product-logs가 없으면 실패
     if (!productLog) {
       log(`[Worker ${workerId}] product-logs 없음 - 실패`, "warn");
-      await browser.close();
+      await context.close();
       return { success: 0, failed: sequencesLimit };
     }
 
@@ -591,13 +622,13 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     }
 
     log(`[Worker ${workerId}] 슬롯 완료: ${success}/${sequencesLimit} 성공`);
-    await browser.close();
+    await context.close();
 
   } catch (e: any) {
     log(`[Worker ${workerId}] 오류: ${e.message}`, "error");
     failed = sequencesLimit - success;
-    if (browser) {
-      await browser.close().catch(() => {});
+    if (context) {
+      await context.close().catch(() => {});
     }
   }
 
