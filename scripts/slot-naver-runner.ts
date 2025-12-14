@@ -589,6 +589,13 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
 
     for (let iter = 0; iter < sequencesLimit; iter++) {
       try {
+        // 페이지가 닫혔는지 확인
+        if (targetPage.isClosed()) {
+          log(`[Worker ${workerId}] 페이지 닫힘 - 루프 종료 (${iter}/${sequencesLimit})`, "warn");
+          failed += sequencesLimit - iter;
+          break;
+        }
+
         // 진행률 (10회마다 로그)
         if ((iter + 1) % 10 === 0 || iter === 0) {
           log(`[Worker ${workerId}] [${iter + 1}/${sequencesLimit}] 전송 중...`);
@@ -624,6 +631,12 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
         await sleep(randomBetween(100, 300));
 
       } catch (e: any) {
+        // 브라우저/컨텍스트 닫힘 에러 시 루프 종료
+        if (e.message.includes("closed") || e.message.includes("Target page")) {
+          log(`[Worker ${workerId}] 브라우저 닫힘 - 루프 종료 (${iter}/${sequencesLimit})`, "warn");
+          failed += sequencesLimit - iter;
+          break;
+        }
         log(`[Worker ${workerId}] 시퀀스 ${iter + 1} 오류: ${e.message}`, "error");
         failed++;
       }
