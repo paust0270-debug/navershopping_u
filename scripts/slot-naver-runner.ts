@@ -356,15 +356,24 @@ async function humanType(page: Page, text: string): Promise<void> {
 async function detectAndSolveBlock(page: Page, workerId: number): Promise<boolean> {
   const blockInfo = await page.evaluate(() => {
     const text = document.body?.innerText || "";
-    const isCaptcha = text.includes("보안 확인") ||
-                      text.includes("자동입력방지") ||
-                      text.includes("영수증") ||
-                      !!document.querySelector("#rcpt_form") ||
-                      !!document.querySelector("#rcpt_img");
+    const url = window.location.href;
+
+    // 캡챠 감지: 실제 캡챠 요소가 있을 때만
+    const hasRcptForm = !!document.querySelector("#rcpt_form");
+    const hasRcptImg = !!document.querySelector("#rcpt_img");
+    const hasInputBlock = text.includes("자동입력방지") && text.includes("입력해");
+    const isSecurityUrl = url.includes("/security/") || url.includes("nidlogin");
+
+    // 영수증 캡챠: rcpt_form 또는 rcpt_img가 있어야 함
+    const isCaptcha = hasRcptForm || hasRcptImg || (hasInputBlock && isSecurityUrl);
+
+    // 하드 차단
     const isHardBlock = text.includes("비정상적인 접근") ||
-                        text.includes("접근이 차단");
-    return { isCaptcha, isHardBlock };
-  }).catch(() => ({ isCaptcha: false, isHardBlock: false }));
+                        text.includes("접근이 차단") ||
+                        text.includes("잠시 후 다시");
+
+    return { isCaptcha, isHardBlock, hasRcptForm, hasRcptImg };
+  }).catch(() => ({ isCaptcha: false, isHardBlock: false, hasRcptForm: false, hasRcptImg: false }));
 
   // 완전 차단 (복구 불가)
   if (blockInfo.isHardBlock) {
@@ -372,9 +381,9 @@ async function detectAndSolveBlock(page: Page, workerId: number): Promise<boolea
     return true;
   }
 
-  // 캡챠 감지 시 풀기 시도
+  // 캡챠 감지 시 풀기 시도 (실제 캡챠 요소가 있을 때만)
   if (blockInfo.isCaptcha) {
-    log(`[Worker ${workerId}] 캡챠 감지 - 풀기 시도...`);
+    log(`[Worker ${workerId}] 캡챠 감지 (rcpt_form=${blockInfo.hasRcptForm}, rcpt_img=${blockInfo.hasRcptImg}) - 풀기 시도...`);
     try {
       const solved = await captchaSolver.solve(page as any);
       if (solved) {
