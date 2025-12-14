@@ -468,6 +468,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
   const sequencesLimit = IS_TEST_MODE ? TEST_SEQUENCES : SEQUENCES_PER_SLOT;
   const pos = BROWSER_POSITIONS[workerId % 4];
   let profileInstance: ProfileInstance | null = null;
+  let context: BrowserContext | null = null;
   let success = 0;
   let failed = 0;
 
@@ -477,42 +478,79 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
   try {
     log(`[Worker ${workerId}] 슬롯 시작: ${slot.product_name?.substring(0, 25)}... (${sequencesLimit}회)`);
 
-    // ProfileManager에서 프로필 획득 (라운드 로빈, 일일제한/쿨다운 체크)
+    // ProfileManager에서 프로필 정보만 획득 (브라우저는 직접 실행)
     if (!profileManager) {
       throw new Error("ProfileManager not initialized");
     }
 
-    profileInstance = await profileManager.getNextProfile();
-    log(`[Worker ${workerId}] 프로필 ${profileInstance.id} 획득 (daily: ${profileInstance.dailyCount}/${PROFILE_CONFIG.maxDailyRequests})`);
+    // 워커별로 고정 프로필 할당 (1-4번 워커 -> 프로필 1-4번)
+    const profileId = (workerId % PROFILE_CONFIG.profileCount) + 1;
+    profileInstance = profileManager.getProfile(profileId) || null;
+
+    if (!profileInstance) {
+      throw new Error(`Profile ${profileId} not found`);
+    }
+
+    // 블랙리스트/일일제한 체크
+    if (profileInstance.blacklisted || profileInstance.dailyCount >= PROFILE_CONFIG.maxDailyRequests) {
+      log(`[Worker ${workerId}] 프로필 ${profileId} 사용 불가 - 대체 프로필 검색`, "warn");
+      // 사용 가능한 다른 프로필 찾기
+      for (let i = 1; i <= PROFILE_CONFIG.profileCount; i++) {
+        const altProfile = profileManager.getProfile(i);
+        if (altProfile && !altProfile.blacklisted && !altProfile.inUse &&
+            altProfile.dailyCount < PROFILE_CONFIG.maxDailyRequests) {
+          profileInstance = altProfile;
+          break;
+        }
+      }
+      if (!profileInstance || profileInstance.blacklisted ||
+          profileInstance.dailyCount >= PROFILE_CONFIG.maxDailyRequests) {
+        throw new Error("사용 가능한 프로필 없음");
+      }
+    }
+
+    log(`[Worker ${workerId}] 프로필 ${profileInstance.id} 사용 (daily: ${profileInstance.dailyCount}/${PROFILE_CONFIG.maxDailyRequests})`);
+
+    // 기존 context가 있으면 닫기 (충돌 방지)
+    if (profileInstance.context) {
+      log(`[Worker ${workerId}] 기존 context 정리 중...`);
+      await profileInstance.context.close().catch(() => {});
+      profileInstance.context = null;
+      profileInstance.page = null;
+      await sleep(1000);
+    }
 
     // 프로필 잠금 정리
     await cleanupProfileLock(profileInstance.profilePath);
+    await sleep(500);
 
-    // ProfileManager가 이미 context를 생성했으면 재사용, 아니면 새로 생성
-    if (!profileInstance.context) {
-      // ProfileManager의 launchProfile이 context를 생성하지만, 추가 args 필요 시 재생성
-      const context = await chromium.launchPersistentContext(profileInstance.profilePath, {
-        channel: "chrome",
-        headless: IS_HEADLESS,
-        viewport: profileInstance.device.viewport,  // ProfileDevice에서 가져옴
-        userAgent: profileInstance.device.userAgent,
-        extraHTTPHeaders: profileInstance.device.clientHints,  // sec-ch-ua 등
-        locale: "ko-KR",
-        timezoneId: "Asia/Seoul",
-        args: [
-          `--window-position=${pos.x},${pos.y}`,
-          `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
-          "--disable-blink-features=AutomationControlled",
-          "--no-first-run",
-          "--no-default-browser-check",
-        ],
-      });
-      profileInstance.context = context;
-      profileInstance.page = context.pages()[0] || await context.newPage();
-    }
+    // 직접 브라우저 실행 (channel: chrome + window position)
+    log(`[Worker ${workerId}] 브라우저 실행 (${profileInstance.device.viewport.width}x${profileInstance.device.viewport.height})...`);
+    context = await chromium.launchPersistentContext(profileInstance.profilePath, {
+      channel: "chrome",
+      headless: IS_HEADLESS,
+      viewport: profileInstance.device.viewport,
+      userAgent: profileInstance.device.userAgent,
+      extraHTTPHeaders: profileInstance.device.clientHints,
+      locale: "ko-KR",
+      timezoneId: "Asia/Seoul",
+      args: [
+        `--window-position=${pos.x},${pos.y}`,
+        `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
+        "--disable-blink-features=AutomationControlled",
+        "--no-first-run",
+        "--no-default-browser-check",
+      ],
+    });
 
-    const context = profileInstance.context!;
-    const page = profileInstance.page || context.pages()[0] || await context.newPage();
+    // ProfileInstance 상태 업데이트
+    profileInstance.context = context;
+    profileInstance.inUse = true;
+    profileInstance.dailyCount++;
+    profileInstance.usageCount++;
+    profileInstance.lastUsed = Date.now();
+
+    const page = context.pages()[0] || await context.newPage();
     page.setDefaultTimeout(60000);
 
     // 1. 네이버 접속
@@ -524,8 +562,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
       // 차단 시 프로필 블랙리스트
       profileManager?.blacklistProfile(profileInstance.id);
       log(`[Worker ${workerId}] 프로필 ${profileInstance.id} 블랙리스트 처리`, "warn");
-      await profileManager?.releaseProfile(profileInstance.id, false);
-      return { success: 0, failed: sequencesLimit };
+      throw new Error("차단 감지 - 네이버 메인");
     }
 
     // 2. 검색
@@ -539,8 +576,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
 
     if (await detectAndSolveBlock(page, workerId)) {
       profileManager?.blacklistProfile(profileInstance.id);
-      await profileManager?.releaseProfile(profileInstance.id, false);
-      return { success: 0, failed: sequencesLimit };
+      throw new Error("차단 감지 - 검색 결과");
     }
 
     // 3. 상품 찾기 및 클릭
@@ -561,8 +597,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
 
     if (!targetPage) {
       log(`[Worker ${workerId}] 상품 못 찾음`, "warn");
-      await profileManager?.releaseProfile(profileInstance.id, false);
-      return { success: 0, failed: sequencesLimit };
+      throw new Error("MID 상품 못 찾음");
     }
 
     // Bridge URL 대기
@@ -574,8 +609,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
 
     if (await detectAndSolveBlock(targetPage, workerId)) {
       profileManager?.blacklistProfile(profileInstance.id);
-      await profileManager?.releaseProfile(profileInstance.id, false);
-      return { success: 0, failed: sequencesLimit };
+      throw new Error("차단 감지 - 상품 상세");
     }
 
     // 4. 행동 로그 캡처
@@ -601,8 +635,7 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     // product-logs가 없으면 실패
     if (!productLog) {
       log(`[Worker ${workerId}] product-logs 없음 - 실패`, "warn");
-      await profileManager?.releaseProfile(profileInstance.id, false);
-      return { success: 0, failed: sequencesLimit };
+      throw new Error("product-logs 캡처 실패");
     }
 
     // 5. MultiSendEngine 준비
@@ -676,14 +709,21 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
     }
 
     log(`[Worker ${workerId}] 슬롯 완료: ${success}/${sequencesLimit} 성공 (프로필 ${profileInstance.id})`);
-    // 프로필 해제 (keepOpen=false로 브라우저 닫음)
-    await profileManager?.releaseProfile(profileInstance.id, false);
 
   } catch (e: any) {
     log(`[Worker ${workerId}] 오류: ${e.message}`, "error");
     failed = sequencesLimit - success;
+  } finally {
+    // 브라우저 종료 (항상 실행)
+    if (context) {
+      log(`[Worker ${workerId}] 브라우저 종료...`);
+      await context.close().catch(() => {});
+    }
+    // ProfileInstance 상태 정리
     if (profileInstance) {
-      await profileManager?.releaseProfile(profileInstance.id, false).catch(() => {});
+      profileInstance.context = null;
+      profileInstance.page = null;
+      profileInstance.inUse = false;
     }
   }
 
@@ -773,7 +813,10 @@ async function main() {
       log(`${"=".repeat(60)}\n`);
 
       // 4개 브라우저 병렬 실행 (각각 독립된 browser 인스턴스)
-      const promises = slots.map((slot, idx) => processSlot(slot, idx));
+      // 브라우저 시작 시 경쟁 조건 방지를 위해 0.5초 간격으로 시작
+      const promises = slots.map((slot, idx) =>
+        sleep(idx * 500).then(() => processSlot(slot, idx))
+      );
       const results = await Promise.all(promises);
 
       // 결과 집계
