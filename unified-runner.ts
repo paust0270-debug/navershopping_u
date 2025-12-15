@@ -634,18 +634,14 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
         log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
         await sleep(dwellTime);
 
-        // 상품 페이지 검증
-        const pageCheck = await page.evaluate(() => {
-          const bodyText = document.body?.innerText || '';
-          const url = window.location.href;
-          const isSmartStore = url.includes('smartstore.naver.com') || url.includes('brand.naver.com');
-          const hasButtons = bodyText.includes('구매하기') || bodyText.includes('장바구니');
-          return { isProductPage: isSmartStore && hasButtons, url };
-        }).catch(() => ({ isProductPage: false, url: 'unknown' }));
+        // 상품 페이지 검증 (URL 기반)
+        const currentPageUrl = page.url();
+        const isSmartStore = currentPageUrl.includes('smartstore.naver.com') ||
+                             currentPageUrl.includes('brand.naver.com');
 
-        log(`[Worker ${workerId}] 페이지: ${pageCheck.url.substring(0, 50)}...`);
+        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
 
-        if (pageCheck.isProductPage) {
+        if (isSmartStore) {
           result.productPageEntered = true;
         }
         break;
