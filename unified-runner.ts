@@ -429,41 +429,59 @@ async function updateSlotStats(
   try {
     if (success) {
       // 성공: success_count 증가
-      const { data: current } = await supabase
+      const { data: current, error: selectError } = await supabase
         .from("slot_naver")
-        .select("success_count, captcha_solved_count")
+        .select("success_count")
         .eq("id", slotId)
         .single();
 
+      if (selectError) {
+        log(`[Stats] Select failed (slot ${slotId}): ${selectError.message}`, "warn");
+        return;
+      }
+
       if (current) {
-        const updates: Record<string, any> = {
-          success_count: ((current as any).success_count || 0) + 1
-        };
-        if (captchaSolved) {
-          updates.captcha_solved_count = ((current as any).captcha_solved_count || 0) + 1;
+        const newCount = ((current as any).success_count || 0) + 1;
+        const { error: updateError } = await supabase
+          .from("slot_naver")
+          .update({ success_count: newCount })
+          .eq("id", slotId);
+
+        if (updateError) {
+          log(`[Stats] Update failed (slot ${slotId}): ${updateError.message}`, "warn");
+        } else {
+          log(`[Stats] slot ${slotId} success_count: ${newCount}`);
         }
-        await supabase.from("slot_naver").update(updates).eq("id", slotId);
       }
     } else {
-      // 실패: fail_count 증가 + 실패 이유 기록
-      const { data: current } = await supabase
+      // 실패: fail_count 증가
+      const { data: current, error: selectError } = await supabase
         .from("slot_naver")
         .select("fail_count")
         .eq("id", slotId)
         .single();
 
+      if (selectError) {
+        log(`[Stats] Select failed (slot ${slotId}): ${selectError.message}`, "warn");
+        return;
+      }
+
       if (current) {
-        await supabase
+        const newCount = ((current as any).fail_count || 0) + 1;
+        const { error: updateError } = await supabase
           .from("slot_naver")
-          .update({
-            fail_count: ((current as any).fail_count || 0) + 1,
-            last_fail_reason: failReason || null,
-          })
+          .update({ fail_count: newCount })
           .eq("id", slotId);
+
+        if (updateError) {
+          log(`[Stats] Update failed (slot ${slotId}): ${updateError.message}`, "warn");
+        } else {
+          log(`[Stats] slot ${slotId} fail_count: ${newCount} (reason: ${failReason || 'unknown'})`);
+        }
       }
     }
   } catch (e: any) {
-    log(`[Stats] Update failed: ${e.message}`, "warn");
+    log(`[Stats] Exception (slot ${slotId}): ${e.message}`, "warn");
   }
 }
 
