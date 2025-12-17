@@ -91,6 +91,27 @@ const BROWSER_POSITIONS: { x: number; y: number }[] = [
 const BROWSER_WIDTH = 480;   // 브라우저 너비 (모바일 사이트용)
 const BROWSER_HEIGHT = 540;  // 브라우저 높이
 
+// 모바일/웹 모드 설정
+const USE_MOBILE_MODE = true;  // true: 모바일(m.smartstore), false: 웹(smartstore)
+
+// 모바일 디바이스 설정 (진짜 모바일처럼 보이도록)
+const MOBILE_CONTEXT = {
+  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  viewport: { width: 400, height: 700 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 3,
+  locale: 'ko-KR',
+  timezoneId: 'Asia/Seoul',
+};
+
+// 웹(PC) 디바이스 설정
+const WEB_CONTEXT = {
+  viewport: { width: 400, height: 700 },
+  locale: 'ko-KR',
+  timezoneId: 'Asia/Seoul',
+};
+
 const SUPABASE_URL = process.env.SUPABASE_PRODUCTION_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_PRODUCTION_KEY!;
 const EQUIPMENT_NAME = process.env.EQUIPMENT_NAME || '';
@@ -784,9 +805,8 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
         ],
       });
 
-      context = await browser.newContext({
-        viewport: { width: 400, height: 700 },
-      });
+      // 모바일/웹 모드에 따라 context 설정
+      context = await browser.newContext(USE_MOBILE_MODE ? MOBILE_CONTEXT : WEB_CONTEXT);
 
       const page = await context.newPage();
       page.setDefaultTimeout(60000);
