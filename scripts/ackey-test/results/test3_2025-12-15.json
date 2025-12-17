@@ -1,0 +1,13 @@
+{
+  "testName": "test3-full-flow",
+  "testDate": "2025-12-15",
+  "product": {
+    "keyword": "디월트 전기톱",
+    "productName": "디월트 충전 전기톱 20V 체인톱 200mm 무선 전동 DCMPS520N 베어툴",
+    "nvMid": "86683606603"
+  },
+  "totalRounds": 100,
+  "successRounds": 100,
+  "successRate": "100.0%",
+  "conclusion": "✅ 전체 흐름 반복 유효!"
+}

@@ -1,0 +1,631 @@
+{
+  "test": "Test 5: crd/rd + product-logs (browser context)",
+  "product": {
+    "keyword": "또봇V",
+    "query": "또봇v 마스터v",
+    "queryEncoded": "%EB%98%90%EB%B4%87v+%EB%A7%88%EC%8A%A4%ED%84%B0v",
+    "acq": "또봇V",
+    "acqEncoded": "%EB%98%90%EB%B4%87V",
+    "nvMid": "82400534098",
+    "productId": "4856010799",
+    "storeUrl": "sd2gb2"
+  },
+  "totalRequests": 100,
+  "results": {
+    "crd": {
+      "success": 0,
+      "rate": "0.0%"
+    },
+    "productLogs": {
+      "success": 100,
+      "rate": "100.0%"
+    },
+    "both": {
+      "success": 0,
+      "rate": "0.0%"
+    }
+  },
+  "timestamp": "2025-12-15T15:31:56.826Z",
+  "details": [
+    {
+      "round": 1,
+      "ackey": "ry0fudrm",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 2,
+      "ackey": "3phgtmx7",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 3,
+      "ackey": "89nv4h75",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 4,
+      "ackey": "5ogfxltr",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 5,
+      "ackey": "1txbr2h7",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 6,
+      "ackey": "qmkfcy5f",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 7,
+      "ackey": "6e19hh6v",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 8,
+      "ackey": "z2eytouc",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 9,
+      "ackey": "ylwzf83r",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 10,
+      "ackey": "bz5at7tc",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 11,
+      "ackey": "p74qd4o1",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 12,
+      "ackey": "8jkne83j",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 13,
+      "ackey": "b6zre144",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 14,
+      "ackey": "rx9bet7g",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 15,
+      "ackey": "st9hpu8u",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 16,
+      "ackey": "974u2vpv",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 17,
+      "ackey": "oac2d87l",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 18,
+      "ackey": "lbvfh40v",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 19,
+      "ackey": "bl0gzw1t",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 20,
+      "ackey": "454cwrxe",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 21,
+      "ackey": "o53w1dp7",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 22,
+      "ackey": "uo5bdqaf",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 23,
+      "ackey": "rqkeckti",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 24,
+      "ackey": "aa9x9b8w",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 25,
+      "ackey": "z0m4ijdf",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 26,
+      "ackey": "v53055gv",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 27,
+      "ackey": "rid6hznr",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 28,
+      "ackey": "sb2hyyj9",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 29,
+      "ackey": "v7ea54jw",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 30,
+      "ackey": "f3n02dna",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 31,
+      "ackey": "ajl7r2hc",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 32,
+      "ackey": "f3vh6c01",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 33,
+      "ackey": "2bq9sb5w",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 34,
+      "ackey": "fv9oe62j",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 35,
+      "ackey": "jk9x22li",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 36,
+      "ackey": "wnnoltmq",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 37,
+      "ackey": "gwwivzcc",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 38,
+      "ackey": "g05yovdr",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 39,
+      "ackey": "uxu3z7yx",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 40,
+      "ackey": "re55wlm4",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 41,
+      "ackey": "1iuyffbv",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 42,
+      "ackey": "ijdmxeux",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 43,
+      "ackey": "74foxwo8",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 44,
+      "ackey": "fjujk20d",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 45,
+      "ackey": "k65b26ir",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 46,
+      "ackey": "1jzm0szx",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 47,
+      "ackey": "aqpzyb1h",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 48,
+      "ackey": "4iwft3kt",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 49,
+      "ackey": "y5nz6c6h",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 50,
+      "ackey": "ml4j70io",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 51,
+      "ackey": "9ind8rxc",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 52,
+      "ackey": "9bayezk2",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 53,
+      "ackey": "lsuywfav",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 54,
+      "ackey": "l7yuo3h2",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 55,
+      "ackey": "mqr3qdrw",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 56,
+      "ackey": "lkzbl4l9",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 57,
+      "ackey": "cdnmhdbk",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 58,
+      "ackey": "pkhvdgg1",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 59,
+      "ackey": "zlaj6ym5",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 60,
+      "ackey": "01pg8fdd",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 61,
+      "ackey": "koqdn59b",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 62,
+      "ackey": "9y9n47nk",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 63,
+      "ackey": "glihsgzy",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 64,
+      "ackey": "o6imw853",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 65,
+      "ackey": "jkug5e7r",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 66,
+      "ackey": "0ifp8unw",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 67,
+      "ackey": "eitvf38n",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 68,
+      "ackey": "e5ujfbej",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 69,
+      "ackey": "6psj8tdw",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 70,
+      "ackey": "uu8lbbtu",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 71,
+      "ackey": "2gnhrktq",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 72,
+      "ackey": "l26rqjr5",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 73,
+      "ackey": "vf9yv135",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 74,
+      "ackey": "ot649mlo",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 75,
+      "ackey": "7eh469mx",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 76,
+      "ackey": "zpshd0e4",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 77,
+      "ackey": "0vnvq6c6",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 78,
+      "ackey": "2ldhjhup",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 79,
+      "ackey": "jbw7dmtw",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 80,
+      "ackey": "in97h7kb",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 81,
+      "ackey": "q2fd7bnt",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 82,
+      "ackey": "6eqralux",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 83,
+      "ackey": "ax5r4p23",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 84,
+      "ackey": "4zec5ada",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 85,
+      "ackey": "z7pa8uon",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 86,
+      "ackey": "9g4a44bz",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 87,
+      "ackey": "02ca2t0z",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 88,
+      "ackey": "woof9uz3",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 89,
+      "ackey": "d3nmle12",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 90,
+      "ackey": "05tkr3i1",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 91,
+      "ackey": "t9wbq6a2",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 92,
+      "ackey": "hzachove",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 93,
+      "ackey": "kxfo4zh1",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 94,
+      "ackey": "3buv8732",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 95,
+      "ackey": "8fncf91v",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 96,
+      "ackey": "544jcbq8",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 97,
+      "ackey": "2myfo0pm",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 98,
+      "ackey": "m2ask6ap",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 99,
+      "ackey": "9fcvd36p",
+      "crd": 0,
+      "pl": 200
+    },
+    {
+      "round": 100,
+      "ackey": "jh4ilfy6",
+      "crd": 0,
+      "pl": 200
+    }
+  ]
+}

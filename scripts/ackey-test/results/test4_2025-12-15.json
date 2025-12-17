@@ -1,0 +1,317 @@
+{
+  "testName": "test4-entry-comparison",
+  "testDate": "2025-12-15",
+  "product": {
+    "keyword": "플리바바",
+    "productName": "플리바바 단품팩 2매 내부 액정 보호필름 갤럭시Z 플립7",
+    "nvMid": "90150262649"
+  },
+  "cases": {
+    "A": [
+      {
+        "case": "A",
+        "caseName": "정상 자동완성",
+        "timestamp": "2025-12-15T15:04:24.525Z",
+        "request": {
+          "url": "https://m.smartstore.naver.com/i/v1/product-logs/12605751792",
+          "method": "POST",
+          "headers": {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "cookie": "NAC=HpEAB4AY4I3e; MM_PF=SEARCH; NACT=1; SRT30=1765811054; SRT5=1765811054; NNB=FBIAIVTOENAGS; _naver_usersession_=+BPmK/A8pYipwgGzOS8KG0zj; page_uid=jRsBOsqX6IZssdmvx20-313931; BUC=BhcZPVoSyDQ0_JC8xlQ8-JV7gYvGpj9X6yqPCSSlolc=; _fwb=147I4a74MOTaMpDCKhdObjT.1765811064150",
+            "origin": "https://m.smartstore.naver.com",
+            "referer": "https://m.smartstore.naver.com/darammall/products/12605751792?nl-query=%ED%94%8C%EB%A6%BD7+%ED%95%84%EB%A6%84+%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&nl-ts-pid=jRsBOsqX6IZssdmvx20-313931&NaPm=ct%3Dmj7abbhs%7Cci%3D59656f9ec64b153773428de99b19db1d868bd7b4%7Ctr%3Dsls%7Csn%3D819441%7Chk%3D8dbeccc7f45161dea2d69710e15a46479d652930",
+            "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": "\"Android\"",
+            "useshopfegw": "true",
+            "x-client-version": "20251211104817"
+          },
+          "body": {
+            "id": "12605751792",
+            "channel": {
+              "accountNo": 100268796,
+              "channelNo": "100298636",
+              "channelUid": "2sWDxUV2l44tJHrUiI1wP",
+              "channelName": "플러스 울트라 지갑케이스",
+              "representName": "다람",
+              "channelSiteUrl": "darammall",
+              "channelSiteFullUrl": "https://smartstore.naver.com/darammall",
+              "channelSiteMobileUrl": "https://m.smartstore.naver.com/darammall",
+              "accountId": "ncp_1np3wc_01",
+              "naverPaySellerNo": "510278692",
+              "sellerExternalStatusType": "NORMAL",
+              "logoWidth": 1024,
+              "logoHeight": 1024,
+              "logoUrl": "http://shop1.phinf.naver.net/20250808_64/1754648104583gJSXy_PNG/9446573517173308_1444965719.png",
+              "channelTypeCode": "STOREFARM"
+            },
+            "channelServiceType": "STOREFARM",
+            "category": {
+              "categoryId": "50004595",
+              "categoryName": "액정보호필름",
+              "category1Id": "50000003",
+              "category2Id": "50000205",
+              "category3Id": "50001378",
+              "category4Id": "50004595",
+              "category1Name": "디지털/가전",
+              "category2Name": "휴대폰액세서리",
+              "category3Name": "휴대폰보호필름",
+              "category4Name": "액정보호필름",
+              "wholeCategoryId": "50000003>50000205>50001378>50004595",
+              "wholeCategoryName": "디지털/가전>휴대폰액세서리>휴대폰보호필름>액정보호필름",
+              "categoryLevel": 4,
+              "lastLevel": true,
+              "sortOrder": 1,
+              "validCategory": true,
+              "receiptIssue": true,
+              "exceptionalCategoryTypes": [
+                "FREE_RETURN_INSURANCE",
+                "GROUP_PRODUCT_MAX",
+                "MANUFACTURE_DEFINE_NO",
+                "REGULAR_SUBSCRIPTION"
+              ],
+              "pointAccumulationYn": false
+            },
+            "groupId": "50030399",
+            "tr": "sls",
+            "planNo": "",
+            "referer": "https://m.search.naver.com/search.naver?sm=mtp_sug.top&where=m&query=%ED%94%8C%EB%A6%BD7+%ED%95%84%EB%A6%84+%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&ackey=5q1ncd4z&acq=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&acr=5&qdt=0"
+          },
+          "referer": "https://m.search.naver.com/search.naver?sm=mtp_sug.top&where=m&query=%ED%94%8C%EB%A6%BD7+%ED%95%84%EB%A6%84+%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&ackey=5q1ncd4z&acq=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&acr=5&qdt=0",
+          "refererParams": {
+            "sm": "mtp_sug.top",
+            "where": "m",
+            "query": "플립7 필름 플리바바",
+            "ackey": "5q1ncd4z",
+            "acq": "플리바바",
+            "acr": "5",
+            "qdt": "0"
+          }
+        },
+        "response": {
+          "status": 200,
+          "statusText": "",
+          "headers": {
+            "cache-control": "no-cache, no-store, must-revalidate",
+            "requestid": "a074c643-5d7c-402d-8b98-180012ab0e55",
+            "content-length": "2",
+            "date": "Mon, 15 Dec 2025 15:04:23 GMT",
+            "content-type": "text/plain; charset=utf-8",
+            "server": "nfront",
+            "referrer-policy": "unsafe-url"
+          },
+          "body": "OK",
+          "timing": 62
+        }
+      }
+    ],
+    "B": [
+      {
+        "case": "B",
+        "caseName": "URL 직접 (자동완성 위조)",
+        "timestamp": "2025-12-15T15:04:35.293Z",
+        "request": {
+          "url": "https://m.smartstore.naver.com/i/v1/product-logs/12605751792",
+          "method": "POST",
+          "headers": {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "cookie": "page_uid=jRsBQlqX6IZssdmvymG-055710; _naver_usersession_=xUM8SrPGgsyY68yNMKWOvnCN; NNB=D4C5OCL7ENAGS; SRT30=1765811071; SRT5=1765811071; NAC=LFUfCwBwwBXQB; NACT=1; BUC=iuxCAOdASxOdIy00d_xRe14x0WnXQiOhlyk0ej39AgE=; _fwb=28oepmtxrqsZJHMFUDPnpZ.1765811075013",
+            "origin": "https://m.smartstore.naver.com",
+            "referer": "https://m.smartstore.naver.com/darammall/products/12605751792?nl-query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94+%EB%8B%A8%ED%92%88%ED%8C%A9+2%EB%A7%A4+%EB%82%B4%EB%B6%80+%EC%95%A1%EC%A0%95+%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84+%EA%B0%A4%EB%9F%AD%EC%8B%9CZ+%ED%94%8C%EB%A6%BD7&nl-ts-pid=jRsBQlqX6IZssdmvymG-055710&NaPm=ct%3Dmj7abjzc%7Cci%3Dec6ceaa50ecca3d7092b2f58d8af1d3f8ab1fdb4%7Ctr%3Dsls%7Csn%3D819441%7Chk%3Db68fa574ea4ad5d8193d8941701e7e647ed01263",
+            "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": "\"Android\"",
+            "useshopfegw": "true",
+            "x-client-version": "20251211104817"
+          },
+          "body": {
+            "id": "12605751792",
+            "channel": {
+              "accountNo": 100268796,
+              "channelNo": "100298636",
+              "channelUid": "2sWDxUV2l44tJHrUiI1wP",
+              "channelName": "플러스 울트라 지갑케이스",
+              "representName": "다람",
+              "channelSiteUrl": "darammall",
+              "channelSiteFullUrl": "https://smartstore.naver.com/darammall",
+              "channelSiteMobileUrl": "https://m.smartstore.naver.com/darammall",
+              "accountId": "ncp_1np3wc_01",
+              "naverPaySellerNo": "510278692",
+              "sellerExternalStatusType": "NORMAL",
+              "logoWidth": 1024,
+              "logoHeight": 1024,
+              "logoUrl": "http://shop1.phinf.naver.net/20250808_64/1754648104583gJSXy_PNG/9446573517173308_1444965719.png",
+              "channelTypeCode": "STOREFARM"
+            },
+            "channelServiceType": "STOREFARM",
+            "category": {
+              "categoryId": "50004595",
+              "categoryName": "액정보호필름",
+              "category1Id": "50000003",
+              "category2Id": "50000205",
+              "category3Id": "50001378",
+              "category4Id": "50004595",
+              "category1Name": "디지털/가전",
+              "category2Name": "휴대폰액세서리",
+              "category3Name": "휴대폰보호필름",
+              "category4Name": "액정보호필름",
+              "wholeCategoryId": "50000003>50000205>50001378>50004595",
+              "wholeCategoryName": "디지털/가전>휴대폰액세서리>휴대폰보호필름>액정보호필름",
+              "categoryLevel": 4,
+              "lastLevel": true,
+              "sortOrder": 1,
+              "validCategory": true,
+              "receiptIssue": true,
+              "exceptionalCategoryTypes": [
+                "FREE_RETURN_INSURANCE",
+                "GROUP_PRODUCT_MAX",
+                "MANUFACTURE_DEFINE_NO",
+                "REGULAR_SUBSCRIPTION"
+              ],
+              "pointAccumulationYn": false
+            },
+            "groupId": "50030399",
+            "tr": "sls",
+            "planNo": "",
+            "referer": "https://m.search.naver.com/search.naver?sm=mtp_sug.top&where=m&query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94%20%EB%8B%A8%ED%92%88%ED%8C%A9%202%EB%A7%A4%20%EB%82%B4%EB%B6%80%20%EC%95%A1%EC%A0%95%20%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84%20%EA%B0%A4%EB%9F%AD%EC%8B%9CZ%20%ED%94%8C%EB%A6%BD7&ackey=qlosyqho&acq=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&acr=1&qdt=0"
+          },
+          "referer": "https://m.search.naver.com/search.naver?sm=mtp_sug.top&where=m&query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94%20%EB%8B%A8%ED%92%88%ED%8C%A9%202%EB%A7%A4%20%EB%82%B4%EB%B6%80%20%EC%95%A1%EC%A0%95%20%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84%20%EA%B0%A4%EB%9F%AD%EC%8B%9CZ%20%ED%94%8C%EB%A6%BD7&ackey=qlosyqho&acq=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94&acr=1&qdt=0",
+          "refererParams": {
+            "sm": "mtp_sug.top",
+            "where": "m",
+            "query": "플리바바 단품팩 2매 내부 액정 보호필름 갤럭시Z 플립7",
+            "ackey": "qlosyqho",
+            "acq": "플리바바",
+            "acr": "1",
+            "qdt": "0"
+          }
+        },
+        "response": {
+          "status": 200,
+          "statusText": "",
+          "headers": {
+            "cache-control": "no-cache, no-store, must-revalidate",
+            "requestid": "a78b41df-0567-4d88-9ca1-598e1b2138c9",
+            "content-length": "2",
+            "date": "Mon, 15 Dec 2025 15:04:34 GMT",
+            "content-type": "text/plain; charset=utf-8",
+            "server": "nfront",
+            "referrer-policy": "unsafe-url"
+          },
+          "body": "OK",
+          "timing": 62
+        }
+      }
+    ],
+    "C": [
+      {
+        "case": "C",
+        "caseName": "일반 검색 (Enter)",
+        "timestamp": "2025-12-15T15:04:50.598Z",
+        "request": {
+          "url": "https://m.smartstore.naver.com/i/v1/product-logs/12605751792",
+          "method": "POST",
+          "headers": {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "cookie": "NAC=ODPXB4AY409eB; NACT=1; MM_PF=SEARCH; NNB=D3FVNRUJENAGS; SRT30=1765811081; SRT5=1765811081; _naver_usersession_=P4yDB6brnOjV85hbCeog+1/q; page_uid=jRsBBdqX6IZssdmvzAN-309526; BUC=ZrBQ8QiICqLCZ1vAVg05NsXMH1BlKmF7py-iFLlPzgM=; _fwb=128BFBdnSHX6hzW1vuWNuGJ.1765811090245",
+            "origin": "https://m.smartstore.naver.com",
+            "referer": "https://m.smartstore.naver.com/darammall/products/12605751792?nl-query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94+%EB%8B%A8%ED%92%88%ED%8C%A9+2%EB%A7%A4+%EB%82%B4%EB%B6%80+%EC%95%A1%EC%A0%95+%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84+%EA%B0%A4%EB%9F%AD%EC%8B%9CZ+%ED%94%8C%EB%A6%BD7&nl-ts-pid=jRsBBdqX6IZssdmvzAN-309526&NaPm=ct%3Dmj7abvk0%7Cci%3De24ffe86b657db7568e3f3b9af5e8f4adb6c3013%7Ctr%3Dsls%7Csn%3D819441%7Chk%3Dbd583961d30bc8eb88425d34c1a2a077eb9a3b18",
+            "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+            "sec-ch-ua-mobile": "?1",
+            "sec-ch-ua-platform": "\"Android\"",
+            "useshopfegw": "true",
+            "x-client-version": "20251211104817"
+          },
+          "body": {
+            "id": "12605751792",
+            "channel": {
+              "accountNo": 100268796,
+              "channelNo": "100298636",
+              "channelUid": "2sWDxUV2l44tJHrUiI1wP",
+              "channelName": "플러스 울트라 지갑케이스",
+              "representName": "다람",
+              "channelSiteUrl": "darammall",
+              "channelSiteFullUrl": "https://smartstore.naver.com/darammall",
+              "channelSiteMobileUrl": "https://m.smartstore.naver.com/darammall",
+              "accountId": "ncp_1np3wc_01",
+              "naverPaySellerNo": "510278692",
+              "sellerExternalStatusType": "NORMAL",
+              "logoWidth": 1024,
+              "logoHeight": 1024,
+              "logoUrl": "http://shop1.phinf.naver.net/20250808_64/1754648104583gJSXy_PNG/9446573517173308_1444965719.png",
+              "channelTypeCode": "STOREFARM"
+            },
+            "channelServiceType": "STOREFARM",
+            "category": {
+              "categoryId": "50004595",
+              "categoryName": "액정보호필름",
+              "category1Id": "50000003",
+              "category2Id": "50000205",
+              "category3Id": "50001378",
+              "category4Id": "50004595",
+              "category1Name": "디지털/가전",
+              "category2Name": "휴대폰액세서리",
+              "category3Name": "휴대폰보호필름",
+              "category4Name": "액정보호필름",
+              "wholeCategoryId": "50000003>50000205>50001378>50004595",
+              "wholeCategoryName": "디지털/가전>휴대폰액세서리>휴대폰보호필름>액정보호필름",
+              "categoryLevel": 4,
+              "lastLevel": true,
+              "sortOrder": 1,
+              "validCategory": true,
+              "receiptIssue": true,
+              "exceptionalCategoryTypes": [
+                "MANUFACTURE_DEFINE_NO",
+                "REGULAR_SUBSCRIPTION",
+                "GROUP_PRODUCT_MAX",
+                "FREE_RETURN_INSURANCE"
+              ],
+              "pointAccumulationYn": false
+            },
+            "groupId": "50030399",
+            "tr": "sls",
+            "planNo": "",
+            "referer": "https://m.search.naver.com/search.naver?sm=mtp_hty.top&where=m&query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94+%EB%8B%A8%ED%92%88%ED%8C%A9+2%EB%A7%A4+%EB%82%B4%EB%B6%80+%EC%95%A1%EC%A0%95+%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84+%EA%B0%A4%EB%9F%AD%EC%8B%9CZ+%ED%94%8C%EB%A6%BD7&ackey=xabexkbf"
+          },
+          "referer": "https://m.search.naver.com/search.naver?sm=mtp_hty.top&where=m&query=%ED%94%8C%EB%A6%AC%EB%B0%94%EB%B0%94+%EB%8B%A8%ED%92%88%ED%8C%A9+2%EB%A7%A4+%EB%82%B4%EB%B6%80+%EC%95%A1%EC%A0%95+%EB%B3%B4%ED%98%B8%ED%95%84%EB%A6%84+%EA%B0%A4%EB%9F%AD%EC%8B%9CZ+%ED%94%8C%EB%A6%BD7&ackey=xabexkbf",
+          "refererParams": {
+            "sm": "mtp_hty.top",
+            "where": "m",
+            "query": "플리바바 단품팩 2매 내부 액정 보호필름 갤럭시Z 플립7",
+            "ackey": "xabexkbf"
+          }
+        },
+        "response": {
+          "status": 200,
+          "statusText": "",
+          "headers": {
+            "cache-control": "no-cache, no-store, must-revalidate",
+            "requestid": "fea02650-fc8e-4822-ac9b-0587773befde",
+            "content-length": "2",
+            "date": "Mon, 15 Dec 2025 15:04:49 GMT",
+            "content-type": "text/plain; charset=utf-8",
+            "server": "nfront",
+            "referrer-policy": "unsafe-url"
+          },
+          "body": "OK",
+          "timing": 47
+        }
+      }
+    ]
+  },
+  "comparison": {
+    "statusDiff": false,
+    "headersDiff": [
+      "date",
+      "requestid"
+    ],
+    "bodyDiff": false
+  },
+  "conclusion": "⚠️ 진입 방식에 따라 응답 차이 발견 - 서버가 구분할 가능성 있음"
+}

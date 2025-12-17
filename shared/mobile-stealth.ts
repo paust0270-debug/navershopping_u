@@ -1,0 +1,186 @@
+/**
+ * 모바일 스텔스 스크립트
+ *
+ * navigator.userAgentData, platform, webdriver 등 오버라이드
+ * CreepJS 봇 탐지 우회용
+ *
+ * 사용법:
+ *   import { MOBILE_STEALTH_SCRIPT, applyMobileStealth } from '../shared/mobile-stealth';
+ *   await applyMobileStealth(context);
+ */
+
+import type { BrowserContext } from "patchright";
+
+export const MOBILE_STEALTH_SCRIPT = `
+// ============================================================
+// 모바일 스텔스 스크립트 - navigator 및 API 오버라이드
+// ============================================================
+
+// 1. navigator.userAgentData 오버라이드 (Client Hints API)
+Object.defineProperty(navigator, 'userAgentData', {
+  get: () => ({
+    brands: [
+      { brand: 'Chromium', version: '120' },
+      { brand: 'Google Chrome', version: '120' },
+      { brand: 'Not_A Brand', version: '8' }
+    ],
+    mobile: true,
+    platform: 'Android',
+    getHighEntropyValues: async (hints) => ({
+      brands: [
+        { brand: 'Chromium', version: '120' },
+        { brand: 'Google Chrome', version: '120' },
+        { brand: 'Not_A Brand', version: '8' }
+      ],
+      mobile: true,
+      platform: 'Android',
+      platformVersion: '13.0.0',
+      architecture: 'arm',
+      bitness: '64',
+      model: 'SM-G998B',
+      uaFullVersion: '120.0.0.0',
+      fullVersionList: [
+        { brand: 'Chromium', version: '120.0.0.0' },
+        { brand: 'Google Chrome', version: '120.0.0.0' },
+        { brand: 'Not_A Brand', version: '8.0.0.0' }
+      ]
+    }),
+    toJSON: function() {
+      return {
+        brands: this.brands,
+        mobile: this.mobile,
+        platform: this.platform
+      };
+    }
+  })
+});
+
+// 2. navigator.platform 오버라이드
+Object.defineProperty(navigator, 'platform', {
+  get: () => 'Linux armv81'
+});
+
+// 3. navigator.webdriver 숨기기
+Object.defineProperty(navigator, 'webdriver', {
+  get: () => false
+});
+
+// 4. navigator.maxTouchPoints 설정 (모바일)
+Object.defineProperty(navigator, 'maxTouchPoints', {
+  get: () => 5
+});
+
+// 5. navigator.hardwareConcurrency (모바일 수준)
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+  get: () => 8
+});
+
+// 6. navigator.deviceMemory (모바일 수준)
+Object.defineProperty(navigator, 'deviceMemory', {
+  get: () => 4
+});
+
+// 7. navigator.connection 모바일 설정
+Object.defineProperty(navigator, 'connection', {
+  get: () => ({
+    effectiveType: '4g',
+    rtt: 50,
+    downlink: 10,
+    saveData: false,
+    type: 'cellular',
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  })
+});
+
+// 8. screen orientation (portrait)
+if (screen.orientation) {
+  try {
+    Object.defineProperty(screen.orientation, 'type', {
+      get: () => 'portrait-primary'
+    });
+    Object.defineProperty(screen.orientation, 'angle', {
+      get: () => 0
+    });
+  } catch (e) {}
+}
+
+// 9. window.chrome 객체 (안드로이드 크롬)
+window.chrome = {
+  runtime: {},
+  loadTimes: function() {},
+  csi: function() {},
+  app: {}
+};
+
+// 10. Permissions API 수정
+const originalQuery = window.navigator.permissions?.query;
+if (originalQuery) {
+  window.navigator.permissions.query = (parameters) => (
+    parameters.name === 'notifications' ?
+      Promise.resolve({ state: Notification.permission }) :
+      originalQuery(parameters)
+  );
+}
+
+// 11. WebGL Vendor/Renderer 스푸핑 (모바일 GPU)
+const getParameterOrig = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+  // UNMASKED_VENDOR_WEBGL
+  if (parameter === 37445) {
+    return 'Qualcomm';
+  }
+  // UNMASKED_RENDERER_WEBGL
+  if (parameter === 37446) {
+    return 'Adreno (TM) 730';
+  }
+  return getParameterOrig.call(this, parameter);
+};
+
+const getParameterOrig2 = WebGL2RenderingContext.prototype.getParameter;
+WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+  if (parameter === 37445) {
+    return 'Qualcomm';
+  }
+  if (parameter === 37446) {
+    return 'Adreno (TM) 730';
+  }
+  return getParameterOrig2.call(this, parameter);
+};
+
+// 12. 배터리 API 모바일화
+if (navigator.getBattery) {
+  navigator.getBattery = () => Promise.resolve({
+    charging: true,
+    chargingTime: 0,
+    dischargingTime: Infinity,
+    level: 0.85 + Math.random() * 0.1,  // 85~95% 랜덤
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  });
+}
+
+// 13. Playwright 전역 변수 제거
+delete window.__playwright__binding__;
+delete window.__pwInitScripts;
+`;
+
+/**
+ * BrowserContext에 모바일 스텔스 스크립트 적용
+ */
+export async function applyMobileStealth(context: BrowserContext): Promise<void> {
+  await context.addInitScript(MOBILE_STEALTH_SCRIPT);
+}
+
+/**
+ * 모바일 컨텍스트 설정 (viewport, userAgent 등)
+ */
+export const MOBILE_CONTEXT_OPTIONS = {
+  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  viewport: { width: 412, height: 915 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 3,
+  locale: 'ko-KR',
+  timezoneId: 'Asia/Seoul',
+};

@@ -42,6 +42,7 @@ import { chromium, type Page, type Browser, type BrowserContext } from "patchrig
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
+import { applyMobileStealth } from "./shared/mobile-stealth";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -807,6 +808,11 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
 
       // 모바일/웹 모드에 따라 context 설정
       context = await browser.newContext(USE_MOBILE_MODE ? MOBILE_CONTEXT : WEB_CONTEXT);
+
+      // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
+      if (USE_MOBILE_MODE) {
+        await applyMobileStealth(context);
+      }
 
       const page = await context.newPage();
       page.setDefaultTimeout(60000);
