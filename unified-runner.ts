@@ -97,13 +97,20 @@ const USE_MOBILE_MODE = true;  // true: 모바일(m.smartstore), false: 웹(smar
 
 // 모바일 디바이스 설정 (진짜 모바일처럼 보이도록)
 const MOBILE_CONTEXT = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
   viewport: { width: 400, height: 700 },
   isMobile: true,
   hasTouch: true,
   deviceScaleFactor: 3,
   locale: 'ko-KR',
   timezoneId: 'Asia/Seoul',
+  extraHTTPHeaders: {
+    'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
+    'sec-ch-ua-platform-version': '"14.0.0"',
+    'sec-ch-ua-model': '"SM-S911B"',
+  },
 };
 
 // 웹(PC) 디바이스 설정
@@ -275,13 +282,27 @@ async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: nu
   }
 }
 
-// ============ [행동 계층] 인간화 스크롤 ============
-// 봇 탐지 우회: 일정하지 않은 스크롤 속도와 간격
+// ============ [행동 계층] 인간화 스크롤 (모바일 터치) ============
+// 봇 탐지 우회: 모바일 터치 스크롤
 async function humanScroll(page: Page, targetY: number): Promise<void> {
+  const viewport = page.viewportSize();
+  if (!viewport) return;
+
+  const centerX = viewport.width / 2;
+  const startY = viewport.height * 0.7;
+
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
-    await page.mouse.wheel(0, step);
+
+    // 터치 후 smooth 스크롤
+    await page.touchscreen.tap(centerX, startY);
+    await sleep(50);
+
+    await page.evaluate((dist) => {
+      window.scrollBy({ top: dist, behavior: 'smooth' });
+    }, step);
+
     scrolled += step;
     await sleep(80 + Math.random() * 60);
   }
@@ -582,9 +603,14 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
         autocompleteClicked = true;
       }
     } catch (e) {
-      log(`[Worker ${workerId}] 자동완성 실패, 엔터로 검색...`, "warn");
-      await page.keyboard.press('Enter');
-      autocompleteClicked = true; // 엔터로 대체
+      log(`[Worker ${workerId}] 자동완성 실패, 검색 버튼 탭...`, "warn");
+      const searchBtn = await page.$('button[type="submit"], .btn_search, [class*="search_btn"]');
+      if (searchBtn) {
+        await searchBtn.click();
+      } else {
+        await page.keyboard.press('Enter');
+      }
+      autocompleteClicked = true; // 버튼 탭으로 대체
     }
 
     if (!autocompleteClicked) {
@@ -687,9 +713,9 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
         break;
       }
 
-      // 스크롤
-      await page.mouse.wheel(0, 500);
-      await sleep(randomBetween(500, 800));
+      // 스크롤 (모바일 터치)
+      await humanScroll(page, 500);
+      await sleep(randomBetween(300, 500));
 
       const prevHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
       await sleep(300);
