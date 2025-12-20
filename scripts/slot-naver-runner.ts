@@ -347,14 +347,27 @@ async function updateSlotStats(slotId: number, successCount: number, failCount: 
   }
 }
 
-// ============ 인간화 스크롤 ============
+// ============ 인간화 스크롤 (모바일 터치) ============
 async function humanScroll(page: Page, distance: number): Promise<void> {
+  const viewport = page.viewportSize();
+  if (!viewport) return;
+
+  const centerX = viewport.width / 2;
+  const startY = viewport.height * 0.7;
+
   let scrolled = 0;
   while (scrolled < distance) {
-    const step = randomBetween(50, 150);
-    await page.mouse.wheel(0, step);
-    scrolled += step;
-    await sleep(randomBetween(30, 80));
+    const swipeDistance = randomBetween(100, 200);
+
+    await page.touchscreen.tap(centerX, startY);
+    await sleep(50);
+
+    await page.evaluate((dist) => {
+      window.scrollBy({ top: dist, behavior: 'smooth' });
+    }, swipeDistance);
+
+    scrolled += swipeDistance;
+    await sleep(randomBetween(100, 200));
   }
 }
 
@@ -565,12 +578,18 @@ async function processSlot(slot: SlotNaver, workerId: number): Promise<{ success
       throw new Error("차단 감지 - 네이버 메인");
     }
 
-    // 2. 검색
+    // 2. 검색 (모바일: 검색 버튼 탭)
     log(`[Worker ${workerId}] 검색: ${slot.product_name?.substring(0, 30)}...`);
     await page.click('input[name="query"]');
     await sleep(randomBetween(200, 400));
     await humanType(page, slot.product_name);
-    await page.keyboard.press("Enter");
+
+    const searchBtn = await page.$('button[type="submit"], .btn_search, [class*="search_btn"]');
+    if (searchBtn) {
+      await searchBtn.click();
+    } else {
+      await page.keyboard.press("Enter");
+    }
     await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
     await sleep(randomBetween(2000, 3000));
 
