@@ -95,9 +95,9 @@ const BROWSER_HEIGHT = 540;  // 브라우저 높이
 // 모바일/웹 모드 설정
 const USE_MOBILE_MODE = true;  // true: 모바일(m.smartstore), false: 웹(smartstore)
 
-// 모바일 디바이스 설정 (진짜 모바일처럼 보이도록)
+// 모바일 디바이스 설정 - exp-008: Chrome 131 + Android 13 (Galaxy S22)
 const MOBILE_CONTEXT = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
   viewport: { width: 400, height: 700 },
   isMobile: true,
   hasTouch: true,
@@ -108,8 +108,8 @@ const MOBILE_CONTEXT = {
     'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
-    'sec-ch-ua-platform-version': '"14.0.0"',
-    'sec-ch-ua-model': '"SM-S911B"',
+    'sec-ch-ua-platform-version': '"13.0.0"',
+    'sec-ch-ua-model': '"SM-S901B"',
   },
 };
 
