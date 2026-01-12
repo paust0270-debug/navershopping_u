@@ -285,26 +285,15 @@ async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: nu
   }
 }
 
-// ============ [행동 계층] 인간화 스크롤 (모바일 터치) ============
-// 봇 탐지 우회: 모바일 터치 스크롤
+// ============ [행동 계층] 인간화 스크롤 (mouse.wheel) ============
+// 봇 탐지 우회: mouse.wheel 기반 스크롤 (터치 탭 제거로 오클릭 방지)
 async function humanScroll(page: Page, targetY: number): Promise<void> {
-  const viewport = page.viewportSize();
-  if (!viewport) return;
-
-  const centerX = viewport.width / 2;
-  const startY = viewport.height * 0.7;
-
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    // 터치 후 smooth 스크롤
-    await page.touchscreen.tap(centerX, startY);
-    await sleep(50);
-
-    await page.evaluate((dist) => {
-      window.scrollBy({ top: dist, behavior: 'smooth' });
-    }, step);
+    // mouse.wheel로 스크롤 (터치 탭 없이)
+    await page.mouse.wheel({ deltaY: step });
 
     scrolled += step;
     await sleep(80 + Math.random() * 60);
