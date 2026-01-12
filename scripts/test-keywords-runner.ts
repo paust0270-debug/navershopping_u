@@ -392,7 +392,7 @@ async function claimWorkItemFromSlot(): Promise<WorkItem | null> {
     // slot_naver에서 키워드 필터링
     let query = supabase
       .from("slot_naver")
-      .select("id, keyword, mid, product_name")
+      .select("id, keyword, mid, product_name, worker_lock, locked_at")
       .eq("status", "작동중")
       .not("mid", "is", null)
       .not("product_name", "is", null);
