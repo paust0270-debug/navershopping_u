@@ -406,18 +406,35 @@ async function claimWorkItemFromSlot(): Promise<WorkItem | null> {
       .order("id", { ascending: true })
       .limit(50);
 
-    if (error || !slots || slots.length === 0) {
+    if (error) {
+      log(`[DEBUG] 슬롯 조회 에러: ${error.message}`, "error");
       return null;
     }
 
+    if (!slots || slots.length === 0) {
+      log(`[DEBUG] 조회된 슬롯 없음 (키워드: ${testKeywords.join(', ')})`);
+      return null;
+    }
+
+    log(`[DEBUG] ${slots.length}개 슬롯 조회됨 (키워드: ${testKeywords.join(', ')})`);
+
     // 잠금되지 않았거나 타임아웃된 슬롯 찾기
+    let checkedCount = 0;
+    let lockedCount = 0;
     for (const slot of slots) {
+      checkedCount++;
       const isLocked = slot.worker_lock !== null;
       const lockExpired = slot.locked_at
         ? (Date.now() - new Date(slot.locked_at).getTime()) > lockTimeoutMs
         : true;
 
-      if (isLocked && !lockExpired) continue;
+      if (isLocked && !lockExpired) {
+        lockedCount++;
+        log(`[DEBUG] 슬롯 ${slot.id} (${slot.keyword}) 잠김: ${slot.worker_lock}`);
+        continue;
+      }
+
+      log(`[DEBUG] 슬롯 ${slot.id} (${slot.keyword}) 잠금 시도...`);
 
       // 잠금 획득 시도
       const { data: updated, error: updateError } = await supabase
@@ -431,18 +448,28 @@ async function claimWorkItemFromSlot(): Promise<WorkItem | null> {
         .select()
         .single();
 
-      if (!updateError && updated) {
-        return {
-          taskId: slot.id,
-          slotId: slot.id,
-          keyword: slot.keyword,
-          productName: slot.product_name,
-          mid: slot.mid,
-          linkUrl: `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(slot.product_name)}`
-        };
+      if (updateError) {
+        log(`[DEBUG] 슬롯 ${slot.id} 잠금 실패: ${updateError.message}`, "warn");
+        continue;
       }
+
+      if (!updated) {
+        log(`[DEBUG] 슬롯 ${slot.id} 잠금 실패: 다른 워커가 먼저 획득`, "warn");
+        continue;
+      }
+
+      log(`[DEBUG] 슬롯 ${slot.id} (${slot.keyword}) 획득 성공!`);
+      return {
+        taskId: slot.id,
+        slotId: slot.id,
+        keyword: slot.keyword,
+        productName: slot.product_name,
+        mid: slot.mid,
+        linkUrl: `https://search.shopping.naver.com/search/all?query=${encodeURIComponent(slot.product_name)}`
+      };
     }
 
+    log(`[DEBUG] 모든 슬롯 획득 실패 (체크: ${checkedCount}, 잠김: ${lockedCount})`, "warn");
     return null;
   } catch (e: any) {
     log(`[CLAIM ERROR] ${e.message}`, "error");
