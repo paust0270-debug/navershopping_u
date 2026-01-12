@@ -404,7 +404,7 @@ async function claimWorkItemFromSlot(): Promise<WorkItem | null> {
 
     const { data: slots, error } = await query
       .order("id", { ascending: true })
-      .limit(10);
+      .limit(50);
 
     if (error || !slots || slots.length === 0) {
       return null;
