@@ -418,10 +418,13 @@ async function claimWorkItemFromSlot(): Promise<WorkItem | null> {
 
     log(`[DEBUG] ${slots.length}개 슬롯 조회됨 (키워드: ${testKeywords.join(', ')})`);
 
+    // 키워드별 균등 분배를 위해 랜덤 셔플
+    const shuffled = [...slots].sort(() => Math.random() - 0.5);
+
     // 잠금되지 않았거나 타임아웃된 슬롯 찾기
     let checkedCount = 0;
     let lockedCount = 0;
-    for (const slot of slots) {
+    for (const slot of shuffled) {
       checkedCount++;
       const isLocked = slot.worker_lock !== null;
       const lockExpired = slot.locked_at
