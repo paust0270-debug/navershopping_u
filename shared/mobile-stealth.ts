@@ -20,11 +20,11 @@ import type { BrowserContext } from "patchright";
 // 디바이스 프로필 (통합 관리)
 // ============================================
 export const DEVICE_PROFILE = {
-  // 기기 정보
-  device: 'SM-S911B',
-  deviceName: 'Galaxy S23',
+  // 기기 정보 (exp-008: 실험 최고 성능)
+  device: 'SM-S901B',
+  deviceName: 'Galaxy S22',
   platform: 'Android',
-  platformVersion: '14.0.0',
+  platformVersion: '13.0.0',
 
   // 브라우저 버전
   chromeVersion: '131',
@@ -35,15 +35,15 @@ export const DEVICE_PROFILE = {
   architecture: 'arm',
   bitness: '64',
 
-  // GPU (Snapdragon 8 Gen 2)
+  // GPU (Snapdragon 8 Gen 1)
   gpuVendor: 'Qualcomm',
-  gpuRenderer: 'Adreno (TM) 740',
+  gpuRenderer: 'Adreno (TM) 730',
 };
 
 export const MOBILE_STEALTH_SCRIPT = `
 // ============================================================
 // 모바일 스텔스 스크립트 - navigator 및 API 오버라이드
-// Chrome 131 / Android 14 / SM-S911B (Galaxy S23)
+// Chrome 131 / Android 13 / SM-S901B (Galaxy S22) [exp-008]
 // ============================================================
 
 // 1. navigator.userAgentData 오버라이드 (Client Hints API)
@@ -64,10 +64,10 @@ Object.defineProperty(navigator, 'userAgentData', {
       ],
       mobile: true,
       platform: 'Android',
-      platformVersion: '14.0.0',
+      platformVersion: '13.0.0',
       architecture: 'arm',
       bitness: '64',
-      model: 'SM-S911B',
+      model: 'SM-S901B',
       uaFullVersion: '131.0.0.0',
       fullVersionList: [
         { brand: 'Chromium', version: '131.0.0.0' },
@@ -162,7 +162,7 @@ WebGLRenderingContext.prototype.getParameter = function(parameter) {
   }
   // UNMASKED_RENDERER_WEBGL
   if (parameter === 37446) {
-    return 'Adreno (TM) 740';
+    return 'Adreno (TM) 730';
   }
   return getParameterOrig.call(this, parameter);
 };
@@ -173,7 +173,7 @@ WebGL2RenderingContext.prototype.getParameter = function(parameter) {
     return 'Qualcomm';
   }
   if (parameter === 37446) {
-    return 'Adreno (TM) 740';
+    return 'Adreno (TM) 730';
   }
   return getParameterOrig2.call(this, parameter);
 };
@@ -205,9 +205,10 @@ export async function applyMobileStealth(context: BrowserContext): Promise<void>
 /**
  * 모바일 컨텍스트 설정 (viewport, userAgent 등)
  * unified-runner.ts의 MOBILE_CONTEXT와 일치
+ * exp-008: Chrome 131 + Android 13 + Galaxy S22 (실험 최고 성능)
  */
 export const MOBILE_CONTEXT_OPTIONS = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
   viewport: { width: 400, height: 700 },
   isMobile: true,
   hasTouch: true,
@@ -218,7 +219,7 @@ export const MOBILE_CONTEXT_OPTIONS = {
     'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
-    'sec-ch-ua-platform-version': '"14.0.0"',
-    'sec-ch-ua-model': '"SM-S911B"',
+    'sec-ch-ua-platform-version': '"13.0.0"',
+    'sec-ch-ua-model': '"SM-S901B"',
   },
 };
