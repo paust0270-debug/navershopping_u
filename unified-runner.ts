@@ -59,7 +59,7 @@ import { chromium, type Page, type Browser, type BrowserContext } from "patchrig
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
-import { applyMobileStealth } from "./shared/mobile-stealth";
+import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stealth";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -92,7 +92,7 @@ import { applyMobileStealth } from "./shared/mobile-stealth";
 // ================================================================
 
 // ============ 설정 ============
-const PARALLEL_BROWSERS = 4;    // 동시 실행 워커 수
+const PARALLEL_BROWSERS = 1;    // 동시 실행 워커 수
 const WORKER_REST = 2 * 1000;   // 워커 작업 간 휴식 (2초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
@@ -112,21 +112,9 @@ const BROWSER_HEIGHT = 540;  // 브라우저 높이
 // 모바일/웹 모드 설정
 const USE_MOBILE_MODE = true;  // true: 모바일(m.smartstore), false: 웹(smartstore)
 
-// 모바일 디바이스 설정 (진짜 모바일처럼 보이도록)
-const MOBILE_CONTEXT = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
-  viewport: { width: 400, height: 700 },
-  isMobile: true,
-  hasTouch: true,
-  deviceScaleFactor: 3,
-  locale: 'ko-KR',
-  timezoneId: 'Asia/Seoul',
-  extraHTTPHeaders: {
-    'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
-  },
-};
+// 모바일 디바이스 설정 (mobile-stealth.ts에서 import)
+// MOBILE_CONTEXT_OPTIONS 사용으로 platform-version, model 헤더 포함
+const MOBILE_CONTEXT = MOBILE_CONTEXT_OPTIONS;
 
 // 웹(PC) 디바이스 설정
 const WEB_CONTEXT = {
