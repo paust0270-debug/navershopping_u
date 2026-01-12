@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "keywords": [
+    "키워드1",
+    "키워드2",
+    "키워드3"
+  ],
+  "_comment": "테스트할 키워드 목록 (slot_naver 테이블의 keyword 컬럼과 매칭)"
+}

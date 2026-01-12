@@ -19,6 +19,10 @@ npx tsx scripts/slot-naver-runner.ts
 npx tsx scripts/slot-naver-runner.ts --test      # 테스트 모드 (100회/슬롯)
 npx tsx scripts/slot-naver-runner.ts --headless  # 헤드리스 모드
 
+# Run test-keywords runner (특정 키워드만 테스트)
+TEST_KEYWORDS="키워드1,키워드2" npx tsx scripts/test-keywords-runner.ts  # 환경변수로 키워드 지정
+npx tsx scripts/test-keywords-runner.ts --config=test-keywords.json      # 설정 파일로 키워드 지정
+
 # Run test runner (5 product test)
 npx tsx runner/test-runner.ts
 
@@ -72,6 +76,7 @@ npx pm2 restart all
 |------|---------|
 | `unified-runner.ts` | Main worker: fetches tasks from Supabase, runs browser automation |
 | `scripts/slot-naver-runner.ts` | **Slot 기반 러너**: slot_naver 테이블에서 작업 획득/처리 |
+| `scripts/test-keywords-runner.ts` | **키워드 테스트 러너**: slot_naver에서 특정 키워드만 필터링하여 테스트 |
 | `engines/v7_engine.ts` | Traffic engine: search, scroll, click, CAPTCHA handling |
 | `engines-packet/` | Packet replay 엔진 (BehaviorLogCaptor, MultiSendEngine) |
 | `ipRotation.ts` | IP rotation via ADB (mobile tethering) or network adapter |
