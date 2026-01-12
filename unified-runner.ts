@@ -15,14 +15,31 @@ import * as path from "path";
 import * as fs from "fs";
 import { execSync } from "child_process";
 
-// Chrome/Puppeteer Temp 폴더를 D드라이브로 변경 (C드라이브 용량 문제 방지)
-const TEMP_DIR = 'D:\\temp';
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
+// Chrome/Puppeteer Temp 폴더 설정
+// D 드라이브 있으면 D:\temp, 없으면 C:\turafic\temp 사용
+const getDriveLetter = () => {
+  try {
+    if (fs.existsSync('D:\\')) {
+      return 'D:\\temp';
+    }
+  } catch (e) {}
+  // D 드라이브 없으면 C:\turafic\temp 사용
+  return 'C:\\turafic\\temp';
+};
+
+const TEMP_DIR = getDriveLetter();
+try {
+  if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+  }
+  process.env.TEMP = TEMP_DIR;
+  process.env.TMP = TEMP_DIR;
+  process.env.TMPDIR = TEMP_DIR;
+  console.log(`[TEMP] Using: ${TEMP_DIR}`);
+} catch (e: any) {
+  console.error(`[TEMP] Failed to create temp dir: ${e.message}`);
+  console.error(`[TEMP] Using system default temp dir`);
 }
-process.env.TEMP = TEMP_DIR;
-process.env.TMP = TEMP_DIR;
-process.env.TMPDIR = TEMP_DIR;
 
 // .env 로드
 const envPaths = [
@@ -95,9 +112,9 @@ const BROWSER_HEIGHT = 540;  // 브라우저 높이
 // 모바일/웹 모드 설정
 const USE_MOBILE_MODE = true;  // true: 모바일(m.smartstore), false: 웹(smartstore)
 
-// 모바일 디바이스 설정 - exp-008: Chrome 131 + Android 13 (Galaxy S22)
+// 모바일 디바이스 설정 (진짜 모바일처럼 보이도록)
 const MOBILE_CONTEXT = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
   viewport: { width: 400, height: 700 },
   isMobile: true,
   hasTouch: true,
@@ -108,8 +125,6 @@ const MOBILE_CONTEXT = {
     'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
-    'sec-ch-ua-platform-version': '"13.0.0"',
-    'sec-ch-ua-model': '"SM-S901B"',
   },
 };
 
