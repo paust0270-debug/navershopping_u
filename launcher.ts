@@ -24,8 +24,8 @@ try {
   require('dotenv').config();
 } catch (e) {}
 
-// 엔진 폴더 고정 경로 (VMWare에서는 C:\turafic 사용)
-const WORK_DIR = 'C:\\turafic';
+// 엔진 폴더 경로 (환경변수 또는 기본값)
+const WORK_DIR = process.env.TURAFIC_DIR || 'C:\\turafic';
 const RUNNER_FILE = 'unified-runner.ts';
 const GIT_PULL_INTERVAL = 3 * 60 * 1000; // 3분마다 git pull
 const RESTART_DELAY = 5000; // 에러 시 5초 후 재시작
