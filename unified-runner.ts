@@ -92,7 +92,7 @@ import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stea
 // ================================================================
 
 // ============ 설정 ============
-const PARALLEL_BROWSERS = 1;    // 동시 실행 워커 수
+const PARALLEL_BROWSERS = 2;    // 동시 실행 워커 수
 const WORKER_REST = 2 * 1000;   // 워커 작업 간 휴식 (2초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
