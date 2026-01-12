@@ -15,7 +15,12 @@
     "build:exe": "npm run build && pkg auto-updater.js -t node18-win-x64 -o turafic-updater.exe",
     "build:launcher-exe": "npm run build:launcher && pkg dist/launcher.js -t node18-win-x64 -o turafic-launcher.exe",
     "build:launcher-exe-dev": "npm run build:launcher-dev && pkg dist/launcher-dev.js -t node18-win-x64 -o turafic-launcher-dev.exe",
+    "build:launcher-vm": "esbuild launcher-vm.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-vm.js",
+    "build:launcher-normal": "esbuild launcher-normal.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-normal.js",
+    "build:launcher-vm-exe": "npm run build:launcher-vm && pkg dist/launcher-vm.js -t node18-win-x64 -o turafic-launcher-vm.exe",
+    "build:launcher-normal-exe": "npm run build:launcher-normal && pkg dist/launcher-normal.js -t node18-win-x64 -o turafic-launcher-normal.exe",
     "build:all-exe": "npm run build:launcher-exe && npm run build:launcher-exe-dev",
+    "build:launchers-all": "npm run build:launcher-vm-exe && npm run build:launcher-normal-exe",
     "start": "node auto-updater.js",
     "dev": "tsx auto-updater.ts",
     "launcher": "tsx launcher.ts"
