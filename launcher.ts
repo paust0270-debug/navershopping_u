@@ -336,25 +336,57 @@ async function main() {
   // .env 파일 설정 (없으면 .env.example 복사)
   const envPath = path.join(WORK_DIR, '.env');
   const envExamplePath = path.join(WORK_DIR, '.env.example');
+
+  let needsEnvSetup = false;
+
   if (!fs.existsSync(envPath)) {
     if (fs.existsSync(envExamplePath)) {
       log('.env 파일이 없습니다. .env.example을 복사합니다...');
       try {
         fs.copyFileSync(envExamplePath, envPath);
         log('.env 파일 생성 완료');
-        log('');
-        log('중요: .env 파일을 편집하여 Supabase 설정을 입력하세요!');
-        log('경로: ' + envPath);
-        log('');
+        needsEnvSetup = true;
       } catch (e: any) {
         log('.env 파일 복사 실패: ' + e.message);
       }
     } else {
       log('경고: .env 파일과 .env.example이 모두 없습니다.');
-      log('환경 변수 설정이 필요할 수 있습니다.');
     }
   } else {
-    log('.env 파일 확인 완료');
+    // .env 파일 검증 (xxxxx 같은 placeholder 확인)
+    try {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      if (envContent.includes('xxxxx') || envContent.includes('SUPABASE_PRODUCTION_URL=https://xxxxx')) {
+        log('경고: .env 파일에 placeholder 값이 있습니다.');
+        needsEnvSetup = true;
+      } else {
+        log('.env 파일 확인 완료');
+      }
+    } catch (e) {
+      log('.env 파일 읽기 실패');
+    }
+  }
+
+  if (needsEnvSetup) {
+    log('');
+    log('==================================================');
+    log('  .env 파일 설정이 필요합니다!');
+    log('==================================================');
+    log('');
+    log('경로: ' + envPath);
+    log('');
+    log('설정해야 할 항목:');
+    log('1. SUPABASE_PRODUCTION_URL - Supabase 프로젝트 URL');
+    log('2. SUPABASE_PRODUCTION_KEY - Supabase anon key');
+    log('3. EQUIPMENT_NAME - 이 PC의 고유 이름');
+    log('');
+    log('설정 방법:');
+    log('1. 메모장으로 위 파일 열기');
+    log('2. xxxxx 부분을 실제 값으로 변경');
+    log('3. 저장 후 launcher 재실행');
+    log('');
+    log('==================================================');
+    await waitForKey('설정 후 아무 키나 눌러 계속...');
   }
 
   // 주기적 git pull (백그라운드)
