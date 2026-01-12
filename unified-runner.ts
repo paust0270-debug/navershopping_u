@@ -285,15 +285,42 @@ async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: nu
   }
 }
 
-// ============ [행동 계층] 인간화 스크롤 (mouse.wheel) ============
-// 봇 탐지 우회: mouse.wheel 기반 스크롤 (터치 탭 제거로 오클릭 방지)
+// CDP 세션 캐시
+const cdpSessions = new Map<Page, any>();
+
+async function getCDPSession(page: Page): Promise<any> {
+  if (!cdpSessions.has(page)) {
+    const client = await page.context().newCDPSession(page);
+    cdpSessions.set(page, client);
+  }
+  return cdpSessions.get(page)!;
+}
+
+// ============ [행동 계층] 인간화 스크롤 (모바일 터치 제스처) ============
+// 봇 탐지 우회: CDP synthesizeScrollGesture로 진짜 터치 스크롤 시뮬레이션
 async function humanScroll(page: Page, targetY: number): Promise<void> {
+  const viewport = page.viewportSize();
+  if (!viewport) return;
+
+  const client = await getCDPSession(page);
+  const x = viewport.width / 2;
+  const y = viewport.height / 2;
+
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    // mouse.wheel로 스크롤 (터치 탭 없이)
-    await page.mouse.wheel({ deltaY: step });
+    // CDP로 모바일 터치 스크롤 제스처 시뮬레이션
+    await client.send('Input.synthesizeScrollGesture', {
+      x,
+      y,
+      yDistance: -step,  // 음수 = 아래로 스크롤
+      xDistance: 0,
+      speed: randomBetween(800, 1500),
+      gestureSourceType: 'touch',
+      repeatCount: 1,
+      repeatDelayMs: 0,
+    });
 
     scrolled += step;
     await sleep(80 + Math.random() * 60);
