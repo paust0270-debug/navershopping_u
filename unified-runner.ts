@@ -978,8 +978,20 @@ function printStats(): void {
 //    └─ [브라우저+디바이스] 워커 생성
 //       └─ [행동] 검색/클릭/체류
 async function main() {
+  // Git 커밋 해시 가져오기
+  let gitCommit = 'unknown';
+  try {
+    gitCommit = execSync('git rev-parse --short HEAD', {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    }).trim();
+  } catch (e) {
+    // git 명령 실패 시 무시
+  }
+
   console.log(`\n${"=".repeat(60)}`);
   console.log(`  Unified Runner (Patchright + IP Rotation + 독립 워커)`);
+  console.log(`  Script: unified-runner.ts | Commit: ${gitCommit}`);
   console.log(`${"=".repeat(60)}`);
   console.log(`  동시 워커: ${PARALLEL_BROWSERS}개 (각자 독립 실행)`);
   console.log(`  IP 로테이션: ${IP_ROTATION_ENABLED ? `${TASKS_PER_ROTATION}건마다` : '비활성화'}`);

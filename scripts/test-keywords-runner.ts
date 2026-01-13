@@ -957,8 +957,20 @@ function printStats(): void {
 async function main() {
   const testKeywords = loadTestKeywords();
 
+  // Git 커밋 해시 가져오기
+  let gitCommit = 'unknown';
+  try {
+    gitCommit = execSync('git rev-parse --short HEAD', {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    }).trim();
+  } catch (e) {
+    // git 명령 실패 시 무시
+  }
+
   console.log(`\n${"=".repeat(60)}`);
   console.log(`  Test Keywords Runner`);
+  console.log(`  Script: test-keywords-runner.ts | Commit: ${gitCommit}`);
   console.log(`${"=".repeat(60)}`);
   console.log(`  동시 워커: ${PARALLEL_BROWSERS}개`);
   console.log(`  테스트 키워드: ${testKeywords.length > 0 ? testKeywords.join(', ') : '전체'}`);
