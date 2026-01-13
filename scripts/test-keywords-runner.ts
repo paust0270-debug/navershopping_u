@@ -274,18 +274,7 @@ async function bezierMouseMove(page: Page, fromX: number, fromY: number, toX: nu
   }
 }
 
-// CDP 세션 캐시
-const cdpSessions = new Map<Page, any>();
-
-async function getCDPSession(page: Page): Promise<any> {
-  if (!cdpSessions.has(page)) {
-    const client = await page.context().newCDPSession(page);
-    cdpSessions.set(page, client);
-  }
-  return cdpSessions.get(page)!;
-}
-
-// ============ 인간화 스크롤 (모바일 터치) ============
+// ============ 인간화 스크롤 (mouse.wheel 방식) ============
 async function humanScroll(page: Page, targetY: number): Promise<void> {
   const viewport = page.viewportSize();
   if (!viewport) return;
@@ -294,25 +283,8 @@ async function humanScroll(page: Page, targetY: number): Promise<void> {
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    try {
-      // CDP 방식 시도
-      const client = await getCDPSession(page);
-      await client.send('Input.synthesizeScrollGesture', {
-        x: Math.floor(viewport.width / 2),
-        y: Math.floor(viewport.height / 2),
-        yDistance: -Math.floor(step),
-        xDistance: 0,
-        speed: Math.floor(randomBetween(800, 1500)),
-        gestureSourceType: 'touch',
-        repeatCount: 1,
-        repeatDelayMs: 0,
-      });
-    } catch (e: any) {
-      // CDP 실패 시 대체 방법 (page.evaluate)
-      await page.evaluate((scrollAmount) => {
-        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
-      }, step);
-    }
+    // Playwright의 안정적인 mouse.wheel API 사용
+    await page.mouse.wheel(0, step);
 
     scrolled += step;
     await sleep(80 + Math.random() * 60);
