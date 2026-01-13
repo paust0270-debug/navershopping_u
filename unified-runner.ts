@@ -303,20 +303,20 @@ async function humanScroll(page: Page, targetY: number): Promise<void> {
   if (!viewport) return;
 
   const client = await getCDPSession(page);
-  const x = viewport.width / 2;
-  const y = viewport.height / 2;
+  const x = Math.floor(viewport.width / 2);
+  const y = Math.floor(viewport.height / 2);
 
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    // CDP로 모바일 터치 스크롤 제스처 시뮬레이션
+    // CDP로 모바일 터치 스크롤 제스처 시뮬레이션 (모든 파라미터 정수 변환)
     await client.send('Input.synthesizeScrollGesture', {
-      x,
-      y,
-      yDistance: -step,  // 음수 = 아래로 스크롤
+      x: Math.floor(x),
+      y: Math.floor(y),
+      yDistance: -Math.floor(step),  // 음수 = 아래로 스크롤
       xDistance: 0,
-      speed: randomBetween(800, 1500),
+      speed: Math.floor(randomBetween(800, 1500)),
       gestureSourceType: 'touch',
       repeatCount: 1,
       repeatDelayMs: 0,
