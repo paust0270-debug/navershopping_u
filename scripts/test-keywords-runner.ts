@@ -290,24 +290,29 @@ async function humanScroll(page: Page, targetY: number): Promise<void> {
   const viewport = page.viewportSize();
   if (!viewport) return;
 
-  const client = await getCDPSession(page);
-  const x = viewport.width / 2;
-  const y = viewport.height / 2;
-
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    await client.send('Input.synthesizeScrollGesture', {
-      x,
-      y,
-      yDistance: -step,
-      xDistance: 0,
-      speed: randomBetween(800, 1500),
-      gestureSourceType: 'touch',
-      repeatCount: 1,
-      repeatDelayMs: 0,
-    });
+    try {
+      // CDP 방식 시도
+      const client = await getCDPSession(page);
+      await client.send('Input.synthesizeScrollGesture', {
+        x: Math.floor(viewport.width / 2),
+        y: Math.floor(viewport.height / 2),
+        yDistance: -Math.floor(step),
+        xDistance: 0,
+        speed: Math.floor(randomBetween(800, 1500)),
+        gestureSourceType: 'touch',
+        repeatCount: 1,
+        repeatDelayMs: 0,
+      });
+    } catch (e: any) {
+      // CDP 실패 시 대체 방법 (page.evaluate)
+      await page.evaluate((scrollAmount) => {
+        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+      }, step);
+    }
 
     scrolled += step;
     await sleep(80 + Math.random() * 60);
