@@ -300,27 +300,39 @@ async function getCDPSession(page: Page): Promise<any> {
 // 봇 탐지 우회: CDP synthesizeScrollGesture로 진짜 터치 스크롤 시뮬레이션
 async function humanScroll(page: Page, targetY: number): Promise<void> {
   const viewport = page.viewportSize();
-  if (!viewport) return;
+
+  // viewport가 없거나 너무 작으면 폴백: 일반 스크롤
+  if (!viewport || viewport.width < 100 || viewport.height < 100) {
+    await page.evaluate((y) => window.scrollBy(0, y), targetY).catch(() => {});
+    await sleep(500);
+    return;
+  }
 
   const client = await getCDPSession(page);
-  const x = Math.floor(viewport.width / 2);
-  const y = Math.floor(viewport.height / 2);
+  // x, y는 최소 50 이상 보장 (CDP 파라미터 범위 에러 방지)
+  const x = Math.max(50, Math.floor(viewport.width / 2));
+  const y = Math.max(50, Math.floor(viewport.height / 2));
 
   let scrolled = 0;
   while (scrolled < targetY) {
     const step = 100 + Math.random() * 150;
 
-    // CDP로 모바일 터치 스크롤 제스처 시뮬레이션 (모든 파라미터 정수 변환)
-    await client.send('Input.synthesizeScrollGesture', {
-      x: Math.floor(x),
-      y: Math.floor(y),
-      yDistance: -Math.floor(step),  // 음수 = 아래로 스크롤
-      xDistance: 0,
-      speed: Math.floor(randomBetween(800, 1500)),
-      gestureSourceType: 'touch',
-      repeatCount: 1,
-      repeatDelayMs: 0,
-    });
+    try {
+      // CDP로 모바일 터치 스크롤 제스처 시뮬레이션
+      await client.send('Input.synthesizeScrollGesture', {
+        x: x,
+        y: y,
+        yDistance: -Math.floor(step),  // 음수 = 아래로 스크롤
+        xDistance: 0,
+        speed: Math.min(1200, Math.max(600, Math.floor(randomBetween(800, 1200)))),  // 600~1200 범위 제한
+        gestureSourceType: 'touch',
+        repeatCount: 1,
+        repeatDelayMs: 0,
+      });
+    } catch (e: any) {
+      // CDP 실패 시 폴백: 일반 스크롤
+      await page.evaluate((s) => window.scrollBy(0, s), step).catch(() => {});
+    }
 
     scrolled += step;
     await sleep(80 + Math.random() * 60);
@@ -698,44 +710,103 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     let midClicked = false;
 
     for (let i = 0; i < MAX_SCROLL; i++) {
-      // MID 링크 찾기
-      const productLink = page.locator(`a[href*="nv_mid=${mid}"]`).first();
-      const isVisible = await productLink.isVisible({ timeout: 1000 }).catch(() => false);
+      // 첫 스크롤에서만 디버그 로그
+      if (i === 0) {
+        log(`[Worker ${workerId}] 스크롤 ${i+1}/${MAX_SCROLL} - 3가지 전략으로 MID 탐색 시작`);
+      }
 
-      if (isVisible) {
-        log(`[Worker ${workerId}] MID 일치 상품 발견!`);
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 전략 1: 가격비교 - URL 파라미터
+      // 예: https://cr3.shopping.naver.com/...?nv_mid=90379584423
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      const linkByParam = page.locator(`a[href*="nv_mid=${mid}"]`).first();
+      const paramVisible = await linkByParam.isVisible({ timeout: 1000 }).catch(() => false);
 
-        // 클릭 (현재 페이지에서 이동)
-        await productLink.click();
+      if (paramVisible) {
+        log(`[Worker ${workerId}] MID 발견 (가격비교)`);
+        await linkByParam.click();
         await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
         await sleep(2000);
-
-        log(`[Worker ${workerId}] 상품 페이지 진입`);
         midClicked = true;
         result.midMatched = true;
 
-        // 체류 시간
+        // 체류 + 검증
         const dwellTime = randomBetween(3000, 6000);
         log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
         await sleep(dwellTime);
 
-        // 상품 페이지 검증 (URL 기반)
         const currentPageUrl = page.url();
-        const isSmartStore = currentPageUrl.includes('smartstore.naver.com') ||
-                             currentPageUrl.includes('brand.naver.com');
-
         log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-
-        if (isSmartStore) {
+        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
           result.productPageEntered = true;
         }
         break;
+      }
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 전략 2: 플러스스토어 - URL 경로
+      // 예: https://smartstore.naver.com/main/products/9211038096
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
+      const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
+
+      if (pathVisible) {
+        log(`[Worker ${workerId}] MID 발견 (플러스스토어 URL)`);
+        await linkByPath.click();
+        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+        await sleep(2000);
+        midClicked = true;
+        result.midMatched = true;
+
+        // 체류 + 검증
+        const dwellTime = randomBetween(3000, 6000);
+        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+        await sleep(dwellTime);
+
+        const currentPageUrl = page.url();
+        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
+        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
+          result.productPageEntered = true;
+        }
+        break;
+      }
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 전략 3: 플러스스토어 - ID 속성 (폴백)
+      // 예: id="nstore_productId_9211038096"
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      const containerById = page.locator(`[id="nstore_productId_${mid}"]`).first();
+      const idVisible = await containerById.isVisible({ timeout: 1000 }).catch(() => false);
+
+      if (idVisible) {
+        log(`[Worker ${workerId}] MID 발견 (플러스스토어 ID)`);
+        const linkInContainer = containerById.locator('xpath=preceding-sibling::a[@href]').first();
+        if (await linkInContainer.isVisible().catch(() => false)) {
+          await linkInContainer.click();
+          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+          await sleep(2000);
+          midClicked = true;
+          result.midMatched = true;
+
+          // 체류 + 검증
+          const dwellTime = randomBetween(3000, 6000);
+          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+          await sleep(dwellTime);
+
+          const currentPageUrl = page.url();
+          log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
+          if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
+            result.productPageEntered = true;
+          }
+          break;
+        }
       }
 
       // 스크롤 (모바일 터치)
       await humanScroll(page, 500);
       await sleep(randomBetween(300, 500));
 
+      // 스크롤 끝 감지
       const prevHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
       await sleep(300);
       const newHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
@@ -746,6 +817,30 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
 
     if (!midClicked) {
+      // 디버깅: 페이지에 있는 MID 목록 출력
+      try {
+        const foundMids = await page.evaluate(() => {
+          const mids: string[] = [];
+          // 가격비교 URL
+          document.querySelectorAll('a[href*="nv_mid="]').forEach(a => {
+            const match = a.getAttribute('href')?.match(/nv_mid=(\d+)/);
+            if (match) mids.push(match[1]);
+          });
+          // 플러스스토어 URL
+          document.querySelectorAll('a[href*="/products/"]').forEach(a => {
+            const match = a.getAttribute('href')?.match(/\/products\/(\d+)/);
+            if (match) mids.push(match[1]);
+          });
+          return mids.slice(0, 10); // 최대 10개만
+        }).catch(() => []);
+
+        if (foundMids.length > 0) {
+          log(`[Worker ${workerId}] 페이지에서 발견된 MID: ${foundMids.join(', ')}`, "warn");
+        } else {
+          log(`[Worker ${workerId}] 페이지에 MID를 포함한 링크가 없음`, "warn");
+        }
+      } catch {}
+
       result.error = 'NoMidMatch';
       result.failReason = 'NO_MID_MATCH';
       result.midMatched = false;
