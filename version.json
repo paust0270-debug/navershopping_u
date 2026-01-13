@@ -1,13 +1,15 @@
 {
-  "version": "2025-12-05-009000",
-  "timestamp": 1764910000000,
-  "hash": "db-config-auto",
+  "version": "2026-01-13-010000",
+  "timestamp": 1768283922034,
+  "hash": "db17d7d3",
   "features": [
     "prb-engine",
     "ip-rotation",
     "batch-execution",
     "v7-humanized",
     "word-shuffle",
-    "db-nodeType-auto"
+    "db-nodeType-auto",
+    "cdp-integer-fix",
+    "commit-logging"
   ]
 }
