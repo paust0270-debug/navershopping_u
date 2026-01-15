@@ -92,16 +92,17 @@ export class HybridContext {
       locale: "ko-KR",
       timezoneId: "Asia/Seoul",
       userAgent: realUserAgent,
-      // Client Hints 완전 설정 (UA와 일치해야 함)
+      // Client Hints 설정 (Low Entropy만 전송)
       extraHTTPHeaders: {
         "sec-ch-ua": `"Chromium";v="${chromeVersion}", "Google Chrome";v="${chromeVersion}", "Not-A.Brand";v="99"`,
         "sec-ch-ua-mobile": "?0",
         "sec-ch-ua-platform": '"Windows"',
-        "sec-ch-ua-platform-version": '"15.0.0"',
-        "sec-ch-ua-arch": '"x86"',
-        "sec-ch-ua-bitness": '"64"',
-        "sec-ch-ua-full-version-list": `"Chromium";v="${chromeVersion}.0.0.0", "Google Chrome";v="${chromeVersion}.0.0.0", "Not-A.Brand";v="99.0.0.0"`,
-        "sec-ch-ua-wow64": "?0",
+        // High entropy 헤더 제거 (Accept-CH 요청 없음 - 봇 탐지 위험)
+        // "sec-ch-ua-platform-version": '"15.0.0"',
+        // "sec-ch-ua-arch": '"x86"',
+        // "sec-ch-ua-bitness": '"64"',
+        // "sec-ch-ua-full-version-list": `"Chromium";v="${chromeVersion}.0.0.0", "Google Chrome";v="${chromeVersion}.0.0.0", "Not-A.Brand";v="99.0.0.0"`,
+        // "sec-ch-ua-wow64": "?0",
       },
     });
 

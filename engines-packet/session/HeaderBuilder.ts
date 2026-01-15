@@ -228,17 +228,17 @@ export class HeaderBuilder {
       "sec-ch-ua-platform": `"${config.platformName}"`,
     };
 
-    // 추가 Client Hints (선택적으로 포함)
-    hints["sec-ch-ua-full-version-list"] = shuffledFullBrands
-      .map((b) => `"${b.brand}";v="${b.version}"`)
-      .join(", ");
-    hints["sec-ch-ua-arch"] = `"${config.architecture}"`;
-    hints["sec-ch-ua-bitness"] = `"${config.bitness}"`;
-    hints["sec-ch-ua-wow64"] = config.wow64 ? "?1" : "?0";
+    // High entropy Client Hints 제거 (Accept-CH 요청 없음 - 봇 탐지 위험)
+    // hints["sec-ch-ua-full-version-list"] = shuffledFullBrands
+    //   .map((b) => `"${b.brand}";v="${b.version}"`)
+    //   .join(", ");
+    // hints["sec-ch-ua-arch"] = `"${config.architecture}"`;
+    // hints["sec-ch-ua-bitness"] = `"${config.bitness}"`;
+    // hints["sec-ch-ua-wow64"] = config.wow64 ? "?1" : "?0";
 
-    if (config.model) {
-      hints["sec-ch-ua-model"] = `"${config.model}"`;
-    }
+    // if (config.model) {
+    //   hints["sec-ch-ua-model"] = `"${config.model}"`;
+    // }
 
     return hints;
   }

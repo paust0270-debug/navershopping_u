@@ -77,10 +77,7 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"15.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
-      "sec-ch-ua-full-version-list": '"Chromium";v="131.0.0.0", "Google Chrome";v="131.0.0.0", "Not-A.Brand";v="99.0.0.0"',
+      // High entropy 제거
     },
   },
   {
@@ -92,9 +89,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -106,9 +100,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -120,9 +111,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"15.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -134,9 +122,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -148,9 +133,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -162,9 +144,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="129", "Google Chrome";v="129", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -176,9 +155,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"15.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -190,9 +166,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -204,9 +177,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"11.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -218,9 +188,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -232,9 +199,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"15.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -246,9 +210,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"10.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -260,9 +221,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"Windows"',
-      "sec-ch-ua-platform-version": '"15.0.0"',
-      "sec-ch-ua-arch": '"x86"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   // macOS Chrome (6개 - 30%)
@@ -275,9 +233,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"14.0.0"',
-      "sec-ch-ua-arch": '"arm"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -289,9 +244,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"13.0.0"',
-      "sec-ch-ua-arch": '"arm"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -303,9 +255,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"14.0.0"',
-      "sec-ch-ua-arch": '"arm"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -317,9 +266,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"12.0.0"',
-      "sec-ch-ua-arch": '"x86"',  // Intel Mac
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -331,9 +277,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"14.0.0"',
-      "sec-ch-ua-arch": '"arm"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
   {
@@ -345,9 +288,6 @@ const PROFILE_DEVICES: ProfileDevice[] = [
       "sec-ch-ua": '"Chromium";v="129", "Google Chrome";v="129", "Not-A.Brand";v="99"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
-      "sec-ch-ua-platform-version": '"13.0.0"',
-      "sec-ch-ua-arch": '"arm"',
-      "sec-ch-ua-bitness": '"64"',
     },
   },
 ];

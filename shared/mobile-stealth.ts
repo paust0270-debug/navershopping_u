@@ -219,7 +219,8 @@ export const MOBILE_CONTEXT_OPTIONS = {
     'sec-ch-ua': '"Chromium";v="131", "Google Chrome";v="131", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
-    'sec-ch-ua-platform-version': '"13.0.0"',
-    'sec-ch-ua-model': '"SM-S901B"',
+    // High entropy 헤더 제거 (네이버는 Accept-CH로 요청하지 않음 - 봇 탐지 위험)
+    // 'sec-ch-ua-platform-version': '"13.0.0"',
+    // 'sec-ch-ua-model': '"SM-S901B"',
   },
 };
