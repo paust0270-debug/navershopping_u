@@ -27,9 +27,9 @@ export const DEVICE_PROFILE = {
   platformVersion: '14.0.0',
 
   // 브라우저 버전
-  chromeVersion: '130',
-  chromeMajor: '130',
-  chromeFullVersion: '130.0.0.0',
+  chromeVersion: '132',
+  chromeMajor: '132',
+  chromeFullVersion: '132.0.0.0',
 
   // 아키텍처
   architecture: 'arm',
@@ -43,23 +43,23 @@ export const DEVICE_PROFILE = {
 export const MOBILE_STEALTH_SCRIPT = `
 // ============================================================
 // 모바일 스텔스 스크립트 - navigator 및 API 오버라이드
-// Chrome 130 / Android 14 / SM-S911B (Galaxy S23)
+// Chrome 132 / Android 14 / SM-S911B (Galaxy S23)
 // ============================================================
 
 // 1. navigator.userAgentData 오버라이드 (Client Hints API)
 Object.defineProperty(navigator, 'userAgentData', {
   get: () => ({
     brands: [
-      { brand: 'Chromium', version: '130' },
-      { brand: 'Google Chrome', version: '130' },
+      { brand: 'Chromium', version: '132' },
+      { brand: 'Google Chrome', version: '132' },
       { brand: 'Not-A.Brand', version: '99' }
     ],
     mobile: true,
     platform: 'Android',
     getHighEntropyValues: async (hints) => ({
       brands: [
-        { brand: 'Chromium', version: '130' },
-        { brand: 'Google Chrome', version: '130' },
+        { brand: 'Chromium', version: '132' },
+        { brand: 'Google Chrome', version: '132' },
         { brand: 'Not-A.Brand', version: '99' }
       ],
       mobile: true,
@@ -68,10 +68,10 @@ Object.defineProperty(navigator, 'userAgentData', {
       architecture: 'arm',
       bitness: '64',
       model: 'SM-S911B',
-      uaFullVersion: '130.0.0.0',
+      uaFullVersion: '132.0.0.0',
       fullVersionList: [
-        { brand: 'Chromium', version: '130.0.0.0' },
-        { brand: 'Google Chrome', version: '130.0.0.0' },
+        { brand: 'Chromium', version: '132.0.0.0' },
+        { brand: 'Google Chrome', version: '132.0.0.0' },
         { brand: 'Not-A.Brand', version: '99.0.0.0' }
       ]
     }),
@@ -205,10 +205,10 @@ export async function applyMobileStealth(context: BrowserContext): Promise<void>
 /**
  * 모바일 컨텍스트 설정 (viewport, userAgent 등)
  * unified-runner.ts의 MOBILE_CONTEXT와 일치
- * Chrome 130 + Android 14 + Galaxy S23 (Snapdragon 8 Gen 2)
+ * Chrome 132 + Android 14 + Galaxy S23 (Snapdragon 8 Gen 2)
  */
 export const MOBILE_CONTEXT_OPTIONS = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36',
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36',
   viewport: { width: 400, height: 700 },
   isMobile: true,
   hasTouch: true,
@@ -216,7 +216,7 @@ export const MOBILE_CONTEXT_OPTIONS = {
   locale: 'ko-KR',
   timezoneId: 'Asia/Seoul',
   extraHTTPHeaders: {
-    'sec-ch-ua': '"Chromium";v="130", "Google Chrome";v="130", "Not-A.Brand";v="99"',
+    'sec-ch-ua': '"Chromium";v="132", "Google Chrome";v="132", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
     // High entropy 헤더 제거 (네이버는 Accept-CH로 요청하지 않음 - 봇 탐지 위험)
