@@ -93,13 +93,13 @@ import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stea
 // ================================================================
 
 // ============ 설정 ============
-const PARALLEL_BROWSERS = 1;    // 동시 실행 워커 수 (테스트: 1개만)
+const PARALLEL_BROWSERS = 2;    // 동시 실행 워커 수
 const WORKER_REST = 2 * 1000;   // 워커 작업 간 휴식 (2초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
-const IP_ROTATION_ENABLED = false; // IP 로테이션 비활성화 (테스트용)
-const TASKS_PER_ROTATION = 9999;   // IP 로테이션 안함
+const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
+const TASKS_PER_ROTATION = 120;   // 120건마다 IP 로테이션
 const WORKER_START_DELAY = 3000;  // 워커 시작 간격 (3초)
-const TEST_MODE_ONE_RUN = true;    // 테스트 모드: 1회만 실행
+const TEST_MODE_ONE_RUN = false;   // 운영 모드: 무한 실행
 
 // 브라우저 창 위치 (4분할 배치 - 모바일 사이트용 좁은 창)
 const BROWSER_POSITIONS: { x: number; y: number }[] = [

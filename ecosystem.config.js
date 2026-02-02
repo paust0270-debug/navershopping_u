@@ -57,5 +57,24 @@ module.exports = {
       out_file: "logs/goldenbanji/pm2-out.log",
       merge_logs: true,
     },
+    // 쇼핑탭 러너 (자동완성 → 쇼핑탭 진입 → MID 매칭)
+    {
+      name: "turafic-shopping-tab",
+      script: "unified-runner-shopping-tab.ts",
+      interpreter: "node",
+      interpreter_args: "--import tsx",
+      cwd: "D:\\Project\\turafic_update",
+      watch: false,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      env: {
+        NODE_ENV: "production",
+      },
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      error_file: "logs/shopping-tab/pm2-error.log",
+      out_file: "logs/shopping-tab/pm2-out.log",
+      merge_logs: true,
+    },
   ],
 };
