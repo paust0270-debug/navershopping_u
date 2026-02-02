@@ -42,18 +42,38 @@ try {
   console.error(`[TEMP] Using system default temp dir`);
 }
 
-// .env 로드
+// .env 로드 (여러 경로 시도)
 const envPaths = [
   path.join(process.cwd(), '.env'),
   path.join(__dirname, '.env'),
+  path.join('D:\\Project\\turafic_update', '.env'),
   'C:\\turafic\\.env',
+  '.env', // 현재 디렉토리
 ];
+
+console.log('[ENV] 환경변수 로드 시도...');
+console.log('[ENV] process.cwd():', process.cwd());
+console.log('[ENV] __dirname:', __dirname);
+
+let envLoaded = false;
 for (const envPath of envPaths) {
-  const result = dotenv.config({ path: envPath });
-  if (!result.error) {
-    console.log(`[ENV] Loaded from: ${envPath}`);
-    break;
+  if (fs.existsSync(envPath)) {
+    const result = dotenv.config({ path: envPath });
+    if (!result.error) {
+      console.log(`[ENV] ✅ Loaded from: ${envPath}`);
+      envLoaded = true;
+      break;
+    } else {
+      console.log(`[ENV] ⚠️ 파일 존재하지만 로드 실패: ${envPath}`);
+      console.log(`[ENV] 에러: ${result.error.message}`);
+    }
   }
+}
+
+if (!envLoaded) {
+  console.error('[ENV] ❌ .env 파일을 찾을 수 없습니다!');
+  console.error('[ENV] 시도한 경로:', envPaths);
+  console.error('[ENV] SETUP-SHOPPING-TAB.md를 참고하여 .env 파일을 생성하세요.');
 }
 
 import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
@@ -128,6 +148,20 @@ const WEB_CONTEXT = {
 const SUPABASE_URL = process.env.SUPABASE_PRODUCTION_URL!;
 const SUPABASE_KEY = process.env.SUPABASE_PRODUCTION_KEY!;
 const EQUIPMENT_NAME = process.env.EQUIPMENT_NAME || '';
+
+// 환경변수 검증
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('\n❌ 환경변수가 설정되지 않았습니다!');
+  console.error('SUPABASE_PRODUCTION_URL:', SUPABASE_URL ? '✅ 설정됨' : '❌ 없음');
+  console.error('SUPABASE_PRODUCTION_KEY:', SUPABASE_KEY ? '✅ 설정됨' : '❌ 없음');
+  console.error('EQUIPMENT_NAME:', EQUIPMENT_NAME || '(선택사항)');
+  console.error('\n.env 파일을 확인하세요!');
+  process.exit(1);
+}
+
+console.log('[ENV] 환경변수 검증 완료');
+console.log('[ENV] SUPABASE_URL:', SUPABASE_URL.substring(0, 40) + '...');
+console.log('[ENV] EQUIPMENT_NAME:', EQUIPMENT_NAME || '(미설정)');
 
 // ============ Supabase 클라이언트 ============
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
