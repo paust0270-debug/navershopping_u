@@ -11,10 +11,27 @@
  * 로컬 테스트용 - 1회만 실행
  */
 
+// ============ .env 로드 (최우선) ============
+// 반드시 다른 import보다 먼저 실행
 import * as dotenv from "dotenv";
 import * as path from "path";
 import * as fs from "fs";
 import { execSync } from "child_process";
+
+// 현재 작업 디렉토리 기준으로 .env 로드
+const envPath = path.join(process.cwd(), '.env');
+console.log('[ENV] 현재 작업 디렉토리:', process.cwd());
+console.log('[ENV] .env 파일 경로:', envPath);
+
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  console.log('[ENV] ✅ .env 파일 로드 완료');
+} else {
+  console.error('[ENV] ❌ .env 파일을 찾을 수 없습니다!');
+  console.error('[ENV] 경로:', envPath);
+  console.error('[ENV] 현재 디렉토리에 .env 파일을 생성하세요.');
+  process.exit(1);
+}
 
 // Chrome/Puppeteer Temp 폴더 설정
 // D 드라이브 있으면 D:\temp, 없으면 C:\turafic\temp 사용
@@ -40,40 +57,6 @@ try {
 } catch (e: any) {
   console.error(`[TEMP] Failed to create temp dir: ${e.message}`);
   console.error(`[TEMP] Using system default temp dir`);
-}
-
-// .env 로드 (여러 경로 시도)
-const envPaths = [
-  path.join(process.cwd(), '.env'),
-  path.join(__dirname, '.env'),
-  path.join('D:\\Project\\turafic_update', '.env'),
-  'C:\\turafic\\.env',
-  '.env', // 현재 디렉토리
-];
-
-console.log('[ENV] 환경변수 로드 시도...');
-console.log('[ENV] process.cwd():', process.cwd());
-console.log('[ENV] __dirname:', __dirname);
-
-let envLoaded = false;
-for (const envPath of envPaths) {
-  if (fs.existsSync(envPath)) {
-    const result = dotenv.config({ path: envPath });
-    if (!result.error) {
-      console.log(`[ENV] ✅ Loaded from: ${envPath}`);
-      envLoaded = true;
-      break;
-    } else {
-      console.log(`[ENV] ⚠️ 파일 존재하지만 로드 실패: ${envPath}`);
-      console.log(`[ENV] 에러: ${result.error.message}`);
-    }
-  }
-}
-
-if (!envLoaded) {
-  console.error('[ENV] ❌ .env 파일을 찾을 수 없습니다!');
-  console.error('[ENV] 시도한 경로:', envPaths);
-  console.error('[ENV] SETUP-SHOPPING-TAB.md를 참고하여 .env 파일을 생성하세요.');
 }
 
 import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
