@@ -108,7 +108,7 @@ const WORKER_START_DELAY = 3000;  // 워커 시작 간격 (3초)
 const TEST_MODE_ONE_RUN = false;   // 운영 모드: 무한 실행
 
 // 테이블 설정 (App 버전)
-const QUEUE_TABLE = "traffic_navershopping_app";
+const QUEUE_TABLE = "traffic_navershopping-app";
 const SLOT_TABLE = "slot_naverapp";
 const HISTORY_TABLE = "slot_rank_naverapp_history";
 const SLOT_TYPE_FILTER = "네이버쇼핑";
