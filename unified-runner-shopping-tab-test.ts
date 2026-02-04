@@ -587,6 +587,139 @@ async function updateSlotStats(
   }
 }
 
+// ============ 큐와 슬롯 동기화 (시작 시 자동 슬롯 생성) ============
+async function syncSlotsFromQueue(): Promise<void> {
+  try {
+    log("[Sync] 큐에서 슬롯 동기화 시작...");
+
+    // 1. 큐에서 모든 고유 keyword 가져오기
+    const { data: queueKeywords, error: queueError } = await supabase
+      .from(QUEUE_TABLE)
+      .select("keyword")
+      .not("keyword", "is", null);
+
+    if (queueError) {
+      log(`[Sync] 큐 조회 실패: ${queueError.message}`, "error");
+      return;
+    }
+
+    if (!queueKeywords || queueKeywords.length === 0) {
+      log("[Sync] 큐에 작업이 없습니다.");
+      return;
+    }
+
+    // 고유 키워드 추출
+    const uniqueKeywords = [...new Set(queueKeywords.map(k => k.keyword).filter(Boolean))];
+    log(`[Sync] 큐에서 ${uniqueKeywords.length}개 고유 키워드 발견`);
+
+    // 2. slot_navertest에 이미 있는 키워드 확인
+    const { data: existingSlots, error: slotError } = await supabase
+      .from(SLOT_TABLE)
+      .select("keyword");
+
+    if (slotError) {
+      log(`[Sync] 슬롯 조회 실패: ${slotError.message}`, "error");
+      return;
+    }
+
+    const existingKeywords = new Set(
+      (existingSlots || []).map(s => s.keyword).filter(Boolean)
+    );
+
+    // 3. 없는 키워드들만 추가
+    const missingKeywords = uniqueKeywords.filter(k => !existingKeywords.has(k));
+
+    if (missingKeywords.length === 0) {
+      log("[Sync] 모든 키워드가 이미 슬롯에 존재합니다.");
+      return;
+    }
+
+    log(`[Sync] ${missingKeywords.length}개 키워드를 슬롯에 추가 중...`);
+
+    // 4. 슬롯 추가 (mid, product_name은 임시값)
+    const newSlots = missingKeywords.map(keyword => ({
+      keyword,
+      mid: "NEED_MID_" + Math.floor(Math.random() * 1000000),
+      product_name: `${keyword} (수동 입력 필요)`,
+      success_count: 0,
+      fail_count: 0
+    }));
+
+    const { error: insertError } = await supabase
+      .from(SLOT_TABLE)
+      .insert(newSlots);
+
+    if (insertError) {
+      log(`[Sync] 슬롯 삽입 실패: ${insertError.message}`, "error");
+      return;
+    }
+
+    log(`[Sync] ✅ ${missingKeywords.length}개 슬롯 추가 완료`);
+    log(`[Sync] ⚠️  Supabase에서 각 슬롯의 MID와 상품명을 수동으로 입력하세요!`);
+    missingKeywords.forEach(k => log(`      - ${k}`));
+
+  } catch (e: any) {
+    log(`[Sync] 에러: ${e.message}`, "error");
+  }
+}
+
+// ============ 큐의 slot_id를 자동 매칭 (슬롯 생성 후 실행) ============
+async function autoAssignSlotIds(): Promise<void> {
+  try {
+    log("[AutoAssign] slot_id가 없는 작업에 자동 할당 시작...");
+
+    // 1. slot_id가 null인 작업들 가져오기
+    const { data: nullSlotTasks, error: fetchError } = await supabase
+      .from(QUEUE_TABLE)
+      .select("id, keyword")
+      .is("slot_id", null)
+      .limit(100);
+
+    if (fetchError) {
+      log(`[AutoAssign] 조회 실패: ${fetchError.message}`, "error");
+      return;
+    }
+
+    if (!nullSlotTasks || nullSlotTasks.length === 0) {
+      log("[AutoAssign] slot_id가 null인 작업이 없습니다.");
+      return;
+    }
+
+    log(`[AutoAssign] ${nullSlotTasks.length}개 작업에 slot_id 할당 중...`);
+
+    // 2. 각 keyword에 맞는 slot_id 찾아서 업데이트
+    let assigned = 0;
+    for (const task of nullSlotTasks) {
+      if (!task.keyword) continue;
+
+      // 해당 keyword의 slot_id 찾기
+      const { data: slot } = await supabase
+        .from(SLOT_TABLE)
+        .select("id")
+        .eq("keyword", task.keyword)
+        .limit(1)
+        .single();
+
+      if (!slot) continue;
+
+      // 업데이트
+      const { error: updateError } = await supabase
+        .from(QUEUE_TABLE)
+        .update({ slot_id: slot.id })
+        .eq("id", task.id);
+
+      if (!updateError) {
+        assigned++;
+      }
+    }
+
+    log(`[AutoAssign] ✅ ${assigned}개 작업에 slot_id 할당 완료`);
+
+  } catch (e: any) {
+    log(`[AutoAssign] 에러: ${e.message}`, "error");
+  }
+}
+
 // ============ 히스토리 기록 (모든 실행마다) ============
 async function recordHistory(
   work: WorkItem,
@@ -1243,6 +1376,12 @@ async function main() {
     sendHeartbeat(); // 즉시 한 번 전송
     log(`장비명: ${EQUIPMENT_NAME}`);
   }
+
+  // ============ 큐와 슬롯 동기화 ============
+  log("");
+  await syncSlotsFromQueue();       // 1. 큐의 keyword를 슬롯에 추가 (없으면)
+  await autoAssignSlotIds();        // 2. 큐의 slot_id를 자동 매칭
+  log("");
 
   // 독립 워커들 시작 (순차적으로 시작하여 각자 무한 루프)
   log(`\n${PARALLEL_BROWSERS}개 워커 시작...`);
