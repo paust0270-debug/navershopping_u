@@ -9,7 +9,7 @@
  * 2. 쇼핑탭 진입 (msearch.shopping.naver.com)
  * 3. MID 매칭되는 상품 찾기
  *
- * 큐: traffic-navershopping-test
+ * 큐: traffic_navershopping_test
  * 통계: slot_navertest
  * 히스토리: slot_rank_navertest_history
  */
@@ -108,7 +108,7 @@ const WORKER_START_DELAY = 3000;  // 워커 시작 간격 (3초)
 const TEST_MODE_ONE_RUN = false;   // 운영 모드: 무한 실행
 
 // 테이블 설정 (Test 버전)
-const QUEUE_TABLE = "traffic-navershopping-test";
+const QUEUE_TABLE = "traffic_navershopping_test";
 const SLOT_TABLE = "slot_navertest";
 const HISTORY_TABLE = "slot_rank_navertest_history";
 const SLOT_TYPE_FILTER = "네이버쇼핑";

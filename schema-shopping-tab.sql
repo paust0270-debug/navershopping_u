@@ -8,7 +8,7 @@
 -- ============ 1. 트래픽 큐 테이블 ============
 
 -- 운영 큐
-CREATE TABLE IF NOT EXISTS "traffic-navershopping-app" (
+CREATE TABLE IF NOT EXISTS traffic_navershopping_app (
   id bigserial PRIMARY KEY,
   slot_id bigint,
   keyword text,
@@ -19,15 +19,15 @@ CREATE TABLE IF NOT EXISTS "traffic-navershopping-app" (
 );
 
 CREATE INDEX IF NOT EXISTS idx_traffic_navershopping_app_slot_type
-ON "traffic-navershopping-app"(slot_type);
+ON "traffic_navershopping_app"(slot_type);
 
 CREATE INDEX IF NOT EXISTS idx_traffic_navershopping_app_created_at
-ON "traffic-navershopping-app"(created_at);
+ON "traffic_navershopping_app"(created_at);
 
-COMMENT ON TABLE "traffic-navershopping-app" IS '운영 트래픽 큐 - 쇼핑탭 러너용';
+COMMENT ON TABLE "traffic_navershopping_app" IS '운영 트래픽 큐 - 쇼핑탭 러너용';
 
 -- 테스트 큐
-CREATE TABLE IF NOT EXISTS "traffic-navershopping-test" (
+CREATE TABLE IF NOT EXISTS traffic_navershopping_test (
   id bigserial PRIMARY KEY,
   slot_id bigint,
   keyword text,
@@ -38,12 +38,12 @@ CREATE TABLE IF NOT EXISTS "traffic-navershopping-test" (
 );
 
 CREATE INDEX IF NOT EXISTS idx_traffic_navershopping_test_slot_type
-ON "traffic-navershopping-test"(slot_type);
+ON "traffic_navershopping_test"(slot_type);
 
 CREATE INDEX IF NOT EXISTS idx_traffic_navershopping_test_created_at
-ON "traffic-navershopping-test"(created_at);
+ON "traffic_navershopping_test"(created_at);
 
-COMMENT ON TABLE "traffic-navershopping-test" IS '테스트 트래픽 큐 - 쇼핑탭 러너용';
+COMMENT ON TABLE "traffic_navershopping_test" IS '테스트 트래픽 큐 - 쇼핑탭 러너용';
 
 -- ============ 2. 통계 테이블 (Slot 관리) ============
 
@@ -221,8 +221,8 @@ INSERT INTO slot_navertest (keyword, mid, product_name) VALUES
 ('테스트상품5', '12345678903', '테스트상품5')
 ON CONFLICT DO NOTHING;
 
--- traffic-navershopping-test 샘플 (테스트 큐용)
-INSERT INTO "traffic-navershopping-test" (slot_id, keyword, link_url, slot_type)
+-- traffic_navershopping_test 샘플 (테스트 큐용)
+INSERT INTO "traffic_navershopping_test" (slot_id, keyword, link_url, slot_type)
 SELECT
   id,
   keyword,
