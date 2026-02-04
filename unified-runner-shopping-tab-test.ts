@@ -111,7 +111,7 @@ const TEST_MODE_ONE_RUN = false;   // 운영 모드: 무한 실행
 const QUEUE_TABLE = "traffic_navershopping-test";
 const SLOT_TABLE = "slot_navertest";
 const HISTORY_TABLE = "slot_rank_navertest_history";
-const SLOT_TYPE_FILTER = "네이버쇼핑";
+const SLOT_TYPE_FILTER = "네이버test";
 
 // 브라우저 창 위치 (4분할 배치 - 모바일 사이트용 좁은 창)
 const BROWSER_POSITIONS: { x: number; y: number }[] = [
