@@ -838,50 +838,15 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await page.locator('#MM_SEARCH_FAKE').click({ force: true });
     await sleep(randomBetween(800, 1200));
 
-    // 3. 짧은 키워드 입력 (keyword 또는 상품명 첫 단어)
-    const shortKeyword = keyword || productName.split(' ')[0].substring(0, 10);
-    log(`[Worker ${workerId}] "${shortKeyword}" 입력...`);
+    // 3. 메인 키워드 입력 (자동완성 사용 안 함)
+    log(`[Worker ${workerId}] "${keyword}" 입력...`);
     const searchInput = page.locator('#query.sch_input').first();
-    await searchInput.type(shortKeyword, { delay: randomBetween(80, 150) });
-    await sleep(randomBetween(1500, 2500));
+    await searchInput.type(keyword, { delay: randomBetween(80, 150) });
+    await sleep(randomBetween(500, 800));
 
-    // 4. 일반 자동완성 항목 랜덤 클릭 (data-area="top")
-    log(`[Worker ${workerId}] 자동완성 선택...`);
-    const autocompleteItems = page.locator('#sb-ac-recomm-wrap li.u_atcp_l[data-area="top"] a.u_atcp_a');
-
-    let autocompleteClicked = false;
-    try {
-      await autocompleteItems.first().waitFor({ state: 'visible', timeout: 3000 });
-      const count = await autocompleteItems.count();
-      log(`[Worker ${workerId}] 자동완성 항목 ${count}개`);
-
-      if (count > 1) {
-        const randomIndex = Math.floor(Math.random() * (count - 1)) + 1;
-        const selectedItem = autocompleteItems.nth(randomIndex);
-        const keywordText = await selectedItem.textContent();
-        log(`[Worker ${workerId}] 선택: "${keywordText?.trim()}"`);
-        await selectedItem.click();
-        autocompleteClicked = true;
-      } else if (count === 1) {
-        await autocompleteItems.first().click();
-        autocompleteClicked = true;
-      }
-    } catch (e) {
-      log(`[Worker ${workerId}] 자동완성 실패, 검색 버튼 탭...`, "warn");
-      const searchBtn = await page.$('button[type="submit"], .btn_search, [class*="search_btn"]');
-      if (searchBtn) {
-        await searchBtn.click();
-      } else {
-        await page.keyboard.press('Enter');
-      }
-      autocompleteClicked = true; // 버튼 탭으로 대체
-    }
-
-    if (!autocompleteClicked) {
-      result.error = 'NoAutocomplete';
-      return result;
-    }
-
+    // 4. Enter로 바로 검색
+    log(`[Worker ${workerId}] Enter로 검색 실행...`);
+    await page.keyboard.press('Enter');
     await page.waitForLoadState('domcontentloaded');
     await sleep(randomBetween(2000, 3000));
 
