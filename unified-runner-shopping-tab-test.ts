@@ -885,22 +885,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await page.waitForLoadState('domcontentloaded');
     await sleep(randomBetween(2000, 3000));
 
-    // 5. URL에서 ackey 확인 + query를 상품명으로 변경
-    const currentUrl = page.url();
-    const urlObj = new URL(currentUrl);
-    const ackey = urlObj.searchParams.get('ackey');
-    const sm = urlObj.searchParams.get('sm');
-    log(`[Worker ${workerId}] ackey=${ackey}, sm=${sm}`);
-
-    // query를 상품명으로 변경
-    urlObj.searchParams.set('query', productName);
-    log(`[Worker ${workerId}] 상품명으로 검색 이동...`);
-    await page.goto(urlObj.toString(), { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await sleep(randomBetween(2000, 3000));
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 쇼핑탭 진입 (자연스러운 클릭 방식 - 모바일)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 5. 쇼핑탭 클릭 (자동완성 선택 후 바로)
     log(`[Worker ${workerId}] 🛍️ 쇼핑탭 링크 클릭...`);
     let shoppingTabClicked = false;
 
@@ -940,7 +925,49 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     log(`[Worker ${workerId}] 쇼핑탭 진입 완료: ${finalUrl}`);
 
-    // 6. IP 차단 체크
+    // 6. 쇼핑탭 내 검색창에 전체 상품명 입력
+    log(`[Worker ${workerId}] 쇼핑탭 검색창에 상품명 입력...`);
+    try {
+      // 모바일 쇼핑 검색창 찾기 (여러 셀렉터 시도)
+      const searchInputSelectors = [
+        'input[type="search"]',
+        'input[name="query"]',
+        '.search_input',
+        '#gnb-gnb\\.search\\.keyword',
+        'input.input_search'
+      ];
+
+      let searchInput = null;
+      for (const selector of searchInputSelectors) {
+        searchInput = await page.$(selector);
+        if (searchInput) {
+          log(`[Worker ${workerId}] 검색창 발견: ${selector}`);
+          break;
+        }
+      }
+
+      if (searchInput) {
+        // 검색창 클릭 및 전체 상품명 입력
+        await searchInput.click();
+        await sleep(randomBetween(300, 500));
+        await searchInput.fill(''); // 기존 내용 클리어
+        await searchInput.type(productName, { delay: randomBetween(50, 100) });
+        await sleep(randomBetween(500, 800));
+
+        // Enter 또는 검색 버튼 클릭
+        await page.keyboard.press('Enter');
+        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+        await sleep(randomBetween(2000, 3000));
+
+        log(`[Worker ${workerId}] 상품명 검색 완료: ${productName}`);
+      } else {
+        log(`[Worker ${workerId}] 검색창을 찾을 수 없어 건너뜀`, "warn");
+      }
+    } catch (e: any) {
+      log(`[Worker ${workerId}] 검색창 입력 실패: ${e.message}`, "warn");
+    }
+
+    // 7. IP 차단 체크
     const isBlocked = await page.evaluate(() => {
       const bodyText = document.body?.innerText || '';
       return bodyText.includes('비정상적인 접근') ||
