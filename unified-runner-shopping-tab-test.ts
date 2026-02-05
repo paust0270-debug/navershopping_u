@@ -890,8 +890,8 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     log(`[Worker ${workerId}] 쇼핑탭 진입 완료: ${finalUrl}`);
 
-    // 6. 쇼핑탭 내 검색창에 전체 상품명 입력
-    log(`[Worker ${workerId}] 쇼핑탭 검색창에 상품명 입력...`);
+    // 6. 쇼핑탭 내 검색창에 키워드 입력 + 자동완성 선택
+    log(`[Worker ${workerId}] 쇼핑탭 검색창에 키워드 입력...`);
     try {
       // 쇼핑 페이지 검색창 (정확한 셀렉터)
       const searchContainer = await page.$('#gnb-gnb div[class*="_searchInput_search_input"]');
@@ -904,25 +904,60 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
         // 검색창 내부 input 찾기
         const searchInput = await searchContainer.$('input');
         if (searchInput) {
+          // 키워드 입력 (전체 상품명이 아닌 짧은 키워드)
+          const shortKeyword = productName.split(' ')[0].substring(0, 10);
           await searchInput.fill(''); // 기존 내용 클리어
-          await searchInput.type(productName, { delay: randomBetween(50, 100) });
-          await sleep(randomBetween(500, 800));
+          await searchInput.type(shortKeyword, { delay: randomBetween(50, 100) });
+          await sleep(randomBetween(1000, 1500));
 
-          // 검색 버튼 클릭
-          const searchBtn = await page.$('button[class*="_searchInput_button_search"]');
-          if (searchBtn) {
-            await searchBtn.click();
-            log(`[Worker ${workerId}] 검색 버튼 클릭`);
+          // 자동완성 레이어 대기 및 항목 선택
+          log(`[Worker ${workerId}] 자동완성 대기...`);
+          const autocompleteLayer = await page.$('div[class*="_autoCompleteLayer_auto_complete_layer"]');
+
+          if (autocompleteLayer) {
+            // 자동완성 항목 수집 (최근 검색어 제외)
+            const autocompleteItems = await page.$$('div[class*="_autoCompleteItem_mobile_auto_complete_item"] a[data-keywordtype="keyword"]');
+
+            if (autocompleteItems.length > 0) {
+              log(`[Worker ${workerId}] 자동완성 항목 ${autocompleteItems.length}개 발견`);
+
+              // 랜덤 항목 선택 (첫 번째 제외하고)
+              const randomIndex = autocompleteItems.length > 1
+                ? Math.floor(Math.random() * (autocompleteItems.length - 1)) + 1
+                : 0;
+
+              const selectedItem = autocompleteItems[randomIndex];
+              const selectedKeyword = await selectedItem.getAttribute('data-keyword');
+              log(`[Worker ${workerId}] 자동완성 선택: "${selectedKeyword}"`);
+
+              await selectedItem.click();
+              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await sleep(randomBetween(2000, 3000));
+
+              log(`[Worker ${workerId}] 자동완성 검색 완료`);
+            } else {
+              // 자동완성 항목이 없으면 전체 상품명으로 검색
+              log(`[Worker ${workerId}] 자동완성 없음, 전체 상품명 검색...`, "warn");
+              await searchInput.fill(productName);
+              await sleep(randomBetween(300, 500));
+
+              const searchBtn = await page.$('button[class*="_searchInput_button_search"]');
+              if (searchBtn) {
+                await searchBtn.click();
+              } else {
+                await page.keyboard.press('Enter');
+              }
+
+              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await sleep(randomBetween(2000, 3000));
+            }
           } else {
-            // 버튼이 없으면 Enter
+            // 자동완성 레이어가 없으면 Enter
+            log(`[Worker ${workerId}] 자동완성 레이어 없음, Enter 입력`, "warn");
             await page.keyboard.press('Enter');
-            log(`[Worker ${workerId}] Enter 입력`);
+            await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+            await sleep(randomBetween(2000, 3000));
           }
-
-          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-          await sleep(randomBetween(2000, 3000));
-
-          log(`[Worker ${workerId}] 상품명 검색 완료: ${productName}`);
         } else {
           log(`[Worker ${workerId}] 검색창 input을 찾을 수 없어 건너뜀`, "warn");
         }
