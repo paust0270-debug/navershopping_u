@@ -899,45 +899,13 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await sleep(randomBetween(2000, 3000));
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 쇼핑탭 진입 (자연스러운 클릭 방식)
+    // 쇼핑탭 진입 (직접 이동)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    log(`[Worker ${workerId}] 🛍️ 쇼핑탭 링크 클릭...`);
-    let shoppingTabClicked = false;
-
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      shoppingTabClicked = await page.evaluate(() => {
-        const link = document.querySelector<HTMLAnchorElement>('a[href*="search.shopping.naver.com"]');
-        if (!link) return false;
-        link.removeAttribute("target"); // 새 탭 방지
-        link.click();
-        return true;
-      });
-
-      if (shoppingTabClicked) break;
-      log(`[Worker ${workerId}] 쇼핑탭 링크 대기 중... (${attempt}/5)`);
-      await sleep(1000);
-    }
-
-    if (!shoppingTabClicked) {
-      log(`[Worker ${workerId}] 쇼핑탭 링크를 찾을 수 없습니다.`, "warn");
-      result.failReason = 'NO_SHOPPING_TAB';
-      result.error = 'NoShoppingTab';
-      return result;
-    }
-
-    // 쇼핑탭 로딩 대기
+    log(`[Worker ${workerId}] 🛍️ 쇼핑탭 진입...`);
+    const shoppingUrl = `https://msearch.shopping.naver.com/search/all?query=${encodeURIComponent(productName)}`;
+    await page.goto(shoppingUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await sleep(randomBetween(2000, 3000));
-
-    // 쇼핑탭 URL 확인
-    const finalUrl = page.url();
-    if (!finalUrl.includes("search.shopping.naver.com")) {
-      log(`[Worker ${workerId}] 쇼핑탭 URL 확인 실패: ${finalUrl}`, "warn");
-      result.failReason = 'SHOPPING_TAB_FAILED';
-      result.error = 'ShoppingTabFailed';
-      return result;
-    }
-
-    log(`[Worker ${workerId}] 쇼핑탭 진입 완료: ${finalUrl}`);
+    log(`[Worker ${workerId}] 쇼핑탭 로딩 완료`);
 
     // 6. IP 차단 체크
     const isBlocked = await page.evaluate(() => {
