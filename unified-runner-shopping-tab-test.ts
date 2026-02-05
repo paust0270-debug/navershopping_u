@@ -928,38 +928,39 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     // 6. 쇼핑탭 내 검색창에 전체 상품명 입력
     log(`[Worker ${workerId}] 쇼핑탭 검색창에 상품명 입력...`);
     try {
-      // 모바일 쇼핑 검색창 찾기 (여러 셀렉터 시도)
-      const searchInputSelectors = [
-        'input[type="search"]',
-        'input[name="query"]',
-        '.search_input',
-        '#gnb-gnb\\.search\\.keyword',
-        'input.input_search'
-      ];
+      // 쇼핑 페이지 검색창 (정확한 셀렉터)
+      const searchContainer = await page.$('#gnb-gnb div[class*="_searchInput_search_input"]');
 
-      let searchInput = null;
-      for (const selector of searchInputSelectors) {
-        searchInput = await page.$(selector);
-        if (searchInput) {
-          log(`[Worker ${workerId}] 검색창 발견: ${selector}`);
-          break;
-        }
-      }
-
-      if (searchInput) {
-        // 검색창 클릭 및 전체 상품명 입력
-        await searchInput.click();
+      if (searchContainer) {
+        // 검색창 클릭
+        await searchContainer.click();
         await sleep(randomBetween(300, 500));
-        await searchInput.fill(''); // 기존 내용 클리어
-        await searchInput.type(productName, { delay: randomBetween(50, 100) });
-        await sleep(randomBetween(500, 800));
 
-        // Enter 또는 검색 버튼 클릭
-        await page.keyboard.press('Enter');
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(randomBetween(2000, 3000));
+        // 검색창 내부 input 찾기
+        const searchInput = await searchContainer.$('input');
+        if (searchInput) {
+          await searchInput.fill(''); // 기존 내용 클리어
+          await searchInput.type(productName, { delay: randomBetween(50, 100) });
+          await sleep(randomBetween(500, 800));
 
-        log(`[Worker ${workerId}] 상품명 검색 완료: ${productName}`);
+          // 검색 버튼 클릭
+          const searchBtn = await page.$('button[class*="_searchInput_button_search"]');
+          if (searchBtn) {
+            await searchBtn.click();
+            log(`[Worker ${workerId}] 검색 버튼 클릭`);
+          } else {
+            // 버튼이 없으면 Enter
+            await page.keyboard.press('Enter');
+            log(`[Worker ${workerId}] Enter 입력`);
+          }
+
+          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+          await sleep(randomBetween(2000, 3000));
+
+          log(`[Worker ${workerId}] 상품명 검색 완료: ${productName}`);
+        } else {
+          log(`[Worker ${workerId}] 검색창 input을 찾을 수 없어 건너뜀`, "warn");
+        }
       } else {
         log(`[Worker ${workerId}] 검색창을 찾을 수 없어 건너뜀`, "warn");
       }
