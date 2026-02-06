@@ -397,9 +397,10 @@ async function gitClone(): Promise<boolean> {
       fs.mkdirSync(parentDir, { recursive: true });
     }
 
-    execSync(`git clone ${GIT_REPO_URL} ${WORK_DIR}`, {
+    // Shallow clone으로 빠르게 다운로드 (히스토리 불필요)
+    execSync(`git clone --depth 1 ${GIT_REPO_URL} ${WORK_DIR}`, {
       encoding: 'utf-8',
-      timeout: 180000,  // 3분 (네트워크 느릴 수 있음)
+      timeout: 600000,  // 10분 (대용량 저장소 대비)
       stdio: 'inherit'
     });
 
