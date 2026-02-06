@@ -193,18 +193,88 @@ function checkGitInstalled(): boolean {
 }
 
 /**
- * Node.js 설치 확인
+ * Node.js 설치 확인 및 경로 찾기
  */
-function checkNodeInstalled(): boolean {
+function checkNodeInstalled(): { installed: boolean; nodePath?: string; npmPath?: string; error?: string } {
+  // 방법 1: PATH 환경변수에서 찾기
   try {
-    execSync('node --version', {
+    const version = execSync('node --version', {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: 'pipe'
-    });
-    return true;
-  } catch (e) {
-    return false;
+    }).trim();
+
+    log(`Node.js 버전: ${version}`);
+
+    // node 경로 찾기
+    try {
+      const nodePath = execSync('where node', {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: 'pipe'
+      }).trim().split('\n')[0].trim();
+
+      const npmPath = execSync('where npx', {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: 'pipe'
+      }).trim().split('\n')[0].trim();
+
+      log(`Node.js 경로: ${nodePath}`);
+      log(`npx 경로: ${npmPath}`);
+
+      return { installed: true, nodePath, npmPath };
+    } catch (e2) {
+      // where 명령 실패해도 node --version이 성공했으면 설치된 것
+      return { installed: true };
+    }
+  } catch (e: any) {
+    log('PATH에서 Node.js를 찾을 수 없습니다. 일반적인 설치 경로를 확인합니다...');
+
+    // 방법 2: 일반적인 설치 경로 직접 체크
+    const commonPaths = [
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\Program Files (x86)\\nodejs\\node.exe',
+      path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'nodejs\\node.exe'),
+      path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'nodejs\\node.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'Programs\\nodejs\\node.exe'),
+      path.join(process.env.APPDATA || '', 'npm\\node.exe')
+    ];
+
+    for (const nodePath of commonPaths) {
+      if (fs.existsSync(nodePath)) {
+        const nodeDir = path.dirname(nodePath);
+        const npxPath = path.join(nodeDir, 'npx.cmd');
+
+        log(`Node.js 발견: ${nodePath}`);
+
+        // 발견한 경로로 버전 확인
+        try {
+          const version = execSync(`"${nodePath}" --version`, {
+            encoding: 'utf-8',
+            timeout: 5000,
+            stdio: 'pipe'
+          }).trim();
+
+          log(`Node.js 버전: ${version}`);
+
+          return {
+            installed: true,
+            nodePath,
+            npmPath: fs.existsSync(npxPath) ? npxPath : undefined
+          };
+        } catch (e3) {
+          log(`경로는 존재하지만 실행 실패: ${nodePath}`);
+          continue;
+        }
+      }
+    }
+
+    // 모든 방법 실패
+    return {
+      installed: false,
+      error: e.message || 'Node.js를 찾을 수 없습니다'
+    };
   }
 }
 
@@ -471,17 +541,37 @@ async function main() {
   log('Git 확인 완료');
 
   // Node.js 설치 확인
-  if (!checkNodeInstalled()) {
+  const nodeResult = checkNodeInstalled();
+  if (!nodeResult.installed) {
     log('ERROR: Node.js가 설치되지 않았습니다!');
+    log('');
+    log('에러 상세: ' + (nodeResult.error || '알 수 없는 오류'));
+    log('');
+    log('확인한 경로:');
+    log('- C:\\Program Files\\nodejs\\node.exe');
+    log('- C:\\Program Files (x86)\\nodejs\\node.exe');
+    log('- %LOCALAPPDATA%\\Programs\\nodejs\\node.exe');
+    log('');
+    log('현재 PATH 환경변수:');
+    log(process.env.PATH || '(없음)');
     log('');
     log('Node.js 설치 방법:');
     log('1. https://nodejs.org 에서 Node.js LTS 버전 다운로드');
     log('2. 설치 후 컴퓨터 재시작');
+    log('3. 재시작 후에도 문제가 지속되면 PATH 환경변수에 수동 추가');
     await waitForKey('아무 키나 눌러 종료...');
     process.exit(1);
   }
 
   log('Node.js 확인 완료');
+
+  // Node.js 경로를 전역 변수로 저장 (startRunner에서 사용)
+  if (nodeResult.nodePath) {
+    const nodeDir = path.dirname(nodeResult.nodePath);
+    // PATH 앞에 추가하여 우선순위 부여
+    process.env.PATH = nodeDir + path.delimiter + (process.env.PATH || '');
+    log('Node.js 경로를 PATH에 추가: ' + nodeDir);
+  }
 
   // 작업 디렉토리 존재 확인 및 자동 클론
   if (!fs.existsSync(WORK_DIR)) {
