@@ -27,6 +27,9 @@ profiles/profile_*/
 *.exe
 *.zip
 
+# 배포용 EXE는 추적 (예외)
+!deploy/*.exe
+
 # 기타
 nul
 npx

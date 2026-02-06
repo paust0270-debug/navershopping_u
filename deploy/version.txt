@@ -1,0 +1,5 @@
+version: 20260206T075829
+commit: a5bf837c
+build_date: 2026-02-06T07:58:29.951Z
+launcher: test-launcher
+commit_message: feat: 쇼핑탭 내부 자동완성 로직 추가

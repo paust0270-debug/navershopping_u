@@ -18,6 +18,8 @@
     "build:launcher-exe": "npm run build:launcher && pkg dist/launcher.js -t node18-win-x64 -o turafic-launcher.exe",
     "build:launcher-exe-dev": "npm run build:launcher-dev && pkg dist/launcher-dev.js -t node18-win-x64 -o turafic-launcher-dev.exe",
     "build:test-launcher-exe": "npm run build:test-launcher && pkg dist/test-launcher.js -t node18-win-x64 -o test-launcher.exe",
+    "build:test-launcher-deploy": "npm run build:test-launcher-exe && node scripts/copy-to-deploy.js test-launcher",
+    "deploy:test-launcher": "npm run build:test-launcher-deploy && git add deploy/test-launcher.exe deploy/version.txt && git commit -m \"deploy: Update test-launcher\" && git push",
     "build:app-launcher-exe": "npm run build:app-launcher && pkg dist/app-launcher.js -t node18-win-x64 -o app-launcher.exe",
     "build:launcher-vm": "esbuild launcher-vm.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-vm.js",
     "build:launcher-normal": "esbuild launcher-normal.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-normal.js",

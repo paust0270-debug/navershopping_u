@@ -18,6 +18,8 @@
 import { spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as crypto from 'crypto';
 
 // pkg 빌드 시 process.pkg 타입 선언
 declare const process: NodeJS.Process & { pkg?: boolean; execPath: string };
@@ -105,6 +107,73 @@ function waitForKey(message: string = 'Press any key to continue...') {
       resolve();
     });
   });
+}
+
+/**
+ * PC의 고유 식별자 생성 (MAC 주소 기반)
+ */
+function generateEquipmentName(): string {
+  const networkInterfaces = os.networkInterfaces();
+
+  // 활성 네트워크 인터페이스에서 MAC 주소 추출
+  for (const [name, interfaces] of Object.entries(networkInterfaces)) {
+    if (!interfaces) continue;
+
+    for (const iface of interfaces) {
+      // 루프백이 아니고 MAC 주소가 있는 인터페이스
+      if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+        // MAC 주소 마지막 6자리 + PC 이름 조합
+        const macSuffix = iface.mac.replace(/:/g, '').slice(-6).toUpperCase();
+        const hostname = os.hostname().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10);
+        return `${hostname}_${macSuffix}`;
+      }
+    }
+  }
+
+  // 폴백: PC 이름 + 랜덤 해시
+  const hostname = os.hostname().replace(/[^a-zA-Z0-9]/g, '');
+  const randomHash = crypto.randomBytes(3).toString('hex').toUpperCase();
+  return `${hostname}_${randomHash}`;
+}
+
+/**
+ * .env 파일 자동 생성 (없을 경우)
+ */
+function ensureEnvFile(workDir: string): void {
+  const envPath = path.join(workDir, '.env');
+
+  // .env 파일이 이미 존재하면 스킵
+  if (fs.existsSync(envPath)) {
+    log('.env 파일 존재 - 스킵');
+    return;
+  }
+
+  log('.env 파일 없음 - 자동 생성 중...');
+
+  // EQUIPMENT_NAME 생성
+  const equipmentName = generateEquipmentName();
+
+  // 기본 환경변수 템플릿
+  const defaultEnv = `# TURAFIC 자동 생성 환경변수 (${new Date().toISOString()})
+
+# Supabase Production DB (기본값)
+SUPABASE_PRODUCTION_URL=https://sltckvbyzntxwutsyvfb.supabase.co
+SUPABASE_PRODUCTION_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsdGNrdmJ5em50eHd1dHN5dmZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYzMzQyNzIsImV4cCI6MjA1MTkxMDI3Mn0.1dGvH9jy1aQqWxqPCQoTvnT8kzlRqEEY9YEoZKRj1Yk
+
+# Supabase Control DB (기본값 - 옵션)
+SUPABASE_CONTROL_URL=https://rwqvgqhlzthwbqoxhmsd.supabase.co
+SUPABASE_CONTROL_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3cXZncWhsenRod2Jxb3hobXNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzcxMDcwMDIsImV4cCI6MjA1MjY4MzAwMn0.VUkMJqEOlx4W-IqWUmQWsFgC7jV3K7vAOqL2aNlWrHA
+
+# 장비 고유 이름 (자동 생성)
+EQUIPMENT_NAME=${equipmentName}
+
+# 옵션 설정
+IP_ROTATION_METHOD=auto
+NETWORK_CAPTURE=false
+`;
+
+  fs.writeFileSync(envPath, defaultEnv, 'utf8');
+  log(`✅ .env 파일 생성 완료 (EQUIPMENT_NAME: ${equipmentName})`);
 }
 
 /**
@@ -421,6 +490,9 @@ async function main() {
     if (!cloneOk) {
       process.exit(1);
     }
+
+    // 환경변수 자동 생성 (클론 직후)
+    ensureEnvFile(WORK_DIR);
   } else {
     // 디렉토리는 있지만 .git이 없는 경우
     const gitDir = path.join(WORK_DIR, '.git');
@@ -440,6 +512,9 @@ async function main() {
       if (!cloneOk) {
         process.exit(1);
       }
+
+      // 환경변수 자동 생성 (클론 직후)
+      ensureEnvFile(WORK_DIR);
     }
   }
 
