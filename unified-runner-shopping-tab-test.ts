@@ -1212,9 +1212,6 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
       const connectOptions: any = {
         headless: false,
         turnstile: true,
-        customConfig: {
-          userDataDir: `${TEMP_DIR}\\puppeteer_profile_${workerId}`,
-        },
         args: [
           `--window-position=${pos.x},${pos.y}`,
           `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
@@ -1224,13 +1221,7 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
 
       // 모바일 모드 설정
       if (USE_MOBILE_MODE) {
-        connectOptions.customConfig = {
-          ...connectOptions.customConfig,
-          args: [
-            ...connectOptions.args,
-            `--user-agent=${MOBILE_CONTEXT_OPTIONS.userAgent}`,
-          ],
-        };
+        connectOptions.args.push(`--user-agent=${MOBILE_CONTEXT_OPTIONS.userAgent}`);
       }
 
       const response = await connect(connectOptions);
