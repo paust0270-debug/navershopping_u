@@ -59,11 +59,12 @@ try {
   console.error(`[TEMP] Using system default temp dir`);
 }
 
-import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
+import { connect } from "puppeteer-real-browser";
+import type { Page, Browser } from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
-import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stealth";
+import { applyMobileStealthPuppeteer, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stealth";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -590,7 +591,9 @@ type FailReason =
   | 'PAGE_NOT_LOADED'
   | 'PRODUCT_DELETED'
   | 'TIMEOUT'
-  | 'IP_BLOCKED';
+  | 'IP_BLOCKED'
+  | 'NO_SHOPPING_TAB'
+  | 'SHOPPING_TAB_FAILED';
 
 interface EngineResult {
   productPageEntered: boolean;
@@ -599,6 +602,20 @@ interface EngineResult {
   midMatched: boolean;
   failReason?: FailReason;
   error?: string;
+}
+
+
+async function hydrateShoppingPage(page: Page): Promise<void> {
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  const SCROLL_STEPS = 18;
+  const SCROLL_GAP_MS = 100;
+
+  for (let step = 0; step < SCROLL_STEPS; step++) {
+    await page.evaluate(() => window.scrollBy(0, 550));
+    await sleep(SCROLL_GAP_MS);
+  }
+  await sleep(150);
 }
 
 async function runPatchrightEngine(page: Page, mid: string, productName: string, keyword: string, workerId: number): Promise<EngineResult> {
@@ -624,76 +641,137 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await page.locator('#MM_SEARCH_FAKE').click({ force: true });
     await sleep(randomBetween(800, 1200));
 
-    // 3. 짧은 키워드 입력 (keyword 또는 상품명 첫 단어)
-    const shortKeyword = keyword || productName.split(' ')[0].substring(0, 10);
-    log(`[Worker ${workerId}] "${shortKeyword}" 입력...`);
+    // 3. 메인 키워드 입력 (자동완성 사용 안 함)
+    log(`[Worker ${workerId}] "${keyword}" 입력...`);
     const searchInput = page.locator('#query.sch_input').first();
-    await searchInput.type(shortKeyword, { delay: randomBetween(80, 150) });
-    await sleep(randomBetween(1500, 2500));
+    await searchInput.type(keyword, { delay: randomBetween(80, 150) });
+    await sleep(randomBetween(500, 800));
 
-    // 4. 일반 자동완성 항목 랜덤 클릭 (data-area="top")
-    log(`[Worker ${workerId}] 자동완성 선택...`);
-    const autocompleteItems = page.locator('#sb-ac-recomm-wrap li.u_atcp_l[data-area="top"] a.u_atcp_a');
-
-    let autocompleteClicked = false;
-    try {
-      await autocompleteItems.first().waitFor({ state: 'visible', timeout: 3000 });
-      const count = await autocompleteItems.count();
-      log(`[Worker ${workerId}] 자동완성 항목 ${count}개`);
-
-      if (count > 1) {
-        const randomIndex = Math.floor(Math.random() * (count - 1)) + 1;
-        const selectedItem = autocompleteItems.nth(randomIndex);
-        const keywordText = await selectedItem.textContent();
-        log(`[Worker ${workerId}] 선택: "${keywordText?.trim()}"`);
-        await selectedItem.click();
-        autocompleteClicked = true;
-      } else if (count === 1) {
-        await autocompleteItems.first().click();
-        autocompleteClicked = true;
-      }
-    } catch (e) {
-      log(`[Worker ${workerId}] 자동완성 실패, 검색 버튼 탭...`, "warn");
-      const searchBtn = await page.$('button[type="submit"], .btn_search, [class*="search_btn"]');
-      if (searchBtn) {
-        await searchBtn.click();
-      } else {
-        await page.keyboard.press('Enter');
-      }
-      autocompleteClicked = true; // 버튼 탭으로 대체
-    }
-
-    if (!autocompleteClicked) {
-      result.error = 'NoAutocomplete';
-      return result;
-    }
-
+    // 4. Enter로 바로 검색
+    log(`[Worker ${workerId}] Enter로 검색 실행...`);
+    await page.keyboard.press('Enter');
     await page.waitForLoadState('domcontentloaded');
     await sleep(randomBetween(2000, 3000));
 
-    // 5. URL에서 ackey 확인 + query를 상품명으로 변경
-    const currentUrl = page.url();
-    const urlObj = new URL(currentUrl);
-    const ackey = urlObj.searchParams.get('ackey');
-    const sm = urlObj.searchParams.get('sm');
-    log(`[Worker ${workerId}] ackey=${ackey}, sm=${sm}`);
+    // 5. 쇼핑탭 클릭 (자동완성 선택 후 바로)
+    log(`[Worker ${workerId}] 🛍️ 쇼핑탭 링크 클릭...`);
+    let shoppingTabClicked = false;
 
-    // query를 상품명으로 변경
-    urlObj.searchParams.set('query', productName);
-    log(`[Worker ${workerId}] 상품명으로 검색 이동...`);
-    await page.goto(urlObj.toString(), { waitUntil: 'domcontentloaded', timeout: 60000 });
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      shoppingTabClicked = await page.evaluate(() => {
+        // 검색 이후 쇼핑탭 셀렉터 (정확한 위치)
+        const link = document.querySelector<HTMLAnchorElement>('#_sch_tab > div > div:nth-child(2) > a');
+        if (!link) return false;
+        link.removeAttribute("target"); // 새 탭 방지
+        link.click();
+        return true;
+      });
+
+      if (shoppingTabClicked) break;
+      log(`[Worker ${workerId}] 쇼핑탭 링크 대기 중... (${attempt}/5)`);
+      await sleep(1000);
+    }
+
+    if (!shoppingTabClicked) {
+      log(`[Worker ${workerId}] 쇼핑탭 링크를 찾을 수 없습니다.`, "warn");
+      result.failReason = 'NO_SHOPPING_TAB';
+      result.error = 'NoShoppingTab';
+      return result;
+    }
+
+    // 쇼핑탭 로딩 대기
     await sleep(randomBetween(2000, 3000));
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 쇼핑탭 진입 (새로운 경로)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    log(`[Worker ${workerId}] 🛍️ 쇼핑탭 진입...`);
-    const shoppingUrl = `https://msearch.shopping.naver.com/search/all?query=${encodeURIComponent(productName)}`;
-    await page.goto(shoppingUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await sleep(randomBetween(2000, 3000));
-    log(`[Worker ${workerId}] 쇼핑탭 로딩 완료`);
+    // 쇼핑탭 URL 확인 (모바일/PC 모두 허용)
+    const finalUrl = page.url();
+    if (!finalUrl.includes("shopping.naver.com")) {
+      log(`[Worker ${workerId}] 쇼핑탭 URL 확인 실패: ${finalUrl}`, "warn");
+      result.failReason = 'SHOPPING_TAB_FAILED';
+      result.error = 'ShoppingTabFailed';
+      return result;
+    }
 
-    // 6. IP 차단 체크
+    log(`[Worker ${workerId}] 쇼핑탭 진입 완료: ${finalUrl}`);
+
+    // 6. 쇼핑탭 내 검색창에 키워드 입력 + 자동완성 선택
+    log(`[Worker ${workerId}] 쇼핑탭 검색창에 키워드 입력...`);
+    try {
+      // 쇼핑 페이지 검색창 (정확한 셀렉터)
+      const searchContainer = await page.$('#gnb-gnb div[class*="_searchInput_search_input"]');
+
+      if (searchContainer) {
+        // 검색창 클릭
+        await searchContainer.click();
+        await sleep(randomBetween(300, 500));
+
+        // 검색창 내부 input 찾기
+        const searchInput = await searchContainer.$('input');
+        if (searchInput) {
+          // 키워드 입력 (전체 상품명이 아닌 짧은 키워드)
+          const shortKeyword = productName.split(' ')[0].substring(0, 10);
+          await searchInput.fill(''); // 기존 내용 클리어
+          await searchInput.type(shortKeyword, { delay: randomBetween(50, 100) });
+          await sleep(randomBetween(1000, 1500));
+
+          // 자동완성 레이어 대기 및 항목 선택
+          log(`[Worker ${workerId}] 자동완성 대기...`);
+          const autocompleteLayer = await page.$('div[class*="_autoCompleteLayer_auto_complete_layer"]');
+
+          if (autocompleteLayer) {
+            // 자동완성 항목 수집 (최근 검색어 제외)
+            const autocompleteItems = await page.$$('div[class*="_autoCompleteItem_mobile_auto_complete_item"] a[data-keywordtype="keyword"]');
+
+            if (autocompleteItems.length > 0) {
+              log(`[Worker ${workerId}] 자동완성 항목 ${autocompleteItems.length}개 발견`);
+
+              // 랜덤 항목 선택 (첫 번째 제외하고)
+              const randomIndex = autocompleteItems.length > 1
+                ? Math.floor(Math.random() * (autocompleteItems.length - 1)) + 1
+                : 0;
+
+              const selectedItem = autocompleteItems[randomIndex];
+              const selectedKeyword = await selectedItem.getAttribute('data-keyword');
+              log(`[Worker ${workerId}] 자동완성 선택: "${selectedKeyword}"`);
+
+              await selectedItem.click();
+              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await sleep(randomBetween(2000, 3000));
+
+              log(`[Worker ${workerId}] 자동완성 검색 완료`);
+            } else {
+              // 자동완성 항목이 없으면 전체 상품명으로 검색
+              log(`[Worker ${workerId}] 자동완성 없음, 전체 상품명 검색...`, "warn");
+              await searchInput.fill(productName);
+              await sleep(randomBetween(300, 500));
+
+              const searchBtn = await page.$('button[class*="_searchInput_button_search"]');
+              if (searchBtn) {
+                await searchBtn.click();
+              } else {
+                await page.keyboard.press('Enter');
+              }
+
+              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await sleep(randomBetween(2000, 3000));
+            }
+          } else {
+            // 자동완성 레이어가 없으면 Enter
+            log(`[Worker ${workerId}] 자동완성 레이어 없음, Enter 입력`, "warn");
+            await page.keyboard.press('Enter');
+            await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+            await sleep(randomBetween(2000, 3000));
+          }
+        } else {
+          log(`[Worker ${workerId}] 검색창 input을 찾을 수 없어 건너뜀`, "warn");
+        }
+      } else {
+        log(`[Worker ${workerId}] 검색창을 찾을 수 없어 건너뜀`, "warn");
+      }
+    } catch (e: any) {
+      log(`[Worker ${workerId}] 검색창 입력 실패: ${e.message}`, "warn");
+    }
+
+    // 7. IP 차단 체크
     const isBlocked = await page.evaluate(() => {
       const bodyText = document.body?.innerText || '';
       return bodyText.includes('비정상적인 접근') ||
@@ -732,147 +810,110 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       }
     }
 
-    // 8. 스크롤하면서 MID 찾기 + 클릭
-    log(`[Worker ${workerId}] MID 탐색: ${mid}`);
-    const MAX_SCROLL = 10;
-    let midClicked = false;
+    // 8. 쇼핑탭 상품 전체 로드 (rank-check 방식)
+    log(`[Worker ${workerId}] 쇼핑탭 상품 로드 중...`);
+    await hydrateShoppingPage(page);
+    log(`[Worker ${workerId}] 상품 로드 완료`);
 
-    for (let i = 0; i < MAX_SCROLL; i++) {
-      // 첫 스크롤에서만 디버그 로그
-      if (i === 0) {
-        log(`[Worker ${workerId}] 스크롤 ${i+1}/${MAX_SCROLL} - 3가지 전략으로 MID 탐색 시작`);
+    // 9. 모든 상품 MID 수집 (광고 제외)
+    log(`[Worker ${workerId}] MID 탐색: ${mid}`);
+    const allProducts = await page.$$eval('a[data-shp-contents-id]', (anchors, targetMid) => {
+      const results: any[] = [];
+
+      for (const anchor of anchors) {
+        const productMid = anchor.getAttribute('data-shp-contents-id');
+        if (!productMid) continue;
+
+        // 광고 제외 (NPLA)
+        const inventory = anchor.getAttribute('data-shp-inventory') || '';
+        const isAd = /lst\*(A|P|D)/.test(inventory);
+        if (isAd) continue;
+
+        results.push({
+          mid: productMid,
+          isTarget: productMid === targetMid,
+          href: anchor.getAttribute('href') || '',
+        });
       }
 
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 1: 가격비교 - URL 파라미터
-      // 예: https://cr3.shopping.naver.com/...?nv_mid=90379584423
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      return results;
+    }, mid);
+
+    log(`[Worker ${workerId}] 수집된 상품: ${allProducts.length}개 (광고 제외)`);
+
+    // 10. target MID 찾기
+    const targetProduct = allProducts.find(p => p.isTarget);
+
+    if (!targetProduct) {
+      log(`[Worker ${workerId}] MID를 찾을 수 없습니다.`, "warn");
+
+      // 디버깅: 페이지 내 모든 MID 출력
+      const allMids = allProducts.map(p => p.mid).join(', ');
+      log(`[Worker ${workerId}] 페이지 내 MID 목록: ${allMids.substring(0, 200)}...`);
+
+      result.failReason = 'NO_MID_MATCH';
+      result.error = 'NoMID';
+      return result;
+    }
+
+    log(`[Worker ${workerId}] MID 발견! 클릭 시도...`);
+
+    // 11. MID 상품 클릭 (3가지 전략)
+    let midClicked = false;
+
+    // 전략 1: data-shp-contents-id 속성으로 찾기
+    const linkByAttr = page.locator(`a[data-shp-contents-id="${mid}"]`).first();
+    const attrVisible = await linkByAttr.isVisible({ timeout: 2000 }).catch(() => false);
+
+    if (attrVisible) {
+      log(`[Worker ${workerId}] 클릭 (data-shp-contents-id)`);
+      await linkByAttr.click();
+      midClicked = true;
+    } else {
+      // 전략 2: URL 파라미터로 찾기
       const linkByParam = page.locator(`a[href*="nv_mid=${mid}"]`).first();
       const paramVisible = await linkByParam.isVisible({ timeout: 1000 }).catch(() => false);
 
       if (paramVisible) {
-        log(`[Worker ${workerId}] MID 발견 (가격비교)`);
+        log(`[Worker ${workerId}] 클릭 (URL 파라미터)`);
         await linkByParam.click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(2000);
         midClicked = true;
-        result.midMatched = true;
+      } else {
+        // 전략 3: URL 경로로 찾기
+        const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
+        const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
 
-        // 체류 + 검증
-        const dwellTime = randomBetween(3000, 6000);
-        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-        await sleep(dwellTime);
-
-        const currentPageUrl = page.url();
-        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-          result.productPageEntered = true;
-        }
-        break;
-      }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 2: 플러스스토어 - URL 경로
-      // 예: https://smartstore.naver.com/main/products/9211038096
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
-      const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (pathVisible) {
-        log(`[Worker ${workerId}] MID 발견 (플러스스토어 URL)`);
-        await linkByPath.click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(2000);
-        midClicked = true;
-        result.midMatched = true;
-
-        // 체류 + 검증
-        const dwellTime = randomBetween(3000, 6000);
-        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-        await sleep(dwellTime);
-
-        const currentPageUrl = page.url();
-        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-          result.productPageEntered = true;
-        }
-        break;
-      }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 3: 플러스스토어 - ID 속성 (폴백)
-      // 예: id="nstore_productId_9211038096"
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      const containerById = page.locator(`[id="nstore_productId_${mid}"]`).first();
-      const idVisible = await containerById.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (idVisible) {
-        log(`[Worker ${workerId}] MID 발견 (플러스스토어 ID)`);
-        const linkInContainer = containerById.locator('xpath=preceding-sibling::a[@href]').first();
-        if (await linkInContainer.isVisible().catch(() => false)) {
-          await linkInContainer.click();
-          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-          await sleep(2000);
+        if (pathVisible) {
+          log(`[Worker ${workerId}] 클릭 (URL 경로)`);
+          await linkByPath.click();
           midClicked = true;
-          result.midMatched = true;
-
-          // 체류 + 검증
-          const dwellTime = randomBetween(3000, 6000);
-          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-          await sleep(dwellTime);
-
-          const currentPageUrl = page.url();
-          log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-          if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-            result.productPageEntered = true;
-          }
-          break;
         }
-      }
-
-      // 스크롤 (모바일 터치)
-      await humanScroll(page, 500);
-      await sleep(randomBetween(300, 500));
-
-      // 스크롤 끝 감지
-      const prevHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
-      await sleep(300);
-      const newHeight = await page.evaluate(() => document.body?.scrollHeight || 0).catch(() => 0);
-      if (newHeight === prevHeight && i > 3) {
-        log(`[Worker ${workerId}] 스크롤 끝`, "warn");
-        break;
       }
     }
 
     if (!midClicked) {
-      // 디버깅: 페이지에 있는 MID 목록 출력
-      try {
-        const foundMids = await page.evaluate(() => {
-          const mids: string[] = [];
-          // 가격비교 URL
-          document.querySelectorAll('a[href*="nv_mid="]').forEach(a => {
-            const match = a.getAttribute('href')?.match(/nv_mid=(\d+)/);
-            if (match) mids.push(match[1]);
-          });
-          // 플러스스토어 URL
-          document.querySelectorAll('a[href*="/products/"]').forEach(a => {
-            const match = a.getAttribute('href')?.match(/\/products\/(\d+)/);
-            if (match) mids.push(match[1]);
-          });
-          return mids.slice(0, 10); // 최대 10개만
-        }).catch(() => []);
-
-        if (foundMids.length > 0) {
-          log(`[Worker ${workerId}] 페이지에서 발견된 MID: ${foundMids.join(', ')}`, "warn");
-        } else {
-          log(`[Worker ${workerId}] 페이지에 MID를 포함한 링크가 없음`, "warn");
-        }
-      } catch {}
-
-      result.error = 'NoMidMatch';
+      log(`[Worker ${workerId}] MID를 찾았지만 클릭 실패`, "warn");
       result.failReason = 'NO_MID_MATCH';
-      result.midMatched = false;
+      result.error = 'ClickFailed';
       return result;
+    }
+
+    // 12. 페이지 로딩 대기
+    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await sleep(2000);
+    result.midMatched = true;
+
+    // 13. 체류 + 검증
+    const dwellTime = randomBetween(3000, 6000);
+    log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+    await sleep(dwellTime);
+
+    const currentPageUrl = page.url();
+    log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
+    if (currentPageUrl.includes('smartstore.naver.com') ||
+        currentPageUrl.includes('brand.naver.com') ||
+        currentPageUrl.includes('shopping.naver.com/window-products/')) {
+      result.productPageEntered = true;
     }
 
     return result;
@@ -943,12 +984,12 @@ async function forceRotateIP(reason: string): Promise<void> {
 
 // ============ [독립 워커] 무한 루프로 작업 처리 ============
 // 각 워커가 독립적으로 작업 가져오기 → 실행 → 다음 작업
+
 async function runIndependentWorker(workerId: number, profile: Profile): Promise<void> {
   log(`[Worker ${workerId}] 시작`);
 
   while (true) {
     let browser: Browser | null = null;
-    let context: BrowserContext | null = null;
 
     try {
       // 1. 작업 가져오기
@@ -968,26 +1009,46 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
       const productShort = work.productName.substring(0, 30);
       log(`[Worker ${workerId}] 작업: ${productShort}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
-      // 2. Patchright 브라우저 시작
+      // 2. Puppeteer-Real-Browser 시작
       const pos = BROWSER_POSITIONS[(workerId - 1) % BROWSER_POSITIONS.length];
-      browser = await chromium.launch({
+
+      const connectOptions: any = {
         headless: false,
-        channel: 'chrome',
+        turnstile: true,
+        customConfig: {
+          userDataDir: `${TEMP_DIR}\\puppeteer_profile_${workerId}`,
+        },
         args: [
           `--window-position=${pos.x},${pos.y}`,
           `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
+          '--disable-blink-features=AutomationControlled',
         ],
-      });
+      };
 
-      // 모바일/웹 모드에 따라 context 설정
-      context = await browser.newContext(USE_MOBILE_MODE ? MOBILE_CONTEXT : WEB_CONTEXT);
-
-      // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
+      // 모바일 모드 설정
       if (USE_MOBILE_MODE) {
-        await applyMobileStealth(context);
+        connectOptions.customConfig = {
+          ...connectOptions.customConfig,
+          args: [
+            ...connectOptions.args,
+            `--user-agent=${MOBILE_CONTEXT_OPTIONS.userAgent}`,
+          ],
+        };
       }
 
-      const page = await context.newPage();
+      const response = await connect(connectOptions);
+      browser = response.browser as Browser;
+      const page = response.page as Page;
+
+      // Viewport 설정
+      if (USE_MOBILE_MODE) {
+        await page.setViewport(MOBILE_CONTEXT_OPTIONS.viewport);
+        // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
+        await applyMobileStealthPuppeteer(page);
+      } else {
+        await page.setViewport(WEB_CONTEXT.viewport);
+      }
+
       page.setDefaultTimeout(60000);
       page.setDefaultNavigationTimeout(60000);
 
