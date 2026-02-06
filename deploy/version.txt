@@ -1,5 +1,5 @@
-version: 20260206T093942
-commit: 73d0086a
-build_date: 2026-02-06T09:39:42.073Z
+version: 20260206T095641
+commit: 6cbf1af9
+build_date: 2026-02-06T09:56:41.844Z
 launcher: test-launcher
-commit_message: fix: test-launcher에서 Node.js 인식 개선
+commit_message: fix: launcher에도 Node.js 인식 개선 적용
