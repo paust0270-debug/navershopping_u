@@ -62,11 +62,12 @@ try {
   console.error(`[TEMP] Using system default temp dir`);
 }
 
-import { chromium, type Page, type Browser, type BrowserContext } from "patchright";
+import { connect } from "puppeteer-real-browser";
+import type { Page, Browser } from "puppeteer-core";
 import { createClient } from "@supabase/supabase-js";
 import { rotateIP, getCurrentIP, getTetheringAdapter, startRecoveryDaemon } from "./ipRotation";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
-import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stealth";
+import { applyMobileStealthPuppeteer, MOBILE_CONTEXT_OPTIONS } from "./shared/mobile-stealth";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -1186,7 +1187,6 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
 
   while (true) {
     let browser: Browser | null = null;
-    let context: BrowserContext | null = null;
 
     try {
       // 1. 작업 가져오기
@@ -1206,26 +1206,46 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
       const productShort = work.productName.substring(0, 30);
       log(`[Worker ${workerId}] 작업: ${productShort}... (mid=${work.mid}) [IP: ${currentIP}]`);
 
-      // 2. Patchright 브라우저 시작
+      // 2. Puppeteer-Real-Browser 시작
       const pos = BROWSER_POSITIONS[(workerId - 1) % BROWSER_POSITIONS.length];
-      browser = await chromium.launch({
+
+      const connectOptions: any = {
         headless: false,
-        channel: 'chrome',
+        turnstile: true,
+        customConfig: {
+          userDataDir: `${TEMP_DIR}\\puppeteer_profile_${workerId}`,
+        },
         args: [
           `--window-position=${pos.x},${pos.y}`,
           `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
+          '--disable-blink-features=AutomationControlled',
         ],
-      });
+      };
 
-      // 모바일/웹 모드에 따라 context 설정
-      context = await browser.newContext(USE_MOBILE_MODE ? MOBILE_CONTEXT : WEB_CONTEXT);
-
-      // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
+      // 모바일 모드 설정
       if (USE_MOBILE_MODE) {
-        await applyMobileStealth(context);
+        connectOptions.customConfig = {
+          ...connectOptions.customConfig,
+          args: [
+            ...connectOptions.args,
+            `--user-agent=${MOBILE_CONTEXT_OPTIONS.userAgent}`,
+          ],
+        };
       }
 
-      const page = await context.newPage();
+      const response = await connect(connectOptions);
+      browser = response.browser as Browser;
+      const page = response.page as Page;
+
+      // Viewport 설정
+      if (USE_MOBILE_MODE) {
+        await page.setViewport(MOBILE_CONTEXT_OPTIONS.viewport);
+        // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
+        await applyMobileStealthPuppeteer(page);
+      } else {
+        await page.setViewport(WEB_CONTEXT.viewport);
+      }
+
       page.setDefaultTimeout(60000);
       page.setDefaultNavigationTimeout(60000);
 

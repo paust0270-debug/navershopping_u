@@ -15,6 +15,7 @@
  */
 
 import type { BrowserContext } from "patchright";
+import type { Page as PuppeteerPage } from "puppeteer-core";
 
 // ============================================
 // 디바이스 프로필 (통합 관리)
@@ -196,10 +197,17 @@ delete window.__pwInitScripts;
 `;
 
 /**
- * BrowserContext에 모바일 스텔스 스크립트 적용
+ * BrowserContext에 모바일 스텔스 스크립트 적용 (Patchright/Playwright)
  */
 export async function applyMobileStealth(context: BrowserContext): Promise<void> {
   await context.addInitScript(MOBILE_STEALTH_SCRIPT);
+}
+
+/**
+ * Puppeteer Page에 모바일 스텔스 스크립트 적용
+ */
+export async function applyMobileStealthPuppeteer(page: PuppeteerPage): Promise<void> {
+  await page.evaluateOnNewDocument(MOBILE_STEALTH_SCRIPT);
 }
 
 /**

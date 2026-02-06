@@ -1,5 +1,5 @@
-version: 20260206T095641
-commit: 6cbf1af9
-build_date: 2026-02-06T09:56:41.844Z
+version: 20260206T101021
+commit: 5d24c1c0
+build_date: 2026-02-06T10:10:21.125Z
 launcher: test-launcher
-commit_message: fix: launcher에도 Node.js 인식 개선 적용
+commit_message: fix: Patchright 다운로드 재시도 로직 추가

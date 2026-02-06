@@ -297,7 +297,7 @@ async function firstTimeSetup(): Promise<boolean> {
     log('');
 
     // 1. npm install
-    log('[1/3] npm 패키지 설치 중... (2-5분 소요)');
+    log('[1/2] npm 패키지 설치 중... (2-5분 소요)');
     execSync('npm install', {
       cwd: WORK_DIR,
       encoding: 'utf-8',
@@ -305,76 +305,13 @@ async function firstTimeSetup(): Promise<boolean> {
       stdio: 'inherit'
     });
 
-    // 2. patchright chromium (재시도 로직 포함)
-    log('[2/3] Patchright Chromium 설치 중... (1-3분 소요)');
+    log('✅ 패키지 설치 완료 (puppeteer-real-browser 포함)');
+    log('');
+    log('ℹ️  참고: puppeteer-real-browser는 첫 실행 시 자동으로 Chromium을 다운로드합니다.');
+    log('');
 
-    const downloadHosts = [
-      '',  // 기본 (playwright.download.prss.microsoft.com)
-      'https://npmmirror.com/mirrors/playwright',  // 중국 미러
-      'https://registry.npmmirror.com/-/binary/playwright'  // 중국 미러 2
-    ];
-
-    let patchrightInstalled = false;
-    let lastError = '';
-
-    for (let i = 0; i < downloadHosts.length; i++) {
-      const host = downloadHosts[i];
-
-      try {
-        log(`시도 ${i + 1}/${downloadHosts.length}${host ? ': ' + host : ' (기본 서버)'}`);
-
-        const env = { ...process.env };
-        if (host) {
-          env.PLAYWRIGHT_DOWNLOAD_HOST = host;
-        }
-
-        execSync('npx patchright install chromium', {
-          cwd: WORK_DIR,
-          encoding: 'utf-8',
-          timeout: 600000,  // 10분
-          stdio: 'inherit',
-          env
-        });
-
-        patchrightInstalled = true;
-        log('Patchright Chromium 설치 성공!');
-        break;
-      } catch (e: any) {
-        lastError = e.message;
-        log(`설치 실패: ${e.message}`);
-
-        if (i < downloadHosts.length - 1) {
-          log('다른 다운로드 서버로 재시도합니다...');
-          await new Promise(r => setTimeout(r, 2000));  // 2초 대기
-        }
-      }
-    }
-
-    if (!patchrightInstalled) {
-      log('');
-      log('==================================================');
-      log('  Patchright Chromium 설치 실패');
-      log('==================================================');
-      log('');
-      log('에러: ' + lastError);
-      log('');
-      log('가능한 원인:');
-      log('1. 인터넷 연결 문제');
-      log('2. 방화벽/프록시가 다운로드 차단');
-      log('3. DNS 문제 (playwright.download.prss.microsoft.com 접근 불가)');
-      log('');
-      log('해결 방법:');
-      log('1. 인터넷 연결 확인');
-      log('2. 방화벽/프록시 설정 확인');
-      log('3. 잠시 후 다시 시도');
-      log('4. 수동 설치: cd ' + WORK_DIR + ' && npx patchright install chromium');
-      log('');
-
-      throw new Error('Patchright Chromium 설치 실패');
-    }
-
-    // 3. setup-env.bat 실행
-    log('[3/3] 환경 설정 (setup-env.bat)');
+    // 2. setup-env.bat 실행
+    log('[2/2] 환경 설정 (setup-env.bat)');
     log('');
     log('장비 이름을 입력하세요 (예: 네이버1, 네이버2, PC12 등):');
     try {
@@ -388,7 +325,7 @@ async function firstTimeSetup(): Promise<boolean> {
       log('setup-env.bat 실행 실패 (무시하고 계속): ' + e.message);
     }
 
-    // 4. 플래그 파일 생성
+    // 3. 플래그 파일 생성
     fs.writeFileSync(FIRST_RUN_FLAG, new Date().toISOString());
 
     log('');
@@ -433,57 +370,7 @@ async function installDependencies(): Promise<boolean> {
       log('의존성 이미 설치됨');
     }
 
-    // Patchright 브라우저 설치 체크
-    const patchrightBrowserPath = path.join(
-      process.env.LOCALAPPDATA || '',
-      'patchright'
-    );
-
-    if (!fs.existsSync(patchrightBrowserPath)) {
-      log('Patchright 브라우저 설치 중... (최대 10분 소요)');
-
-      const downloadHosts = [
-        '',  // 기본 서버
-        'https://npmmirror.com/mirrors/playwright',
-        'https://registry.npmmirror.com/-/binary/playwright'
-      ];
-
-      let installed = false;
-      for (let i = 0; i < downloadHosts.length; i++) {
-        const host = downloadHosts[i];
-        try {
-          log(`시도 ${i + 1}/${downloadHosts.length}${host ? ': ' + host : ' (기본 서버)'}`);
-
-          const env = { ...process.env };
-          if (host) {
-            env.PLAYWRIGHT_DOWNLOAD_HOST = host;
-          }
-
-          execSync('npx patchright install chromium', {
-            cwd: WORK_DIR,
-            encoding: 'utf-8',
-            timeout: 600000,
-            stdio: 'inherit',
-            env
-          });
-
-          installed = true;
-          break;
-        } catch (e: any) {
-          log(`설치 실패: ${e.message}`);
-          if (i < downloadHosts.length - 1) {
-            log('다른 다운로드 서버로 재시도합니다...');
-            await new Promise(r => setTimeout(r, 2000));
-          }
-        }
-      }
-
-      if (!installed) {
-        throw new Error('Patchright 브라우저 다운로드 실패 - 인터넷 연결 또는 방화벽 확인');
-      }
-    } else {
-      log('Patchright 브라우저 이미 설치됨');
-    }
+    log('✅ puppeteer-real-browser는 첫 실행 시 자동으로 Chromium을 다운로드합니다.');
 
     log('설치 완료');
     return true;
