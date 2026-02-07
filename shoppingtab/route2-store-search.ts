@@ -71,23 +71,70 @@ async function solveCaptcha(page: Page): Promise<boolean> {
 
     log(`═══ CAPTCHA ${i}/${MAX_CAPTCHA_ATTEMPTS} ═══`);
     const question = await page.evaluate(() => {
-      const lines = (document.body?.innerText || "").split("\n").map(l => l.trim());
-      return lines.find(l => l.includes("무엇입니까") || l.includes("채워주세요")) || "";
+      const t = document.body?.innerText || "";
+      // 1) "무엇입니까?" 형식
+      const m1 = t.match(/.+무엇입니까\??/);
+      if (m1) return m1[0].trim();
+      // 2) "빈 칸을 채워주세요" + [?] 패턴
+      const m2 = t.match(/영수증의\s+.+?\s+\[?\?\]?\s*입니다/);
+      if (m2) return m2[0].trim();
+      // 3) 특정 패턴들
+      const patterns = [
+        /가게\s*위치는\s*.+?\s*\[?\?\]?\s*입니다/,
+        /전화번호는?\s*.+?\s*\[?\?\]?\s*입니다/,
+        /상호명은?\s*.+?\s*\[?\?\]?\s*입니다/,
+        /.+번째\s*숫자는\s*무엇입니까/,
+        /.+번째\s*글자는\s*무엇입니까/,
+      ];
+      for (const p of patterns) { const m = t.match(p); if (m) return m[0].trim(); }
+      // 4) 빈 칸 채우기
+      const lines = t.split("\n").map(l => l.trim());
+      return lines.find(l => l.includes("무엇입니까") || l.includes("채워주세요") || l.includes("[?]")) || "";
     });
     log(`질문: ${question}`);
 
-    // 영수증 이미지 추출 (가장 큰 img)
+    // 영수증 이미지 추출 (셀렉터 우선순위)
     let base64 = "";
+    const imgSelectors = [
+      "#rcpt_img",
+      ".captcha_img",
+      ".captcha_img_cover img",
+      'img[alt="캡차이미지"]',
+      'img[src*="captcha"]',
+      'img[src*="receipt"]',
+      ".captcha_image img",
+      ".receipt_image img",
+      '[class*="captcha"] img',
+      '[class*="receipt"] img',
+      ".security_check img",
+      "#captcha_image",
+    ];
     try {
-      const bestImg = await page.evaluateHandle(() => {
-        const imgs = Array.from(document.querySelectorAll("img"));
-        let best: HTMLImageElement | null = null; let max = 0;
-        for (const img of imgs) { const r = img.getBoundingClientRect(); const a = r.width * r.height; if (a > max && r.width > 100) { max = a; best = img; } }
-        return best;
-      });
-      const el = bestImg.asElement();
-      if (el) { const buf = await el.screenshot(); base64 = buf.toString("base64"); fs.writeFileSync(`${SCREENSHOT_DIR}/receipt-${i}.png`, buf); }
-      else { const buf = await page.screenshot(); base64 = buf.toString("base64"); }
+      let imgEl = null;
+      for (const sel of imgSelectors) {
+        imgEl = await page.$(sel);
+        if (imgEl) { log(`  이미지: ${sel}`); break; }
+      }
+      // 폴백: 가장 큰 img
+      if (!imgEl) {
+        const handle = await page.evaluateHandle(() => {
+          const imgs = Array.from(document.querySelectorAll("img"));
+          let best: HTMLImageElement | null = null; let max = 0;
+          for (const img of imgs) { const a = img.width * img.height; if (a > max && img.width > 100) { max = a; best = img; } }
+          return best;
+        });
+        imgEl = handle.asElement();
+        if (imgEl) log("  이미지: 가장 큰 img (폴백)");
+      }
+      if (imgEl) {
+        const buf = await imgEl.screenshot();
+        base64 = buf.toString("base64");
+        fs.writeFileSync(`${SCREENSHOT_DIR}/receipt-${i}.png`, buf);
+      } else {
+        const buf = await page.screenshot();
+        base64 = buf.toString("base64");
+        log("  이미지: 전체 페이지 (최종 폴백)");
+      }
     } catch { const buf = await page.screenshot(); base64 = buf.toString("base64"); }
 
     let answer = "";
@@ -95,20 +142,49 @@ async function solveCaptcha(page: Page): Promise<boolean> {
     if (!answer) continue;
     log(`답변: "${answer}"`);
 
-    // 입력
-    const inp = await page.$('input#rcpt_answer') || await page.$('input[placeholder*="정답"]');
-    if (!inp) continue;
+    // 입력 (셀렉터 우선순위)
+    const inputSelectors = [
+      "input#rcpt_answer",
+      'input[placeholder*="정답"]',
+      'input[placeholder*="입력"]',
+      'input[name*="answer"]',
+      'input[id*="answer"]',
+      ".captcha_input input",
+      "#captcha_answer",
+    ];
+    let inp = null;
+    for (const sel of inputSelectors) {
+      inp = await page.$(sel);
+      if (inp) { log(`  입력창: ${sel}`); break; }
+    }
+    if (!inp) { log("  입력창 없음", "error"); continue; }
     await inp.click(); await sleep(200);
     await inp.evaluate((el: HTMLInputElement) => { el.value = ""; el.focus(); });
     for (const c of answer) await page.keyboard.type(c, { delay: rand(80, 150) });
     await sleep(300);
 
-    // 확인
-    const btns = await page.$$("button");
-    for (const btn of btns) {
-      const txt = await btn.evaluate((el: HTMLElement) => el.textContent?.trim() || "");
-      if (txt.includes("확인")) { await btn.click(); break; }
+    // 확인 버튼 (셀렉터 우선순위)
+    let clicked = false;
+    const btnSelectors = [
+      'button[type="submit"]',
+      'input[type="submit"]',
+      ".confirm_btn",
+      ".submit_btn",
+      'button[class*="confirm"]',
+      'button[class*="submit"]',
+    ];
+    for (const sel of btnSelectors) {
+      const btn = await page.$(sel);
+      if (btn) { await btn.click(); clicked = true; log(`  버튼: ${sel}`); break; }
     }
+    if (!clicked) {
+      const btns = await page.$$("button");
+      for (const btn of btns) {
+        const txt = await btn.evaluate((el: HTMLElement) => el.textContent?.trim() || "");
+        if (txt.includes("확인")) { await btn.click(); clicked = true; log("  버튼: 확인 텍스트"); break; }
+      }
+    }
+    if (!clicked) { await page.keyboard.press("Enter"); log("  버튼: Enter 폴백"); }
     await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 8000 }).catch(() => {});
     await sleep(2000);
     await snap(page, `captcha-after-${i}`);
