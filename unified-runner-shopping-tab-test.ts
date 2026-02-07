@@ -104,7 +104,7 @@ const PARALLEL_BROWSERS = 1;    // 동시 실행 워커 수
 const WORKER_REST = 2 * 1000;   // 워커 작업 간 휴식 (2초)
 const EMPTY_WAIT = 10 * 1000;   // 작업 없을 때 대기 (10초)
 const IP_ROTATION_ENABLED = true; // IP 로테이션 활성화
-const TASKS_PER_ROTATION = 120;   // 120건마다 IP 로테이션
+const IP_ROTATION_INTERVAL = 10 * 60 * 1000; // 10분마다 IP 로테이션
 const WORKER_START_DELAY = 3000;  // 워커 시작 간격 (3초)
 const TEST_MODE_ONE_RUN = false;   // 운영 모드: 무한 실행
 
@@ -192,7 +192,7 @@ let totalFailed = 0;
 let sessionStartTime = Date.now();
 let currentIP = "";
 let tetheringAdapter: string | null = null;
-let tasksSinceRotation = 0;  // IP 로테이션 후 처리된 작업 수
+let lastRotationTime = Date.now();  // 마지막 IP 로테이션 시간
 
 // ============ 작업 큐 락 (동시 접근 방지) ============
 let isClaimingTask = false;
@@ -1343,24 +1343,25 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
   }
 }
 
-// ============ IP 로테이션 (작업 수 기반) ============
+// ============ IP 로테이션 (시간 기반 - 10분마다) ============
 async function tryRotateIP(): Promise<void> {
   if (!IP_ROTATION_ENABLED || !tetheringAdapter) return;
-  if (tasksSinceRotation < TASKS_PER_ROTATION) return;
+  if (Date.now() - lastRotationTime < IP_ROTATION_INTERVAL) return;
   if (isRotatingIP) return;  // 이미 로테이션 중
 
   isRotatingIP = true;
   try {
-    log(`\n[IP] 로테이션 시작... (${tasksSinceRotation}건 처리 완료)`);
+    const elapsedMin = ((Date.now() - lastRotationTime) / 60000).toFixed(1);
+    log(`\n[IP] 로테이션 시작... (${elapsedMin}분 경과)`);
     const rotationResult = await rotateIP(tetheringAdapter);
 
     if (rotationResult.success && rotationResult.oldIP !== rotationResult.newIP) {
       log(`[IP] 변경 성공: ${rotationResult.oldIP} → ${rotationResult.newIP}`);
       currentIP = rotationResult.newIP;
-      tasksSinceRotation = 0;  // 카운터 리셋
+      lastRotationTime = Date.now();
     } else if (rotationResult.oldIP === rotationResult.newIP) {
       log(`[IP] 변경 안됨 (동일 IP: ${rotationResult.oldIP})`, "warn");
-      tasksSinceRotation = 0;  // 어쨌든 리셋
+      lastRotationTime = Date.now();
     } else {
       log(`[IP] 로테이션 실패: ${rotationResult.error}`, "warn");
     }
@@ -1389,7 +1390,7 @@ async function forceRotateIP(reason: string): Promise<void> {
     if (rotationResult.success) {
       log(`[IP] 변경: ${rotationResult.oldIP} → ${rotationResult.newIP}`);
       currentIP = rotationResult.newIP;
-      tasksSinceRotation = 0;
+      lastRotationTime = Date.now();
     }
   } finally {
     isRotatingIP = false;
@@ -1469,7 +1470,7 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
 
       // 4. 결과 처리
       totalRuns++;
-      tasksSinceRotation++;
+      // tasksSinceRotation 삭제됨 - 시간 기반 로테이션 사용
 
       // 히스토리 기록 (모든 실행마다)
       await recordHistory(work, engineResult, workerId, executionTime);
@@ -1578,7 +1579,8 @@ function printStats(): void {
   console.log(`\n${"=".repeat(60)}`);
   console.log(`  통계 (${elapsed.toFixed(1)}분 경과)`);
   console.log(`${"=".repeat(60)}`);
-  console.log(`  총 실행: ${totalRuns}회 | 다음 IP 로테이션까지: ${TASKS_PER_ROTATION - tasksSinceRotation}건`);
+  const nextRotationMin = Math.max(0, (IP_ROTATION_INTERVAL - (Date.now() - lastRotationTime)) / 60000).toFixed(1);
+  console.log(`  총 실행: ${totalRuns}회 | 다음 IP 로테이션까지: ${nextRotationMin}분`);
   console.log(`  성공: ${totalSuccess} (${successRate}%) | CAPTCHA: ${totalCaptcha} (${captchaRate}%)`);
   console.log(`  실패: ${totalFailed} | 현재 IP: ${currentIP}`);
   console.log(`  속도: ${elapsed > 0 ? (totalRuns / elapsed).toFixed(1) : '0'}회/분`);
@@ -1612,7 +1614,7 @@ async function main() {
   console.log(`  통계: ${SLOT_TABLE}`);
   console.log(`  히스토리: ${HISTORY_TABLE}`);
   console.log(`  동시 워커: ${PARALLEL_BROWSERS}개 (각자 독립 실행)`);
-  console.log(`  IP 로테이션: ${IP_ROTATION_ENABLED ? `${TASKS_PER_ROTATION}건마다` : '비활성화'}`);
+  console.log(`  IP 로테이션: ${IP_ROTATION_ENABLED ? `${IP_ROTATION_INTERVAL / 60000}분마다` : '비활성화'}`);
   console.log(`${"=".repeat(60)}`);
 
   // Git 업데이트 체커 시작
