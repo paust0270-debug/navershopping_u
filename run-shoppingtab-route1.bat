@@ -24,13 +24,13 @@ if not exist "node_modules" (
 
 :: IP 로테이션
 echo [IP] 로테이션 중...
-npx tsx -e "import { rotateIP } from './ipRotation'; rotateIP().then(r => console.log(r.success ? 'IP: ' + r.newIP : 'IP 변경 실패 (현재 IP로 진행)'))"
+call npx tsx -e "import { rotateIP } from './ipRotation'; rotateIP().then(r => console.log(r.success ? 'IP: ' + r.newIP : 'IP 변경 실패 (현재 IP로 진행)'))"
 echo.
 
 :: 실행
 echo [시작] route1-search-tab.ts 실행...
 echo.
-npx tsx shoppingtab/route1-search-tab.ts
+call npx tsx shoppingtab/route1-search-tab.ts
 
 :: 오류 발생 시 재시작
 echo.
