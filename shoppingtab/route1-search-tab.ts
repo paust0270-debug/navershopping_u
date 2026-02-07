@@ -7,7 +7,6 @@
  */
 
 import { chromium, type Page, type BrowserContext } from "patchright";
-import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS, detectRealChrome, setupMobileCDP } from "../shared/mobile-stealth";
 import * as fs from "fs";
 
 // ============ 설정 ============
@@ -118,21 +117,20 @@ async function solveCaptcha(page: Page): Promise<boolean> {
 }
 
 // ============ 스크롤 ============
-async function touchScroll(cdp: any, page: Page, dist: number) {
-  const vp = page.viewportSize(); const x = vp ? vp.width / 2 : 200; const y = vp ? vp.height / 2 : 400;
+async function smoothScroll(page: Page, dist: number) {
   let s = 0;
   while (s < dist) {
-    const step = rand(200, 400);
-    try { await cdp.send("Input.synthesizeScrollGesture", { x, y, yDistance: -Math.floor(step), speed: Math.floor(rand(800, 1200)), gestureSourceType: "touch", repeatCount: 1, repeatDelayMs: 0, xDistance: 0 }); }
-    catch { await page.evaluate((d: number) => window.scrollBy(0, d), step).catch(() => {}); }
-    s += step; await sleep(rand(100, 250));
+    const step = Math.floor(rand(150, 350));
+    await page.mouse.wheel(0, step);
+    s += step;
+    await sleep(rand(100, 250));
   }
 }
 
 // ============ N번째 상품 클릭 ============
-async function clickProduct(page: Page, cdp: any): Promise<boolean> {
+async function clickProduct(page: Page): Promise<boolean> {
   log(`[상품] ${TARGET_PRODUCT_INDEX}번째 상품 찾기`);
-  await touchScroll(cdp, page, 2500);
+  await smoothScroll(page, 2500);
   await page.evaluate(() => window.scrollTo(0, 0));
   await sleep(800);
 
@@ -158,7 +156,7 @@ async function clickProduct(page: Page, cdp: any): Promise<boolean> {
 
   const box = await link.evaluate((el: Element) => { const r = el.getBoundingClientRect(); return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; });
   const nav = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null);
-  if (box) await page.touchscreen.tap(box.x, box.y); else await link.click();
+  if (box) await page.mouse.click(box.x, box.y); else await link.click();
   await nav;
   await sleep(rand(2000, 3500));
 
@@ -185,23 +183,10 @@ async function main() {
     args: ['--window-size=480,960'],
   });
 
-  // 실제 Chrome 버전 + GREASE brand 감지 (TLS/헤더 불일치 방지)
-  const chrome = await detectRealChrome(browser);
-  log(`Chrome: v${chrome.majorVersion} (${chrome.fullVersion}) | GREASE: "${chrome.greaseBrand}";v="${chrome.greaseVersion}"`);
-
-  // extraHTTPHeaders, userAgent 제거 — 실제 버전 기반 UA 사용
-  const { extraHTTPHeaders, userAgent: _staticUA, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
-  const context = await browser.newContext({
-    ...contextOpts,
-    userAgent: chrome.mobileUA,
-  });
-  await applyMobileStealth(context);
+  // 데스크톱 모드 (모바일 에뮬레이션 = msearch.shopping에서 BLOCKED → 데스크톱 = CAPTCHA → 솔버로 해결)
+  const context = await browser.newContext();
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
-  const cdp = await context.newCDPSession(page);
-
-  // CDP로 모바일 환경 설정 (실제 Chrome 버전 기반)
-  await setupMobileCDP(cdp, chrome);
 
   try {
     // ── 1. m.naver.com ──
@@ -215,8 +200,7 @@ async function main() {
     log("[2] 검색창 활성화");
     const fakeBar = await page.$("#MM_SEARCH_FAKE") || await page.$(".search_area");
     if (fakeBar) {
-      const box = await fakeBar.evaluate((el: Element) => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-      await page.touchscreen.tap(box.x, box.y);
+      await fakeBar.click();
       await sleep(rand(800, 1200));
     }
     const input = await page.$("#query") || await page.$('input[name="query"]');
@@ -260,7 +244,7 @@ async function main() {
 
     log("[4] 쇼핑탭 클릭");
     const nav2 = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => null);
-    if (tabBox) await page.touchscreen.tap(tabBox.x, tabBox.y); else await tab.click();
+    if (tabBox) await page.mouse.click(tabBox.x, tabBox.y); else await tab.click();
     await nav2;
     await sleep(rand(2000, 3500));
     log(`  쇼핑 URL: ${page.url()}`);
@@ -271,14 +255,14 @@ async function main() {
     if (st === "blocked") throw new Error("쇼핑 차단 (msearch.shopping.naver.com은 하드블록 가능)");
 
     // ── 5. 상품 클릭 ──
-    const ok = await clickProduct(page, cdp);
+    const ok = await clickProduct(page);
 
     log("══════════════════════════════════════════");
     log(`결과: ${ok ? "✅ 성공" : "❌ 실패"}`);
     log(`URL: ${page.url()}`);
     log("══════════════════════════════════════════");
 
-    if (ok) { await sleep(rand(3000, 5000)); await touchScroll(cdp, page, 1500); await snap(page, "final"); }
+    if (ok) { await sleep(rand(3000, 5000)); await smoothScroll(page, 1500); await snap(page, "final"); }
 
   } catch (e: any) {
     log(`FATAL: ${e.message}`, "error");
