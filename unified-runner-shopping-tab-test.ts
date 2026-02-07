@@ -943,20 +943,85 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     // 6. 쇼핑탭 내 검색창에 키워드 입력 + 자동완성 선택
     log(`[Worker ${workerId}] 쇼핑탭 검색창에 키워드 입력...`);
+
+    // 디버깅: 쇼핑탭 페이지 구조 확인
+    const shoppingPageDebug = await page.evaluate(() => {
+      const gnbGnb = document.querySelector('#gnb-gnb');
+      const searchInputs = document.querySelectorAll('input[type="text"]');
+      const allSearchContainers = document.querySelectorAll('[class*="search"]');
+
+      return {
+        gnbGnbExists: !!gnbGnb,
+        gnbGnbHTML: gnbGnb?.innerHTML.substring(0, 300) || 'N/A',
+        searchInputCount: searchInputs.length,
+        searchInputs: Array.from(searchInputs).map((input, i) => ({
+          index: i,
+          placeholder: input.placeholder || '',
+          className: input.className || '',
+          id: input.id || ''
+        })),
+        searchContainerCount: allSearchContainers.length
+      };
+    });
+
+    log(`[Worker ${workerId}] DEBUG - #gnb-gnb 존재: ${shoppingPageDebug.gnbGnbExists}`);
+    log(`[Worker ${workerId}] DEBUG - input 개수: ${shoppingPageDebug.searchInputCount}`);
+    shoppingPageDebug.searchInputs.forEach(inp => {
+      log(`[Worker ${workerId}] DEBUG - Input ${inp.index}: placeholder="${inp.placeholder}", id="${inp.id}"`);
+    });
+
+    // 스크린샷 저장 (쇼핑탭 페이지)
     try {
-      // 쇼핑 페이지 검색창 (정확한 셀렉터)
-      const searchContainer = await page.$('#gnb-gnb div[class*="_searchInput_search_input"]');
+      await page.screenshot({ path: `debug-shopping-page-${workerId}-${Date.now()}.png` });
+      log(`[Worker ${workerId}] DEBUG - 쇼핑 페이지 스크린샷 저장`);
+    } catch (e) {}
+
+    try {
+      // 여러 검색창 셀렉터 시도
+      const searchSelectors = [
+        '#gnb-gnb div[class*="_searchInput_search_input"]',  // 기존
+        '#gnb-gnb input[type="text"]',                       // 직접 input
+        'input[placeholder*="검색"]',                        // placeholder로 찾기
+        'div[class*="search"] input',                        // 일반 검색
+        '#gnb input'                                         // gnb 내부 input
+      ];
+
+      let searchContainer = null;
+      let usedSelector = '';
+
+      for (const selector of searchSelectors) {
+        searchContainer = await page.$(selector);
+        if (searchContainer) {
+          usedSelector = selector;
+          log(`[Worker ${workerId}] DEBUG - 검색창 발견 (셀렉터: ${selector})`);
+          break;
+        }
+      }
 
       if (searchContainer) {
         // 검색창 클릭
+        log(`[Worker ${workerId}] 검색창 클릭 (${usedSelector})`);
         await searchContainer.click();
         await sleep(randomBetween(300, 500));
 
-        // 검색창 내부 input 찾기
-        const searchInput = await searchContainer.$('input');
+        // 검색창 내부 input 찾기 (또는 자신이 input일 수도 있음)
+        let searchInput = searchContainer;
+        const tagName = await searchContainer.evaluate(el => el.tagName);
+
+        if (tagName !== 'INPUT') {
+          searchInput = await searchContainer.$('input');
+          log(`[Worker ${workerId}] DEBUG - input 요소 찾기 (parent에서)`);
+        } else {
+          log(`[Worker ${workerId}] DEBUG - 직접 input 요소임`);
+        }
+
         if (searchInput) {
           // 키워드 입력 (전체 상품명이 아닌 짧은 키워드)
           const shortKeyword = productName.split(' ')[0].substring(0, 10);
+          log(`[Worker ${workerId}] 키워드 입력: "${shortKeyword}"`);
+
+          await searchInput.click();
+          await sleep(100);
           await searchInput.fill(''); // 기존 내용 클리어
           await searchInput.type(shortKeyword, { delay: randomBetween(50, 100) });
           await sleep(randomBetween(1000, 1500));
@@ -1013,10 +1078,12 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
           log(`[Worker ${workerId}] 검색창 input을 찾을 수 없어 건너뜀`, "warn");
         }
       } else {
-        log(`[Worker ${workerId}] 검색창을 찾을 수 없어 건너뜀`, "warn");
+        log(`[Worker ${workerId}] 검색창을 찾을 수 없습니다 (모든 셀렉터 실패)`, "warn");
+        log(`[Worker ${workerId}] DEBUG - 시도한 셀렉터: ${searchSelectors.join(', ')}`, "warn");
       }
     } catch (e: any) {
       log(`[Worker ${workerId}] 검색창 입력 실패: ${e.message}`, "warn");
+      log(`[Worker ${workerId}] 스택: ${e.stack?.substring(0, 200)}`, "warn");
     }
 
     // 7. IP 차단 체크
