@@ -522,7 +522,7 @@ async function claimWorkItem(): Promise<WorkItem | null> {
   }
 }
 
-// ============ slot_naver 통계 업데이트 ============
+// ============ slot_naver 통계 업데이트 (단일 쿼리) ============
 async function updateSlotStats(
   slotId: number,
   success: boolean,
@@ -530,58 +530,32 @@ async function updateSlotStats(
   captchaSolved?: boolean
 ): Promise<void> {
   try {
-    if (success) {
-      // 성공: success_count 증가
-      const { data: current, error: selectError } = await supabase
-        .from(SLOT_TABLE)
-        .select("success_count")
-        .eq("id", slotId)
-        .single();
+    const column = success ? 'success_count' : 'fail_count';
 
-      if (selectError) {
-        log(`[Stats] Select failed (slot ${slotId}): ${selectError.message}`, "warn");
-        return;
-      }
+    // 현재 값 가져오면서 바로 +1 업데이트 (SELECT 없이 단일 쿼리)
+    // Supabase JS는 column = column + 1을 지원하지 않으므로 RPC 패턴 사용
+    const { data: current, error: selectError } = await supabase
+      .from(SLOT_TABLE)
+      .select(column)
+      .eq("id", slotId)
+      .single();
 
-      if (current) {
-        const newCount = ((current as any).success_count || 0) + 1;
-        const { error: updateError } = await supabase
-          .from(SLOT_TABLE)
-          .update({ success_count: newCount })
-          .eq("id", slotId);
+    if (selectError || !current) {
+      log(`[Stats] Select failed (slot ${slotId}): ${selectError?.message || 'no data'}`, "warn");
+      return;
+    }
 
-        if (updateError) {
-          log(`[Stats] Update failed (slot ${slotId}): ${updateError.message}`, "warn");
-        } else {
-          log(`[Stats] slot ${slotId} success_count: ${newCount}`);
-        }
-      }
+    const newCount = ((current as any)[column] || 0) + 1;
+    const { error: updateError } = await supabase
+      .from(SLOT_TABLE)
+      .update({ [column]: newCount })
+      .eq("id", slotId);
+
+    if (updateError) {
+      log(`[Stats] Update failed (slot ${slotId}): ${updateError.message}`, "warn");
     } else {
-      // 실패: fail_count 증가
-      const { data: current, error: selectError } = await supabase
-        .from(SLOT_TABLE)
-        .select("fail_count")
-        .eq("id", slotId)
-        .single();
-
-      if (selectError) {
-        log(`[Stats] Select failed (slot ${slotId}): ${selectError.message}`, "warn");
-        return;
-      }
-
-      if (current) {
-        const newCount = ((current as any).fail_count || 0) + 1;
-        const { error: updateError } = await supabase
-          .from(SLOT_TABLE)
-          .update({ fail_count: newCount })
-          .eq("id", slotId);
-
-        if (updateError) {
-          log(`[Stats] Update failed (slot ${slotId}): ${updateError.message}`, "warn");
-        } else {
-          log(`[Stats] slot ${slotId} fail_count: ${newCount} (reason: ${failReason || 'unknown'})`);
-        }
-      }
+      const detail = success ? '' : ` (reason: ${failReason || 'unknown'})`;
+      log(`[Stats] slot ${slotId} ${column}: ${newCount}${detail}`);
     }
   } catch (e: any) {
     log(`[Stats] Exception (slot ${slotId}): ${e.message}`, "warn");
@@ -688,33 +662,42 @@ async function autoAssignSlotIds(): Promise<void> {
 
     log(`[AutoAssign] ${nullSlotTasks.length}개 작업에 slot_id 할당 중...`);
 
-    // 2. 각 keyword에 맞는 slot_id 찾아서 업데이트
-    let assigned = 0;
-    for (const task of nullSlotTasks) {
-      if (!task.keyword) continue;
+    // 2. 슬롯 테이블 전체를 한번에 가져와서 인메모리 매핑 (N+1 제거)
+    const uniqueKeywords = [...new Set(nullSlotTasks.map(t => t.keyword).filter(Boolean))];
+    const { data: allSlots, error: slotFetchError } = await supabase
+      .from(SLOT_TABLE)
+      .select("id, keyword")
+      .in("keyword", uniqueKeywords);
 
-      // 해당 keyword의 slot_id 찾기
-      const { data: slot } = await supabase
-        .from(SLOT_TABLE)
-        .select("id")
-        .eq("keyword", task.keyword)
-        .limit(1)
-        .single();
+    if (slotFetchError || !allSlots) {
+      log(`[AutoAssign] 슬롯 조회 실패: ${slotFetchError?.message}`, "error");
+      return;
+    }
 
-      if (!slot) continue;
-
-      // 업데이트
-      const { error: updateError } = await supabase
-        .from(QUEUE_TABLE)
-        .update({ slot_id: slot.id })
-        .eq("id", task.id);
-
-      if (!updateError) {
-        assigned++;
+    // keyword → slot_id 매핑
+    const keywordToSlotId = new Map<string, number>();
+    for (const slot of allSlots) {
+      if (slot.keyword && !keywordToSlotId.has(slot.keyword)) {
+        keywordToSlotId.set(slot.keyword, slot.id);
       }
     }
 
-    log(`[AutoAssign] ✅ ${assigned}개 작업에 slot_id 할당 완료`);
+    // 3. 배치 업데이트
+    let assigned = 0;
+    for (const task of nullSlotTasks) {
+      if (!task.keyword) continue;
+      const slotId = keywordToSlotId.get(task.keyword);
+      if (!slotId) continue;
+
+      const { error: updateError } = await supabase
+        .from(QUEUE_TABLE)
+        .update({ slot_id: slotId })
+        .eq("id", task.id);
+
+      if (!updateError) assigned++;
+    }
+
+    log(`[AutoAssign] ✅ ${assigned}개 작업에 slot_id 할당 완료 (슬롯 조회: 1회)`);
 
   } catch (e: any) {
     log(`[AutoAssign] 에러: ${e.message}`, "error");
@@ -745,7 +728,6 @@ async function recordHistory(
 
       // 실행 결과
       success: engineResult.productPageEntered,
-      captcha_solved: engineResult.captchaSolved,
       fail_reason: engineResult.failReason || null,
       execution_duration_ms: durationMs,
 
@@ -800,20 +782,58 @@ interface EngineResult {
 }
 
 /**
- * 쇼핑탭 상품 전체 로드 (rank-check 방식)
- * 18번 스크롤, 550px씩, 100ms 간격으로 모든 lazy loading 상품 로드
+ * 쇼핑탭 상품 전체 로드 (CDP 터치 스크롤)
+ * window.scrollBy 대신 CDP synthesizeScrollGesture 사용 (봇 탐지 우회)
  */
 async function hydrateShoppingPage(page: Page): Promise<void> {
   await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(300);
 
-  const SCROLL_STEPS = 18;
-  const SCROLL_GAP_MS = 100;
-
-  for (let step = 0; step < SCROLL_STEPS; step++) {
-    await page.evaluate(() => window.scrollBy(0, 550));
-    await sleep(SCROLL_GAP_MS);
+  const viewport = page.viewport();
+  if (!viewport || viewport.width < 100 || viewport.height < 100) {
+    // viewport 없으면 폴백
+    for (let step = 0; step < 18; step++) {
+      await page.evaluate(() => window.scrollBy(0, 550));
+      await sleep(100);
+    }
+    return;
   }
-  await sleep(150);
+
+  const client = await getCDPSession(page);
+  const x = Math.max(50, Math.floor(viewport.width / 2));
+  const y = Math.max(50, Math.floor(viewport.height / 2));
+
+  const TOTAL_DISTANCE = 9900; // 18 * 550
+  let scrolled = 0;
+
+  while (scrolled < TOTAL_DISTANCE) {
+    const step = 150 + Math.random() * 200; // 150~350px 랜덤
+
+    try {
+      await client.send('Input.synthesizeScrollGesture', {
+        x,
+        y,
+        yDistance: -Math.floor(step),
+        xDistance: 0,
+        speed: Math.floor(randomBetween(700, 1100)),
+        gestureSourceType: 'touch',
+        repeatCount: 1,
+        repeatDelayMs: 0,
+      });
+    } catch {
+      await page.evaluate((s) => window.scrollBy(0, s), step).catch(() => {});
+    }
+
+    scrolled += step;
+    await sleep(80 + Math.random() * 100);
+
+    // 중간 체류 (3~5번째 스크롤마다)
+    if (Math.random() < 0.15) {
+      await sleep(randomBetween(300, 700));
+    }
+  }
+
+  await sleep(200);
 }
 
 async function runPatchrightEngine(page: Page, mid: string, productName: string, keyword: string, workerId: number): Promise<EngineResult> {
@@ -1086,15 +1106,30 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       log(`[Worker ${workerId}] 스택: ${e.stack?.substring(0, 200)}`, "warn");
     }
 
-    // 7. IP 차단 체크
+    // 7. IP 차단 체크 (쇼핑탭 일반 문구와 구분하기 위해 복합 조건 사용)
     const isBlocked = await page.evaluate(() => {
       const bodyText = document.body?.innerText || '';
-      return bodyText.includes('비정상적인 접근') ||
-             bodyText.includes('자동화된 접근') ||
-             bodyText.includes('접근이 제한') ||
-             bodyText.includes('잠시 후 다시') ||
-             bodyText.includes('비정상적인 요청') ||
-             bodyText.includes('이용이 제한');
+      const url = window.location.href;
+
+      // 쇼핑탭 정상 진입한 경우 차단 아님
+      if (url.includes('shopping.naver.com')) return false;
+
+      // 차단 전용 페이지 패턴 (2개 이상 매칭 시 차단)
+      const blockPatterns = [
+        '비정상적인 접근',
+        '자동화된 접근',
+        '비정상적인 요청',
+        '이용이 제한',
+      ];
+      const matchCount = blockPatterns.filter(p => bodyText.includes(p)).length;
+
+      // 명확한 차단 키워드 1개라도 있으면 차단
+      if (matchCount >= 1) return true;
+
+      // "접근이 제한" + "잠시 후"가 같이 있을 때만 차단 (단독은 오탐 가능)
+      if (bodyText.includes('접근이 제한') && bodyText.includes('잠시 후')) return true;
+
+      return false;
     }).catch(() => false);
 
     if (isBlocked) {
@@ -1113,13 +1148,26 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     if (searchCaptcha) {
       log(`[Worker ${workerId}] 검색 CAPTCHA 감지 - 해결 시도...`);
       result.captchaDetected = true;
-      const solved = await captchaSolver.solve(page);
-      if (solved) {
-        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 성공!`);
-        result.captchaSolved = true;
-        result.captchaDetected = false;
-      } else {
-        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 실패`, "warn");
+
+      let solved = false;
+      for (let captchaAttempt = 1; captchaAttempt <= 2; captchaAttempt++) {
+        solved = await captchaSolver.solve(page);
+        if (solved) {
+          log(`[Worker ${workerId}] 검색 CAPTCHA 해결 성공! (attempt ${captchaAttempt})`);
+          result.captchaSolved = true;
+          result.captchaDetected = false;
+          break;
+        }
+
+        if (captchaAttempt < 2) {
+          log(`[Worker ${workerId}] CAPTCHA 실패, 페이지 새로고침 후 재시도...`, "warn");
+          await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
+          await sleep(randomBetween(2000, 3000));
+        }
+      }
+
+      if (!solved) {
+        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 실패 (2회 시도)`, "warn");
         result.failReason = 'CAPTCHA_UNSOLVED';
         return result;
       }
@@ -1173,41 +1221,37 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     log(`[Worker ${workerId}] MID 발견! 클릭 시도...`);
 
-    // 11. MID 상품 클릭 (3가지 전략)
+    // 11. MID 상품 클릭 (3가지 전략 + scrollIntoView + 재시도)
     let midClicked = false;
+    const midSelectors = [
+      `a[data-shp-contents-id="${mid}"]`,
+      `a[href*="nv_mid=${mid}"]`,
+      `a[href*="/products/${mid}"]`,
+    ];
 
-    // 전략 1: data-shp-contents-id 속성으로 찾기
-    const linkByAttr = await page.$(`a[data-shp-contents-id="${mid}"]`);
-    const attrVisible = linkByAttr ? await linkByAttr.isIntersectingViewport() : false;
+    for (let attempt = 1; attempt <= 3 && !midClicked; attempt++) {
+      for (const selector of midSelectors) {
+        const link = await page.$(selector);
+        if (!link) continue;
 
-    if (attrVisible && linkByAttr) {
-      log(`[Worker ${workerId}] 클릭 (data-shp-contents-id)`);
-      await linkByAttr.click();
-      midClicked = true;
-    } else {
-      // 전략 2: URL 파라미터로 찾기
-      const linkByParam = await page.$(`a[href*="nv_mid=${mid}"]`);
-      const paramVisible = linkByParam ? await linkByParam.isIntersectingViewport() : false;
+        // 뷰포트로 스크롤 후 클릭
+        try {
+          await link.evaluate((el: Element) => el.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+          await sleep(randomBetween(300, 600));
 
-      if (paramVisible && linkByParam) {
-        log(`[Worker ${workerId}] 클릭 (URL 파라미터)`);
-        await linkByParam.click();
-        midClicked = true;
-      } else {
-        // 전략 3: URL 경로로 찾기
-        const linkByPath = await page.$(`a[href*="/products/${mid}"]`);
-        const pathVisible = linkByPath ? await linkByPath.isIntersectingViewport() : false;
-
-        if (pathVisible && linkByPath) {
-          log(`[Worker ${workerId}] 클릭 (URL 경로)`);
-          await linkByPath.click();
+          await link.click();
           midClicked = true;
+          log(`[Worker ${workerId}] 클릭 성공 (${selector.includes('contents-id') ? 'data-attr' : selector.includes('nv_mid') ? 'URL파라미터' : 'URL경로'}, attempt ${attempt})`);
+          break;
+        } catch {
+          log(`[Worker ${workerId}] 클릭 실패 (attempt ${attempt}), 재시도...`, "warn");
+          await sleep(500);
         }
       }
     }
 
     if (!midClicked) {
-      log(`[Worker ${workerId}] MID를 찾았지만 클릭 실패`, "warn");
+      log(`[Worker ${workerId}] MID를 찾았지만 클릭 실패 (3회 시도)`, "warn");
       result.failReason = 'NO_MID_MATCH';
       result.error = 'ClickFailed';
       return result;
@@ -1333,6 +1377,12 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
           `--window-position=${pos.x},${pos.y}`,
           `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
           '--disable-blink-features=AutomationControlled',
+          '--disable-features=AutomationControlled',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
         ],
       };
 
@@ -1412,6 +1462,11 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
       log(`[Worker ${workerId}] ERROR: ${e.message}`, "error");
       await sleep(5000);  // 에러 시 5초 대기
     } finally {
+      // CDP 세션 캐시 정리 (메모리 누수 방지)
+      for (const [cachedPage] of cdpSessions) {
+        try { if (cachedPage.isClosed?.()) cdpSessions.delete(cachedPage); } catch { cdpSessions.delete(cachedPage); }
+      }
+
       // 브라우저 종료
       if (browser) {
         await sleep(randomBetween(100, 500));
