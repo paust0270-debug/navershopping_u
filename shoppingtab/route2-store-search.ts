@@ -7,7 +7,7 @@
  */
 
 import { chromium, type Page, type BrowserContext } from "patchright";
-import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "../shared/mobile-stealth";
+import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS, detectRealChrome, setupMobileCDP } from "../shared/mobile-stealth";
 import * as fs from "fs";
 
 // ============ 설정 ============
@@ -184,44 +184,24 @@ async function main() {
     channel: 'chrome',
     args: ['--window-size=480,960'],
   });
-  // extraHTTPHeaders의 sec-ch-ua 제거 — Chrome이 자체 값 사용하도록
-  const { extraHTTPHeaders, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
-  const context = await browser.newContext(contextOpts);
+
+  // 실제 Chrome 버전 + GREASE brand 감지 (TLS/헤더 불일치 방지)
+  const chrome = await detectRealChrome(browser);
+  log(`Chrome: v${chrome.majorVersion} (${chrome.fullVersion}) | GREASE: "${chrome.greaseBrand}";v="${chrome.greaseVersion}"`);
+
+  // extraHTTPHeaders, userAgent 제거 — 실제 버전 기반 UA 사용
+  const { extraHTTPHeaders, userAgent: _staticUA, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
+  const context = await browser.newContext({
+    ...contextOpts,
+    userAgent: chrome.mobileUA,
+  });
   await applyMobileStealth(context);
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   const cdp = await context.newCDPSession(page);
 
-  // CDP로 navigator.platform + userAgentData(Client Hints) 전부 설정
-  await cdp.send('Emulation.setUserAgentOverride', {
-    userAgent: MOBILE_CONTEXT_OPTIONS.userAgent,
-    platform: 'Linux armv81',
-    userAgentMetadata: {
-      brands: [
-        { brand: 'Chromium', version: '144' },
-        { brand: 'Google Chrome', version: '144' },
-        { brand: 'Not)A;Brand', version: '99' },
-      ],
-      fullVersionList: [
-        { brand: 'Chromium', version: '144.0.0.0' },
-        { brand: 'Google Chrome', version: '144.0.0.0' },
-        { brand: 'Not)A;Brand', version: '99.0.0.0' },
-      ],
-      fullVersion: '144.0.0.0',
-      platform: 'Android',
-      platformVersion: '14.0.0',
-      architecture: 'arm',
-      model: 'SM-S911B',
-      mobile: true,
-      bitness: '64',
-      wow64: false,
-    },
-  });
-  // CDP로 maxTouchPoints 강제 설정
-  await cdp.send('Emulation.setTouchEmulationEnabled', {
-    enabled: true,
-    maxTouchPoints: 5,
-  });
+  // CDP로 모바일 환경 설정 (실제 Chrome 버전 기반)
+  await setupMobileCDP(cdp, chrome);
 
   try {
     // ── 1. m.naver.com ──

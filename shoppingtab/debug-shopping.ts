@@ -9,7 +9,7 @@
  */
 
 import { chromium, type Page, type BrowserContext } from "patchright";
-import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "../shared/mobile-stealth";
+import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS, detectRealChrome, setupMobileCDP } from "../shared/mobile-stealth";
 import * as fs from "fs";
 
 const SCREENSHOT_DIR = "./screenshots/debug-shopping";
@@ -31,90 +31,65 @@ async function main() {
     channel: 'chrome',
     args: ['--window-size=480,960'],
   });
-  // extraHTTPHeaders의 sec-ch-ua 제거 — Chrome 자체 값 사용 (헤더/JS 불일치 방지)
-  const { extraHTTPHeaders, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
-  const context = await browser.newContext(contextOpts);
+
+  // 실제 Chrome 버전 + GREASE brand 감지
+  const chrome = await detectRealChrome(browser);
+  log(`Chrome: v${chrome.majorVersion} (${chrome.fullVersion})`);
+  log(`GREASE: "${chrome.greaseBrand}";v="${chrome.greaseVersion}" (full: ${chrome.greaseFullVersion})`);
+  log(`Mobile UA: ${chrome.mobileUA}`);
+
+  // extraHTTPHeaders, userAgent 제거 — 실제 버전 기반 UA 사용
+  const { extraHTTPHeaders, userAgent: _staticUA, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
+  const context = await browser.newContext({
+    ...contextOpts,
+    userAgent: chrome.mobileUA,
+  });
   await applyMobileStealth(context);
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   const cdp = await context.newCDPSession(page);
 
-  // CDP로 navigator.platform + userAgentData(Client Hints) 전부 설정
-  await cdp.send('Emulation.setUserAgentOverride', {
-    userAgent: MOBILE_CONTEXT_OPTIONS.userAgent,
-    platform: 'Linux armv81',
-    userAgentMetadata: {
-      brands: [
-        { brand: 'Chromium', version: '144' },
-        { brand: 'Google Chrome', version: '144' },
-        { brand: 'Not)A;Brand', version: '99' },
-      ],
-      fullVersionList: [
-        { brand: 'Chromium', version: '144.0.0.0' },
-        { brand: 'Google Chrome', version: '144.0.0.0' },
-        { brand: 'Not)A;Brand', version: '99.0.0.0' },
-      ],
-      fullVersion: '144.0.0.0',
-      platform: 'Android',
-      platformVersion: '14.0.0',
-      architecture: 'arm',
-      model: 'SM-S911B',
-      mobile: true,
-      bitness: '64',
-      wow64: false,
-    },
-  });
-  await cdp.send('Emulation.setTouchEmulationEnabled', {
-    enabled: true,
-    maxTouchPoints: 5,
-  });
+  // CDP로 모바일 환경 설정 (실제 Chrome 버전 기반)
+  await setupMobileCDP(cdp, chrome);
 
-  // ========== 요청/응답 로깅 ==========
+  // ========== CDP Network 로깅 (실제 전송 헤더 전부 캡처) ==========
   const requestLog: any[] = [];
 
-  page.on('request', (req) => {
-    const url = req.url();
-    if (url.includes('shopping.naver') || url.includes('search.naver')) {
-      const headers = req.headers();
+  await cdp.send('Network.enable');
+
+  // 브라우저가 실제로 보내는 모든 헤더 캡처 (sec-fetch-* 포함)
+  cdp.on('Network.requestWillBeSentExtraInfo', (ev: any) => {
+    const url = ev.headers?.[':authority'] || '';
+    if (url.includes('shopping.naver') || url.includes('msearch')) {
       requestLog.push({
-        type: 'REQUEST',
-        url: url.substring(0, 120),
-        method: req.method(),
-        headers: {
-          'user-agent': headers['user-agent']?.substring(0, 80),
-          'sec-ch-ua': headers['sec-ch-ua'],
-          'sec-ch-ua-mobile': headers['sec-ch-ua-mobile'],
-          'sec-ch-ua-platform': headers['sec-ch-ua-platform'],
-          'sec-fetch-dest': headers['sec-fetch-dest'],
-          'sec-fetch-mode': headers['sec-fetch-mode'],
-          'sec-fetch-site': headers['sec-fetch-site'],
-          'sec-fetch-user': headers['sec-fetch-user'],
-          'referer': headers['referer'],
-          'cookie': headers['cookie'] ? `[${headers['cookie'].length} chars]` : '(none)',
-        },
+        type: 'RAW_REQUEST',
+        requestId: ev.requestId,
+        allHeaders: ev.headers,
       });
     }
   });
 
-  page.on('response', (res) => {
-    const url = res.url();
-    if (url.includes('shopping.naver') || url.includes('search.naver')) {
-      const headers = res.headers();
+  cdp.on('Network.requestWillBeSent', (ev: any) => {
+    const url = ev.request?.url || '';
+    if (url.includes('shopping.naver')) {
       requestLog.push({
-        type: 'RESPONSE',
-        url: url.substring(0, 120),
-        status: res.status(),
-        headers: {
-          'content-type': headers['content-type'],
-          'set-cookie': headers['set-cookie'] ? '[present]' : '(none)',
-          'location': headers['location'],
-          'x-frame-options': headers['x-frame-options'],
-        },
+        type: 'REQUEST',
+        url: url.substring(0, 150),
+        method: ev.request.method,
+        headers: ev.request.headers,
       });
-      // 418이면 바로 로그
-      if (res.status() === 418) {
-        log(`🚨 418 DETECTED: ${url.substring(0, 100)}`);
-      }
+    }
+  });
+
+  cdp.on('Network.responseReceivedExtraInfo', (ev: any) => {
+    // 418 응답의 실제 헤더 캡처
+    if (ev.statusCode === 418) {
+      requestLog.push({
+        type: 'RAW_RESPONSE_418',
+        requestId: ev.requestId,
+        statusCode: ev.statusCode,
+        headers: ev.headers,
+      });
     }
   });
 

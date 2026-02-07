@@ -14,8 +14,112 @@
  *   - Device: SM-S911B (Galaxy S23)
  */
 
-import type { BrowserContext } from "patchright";
+import type { Browser, BrowserContext } from "patchright";
 import type { Page as PuppeteerPage } from "puppeteer-core";
+
+// ============================================
+// 실제 Chrome 버전 감지 (GREASE brand 포함)
+// ============================================
+export interface RealChromeInfo {
+  majorVersion: string;
+  fullVersion: string;
+  greaseBrand: string;
+  greaseVersion: string;
+  greaseFullVersion: string;
+  mobileUA: string;
+}
+
+/**
+ * 시스템 Chrome의 실제 버전과 GREASE brand를 감지
+ *
+ * 왜 필요한가:
+ * - TLS fingerprint는 실제 Chrome 버전을 드러냄
+ * - sec-ch-ua 헤더에 하드코딩된 버전이 TLS와 다르면 봇 탐지
+ * - GREASE brand는 Chrome 버전마다 다르므로 동적 감지 필수
+ */
+export async function detectRealChrome(browser: Browser): Promise<RealChromeInfo> {
+  const bareCtx = await browser.newContext();
+  const barePage = await bareCtx.newPage();
+
+  const info = await barePage.evaluate(async () => {
+    const ua = navigator.userAgent;
+    const majorMatch = ua.match(/Chrome\/(\d+)/);
+    const fullMatch = ua.match(/Chrome\/([\d.]+)/);
+    const majorVersion = majorMatch ? majorMatch[1] : '130';
+    const fullVersion = fullMatch ? fullMatch[1] : '130.0.0.0';
+
+    const uad = (navigator as any).userAgentData;
+    let greaseBrand = 'Not A;Brand';
+    let greaseVersion = '8';
+    let greaseFullVersion = '8.0.0.0';
+
+    if (uad?.brands) {
+      for (const b of uad.brands) {
+        if (!b.brand.includes('Chromium') && !b.brand.includes('Chrome') && !b.brand.includes('Google')) {
+          greaseBrand = b.brand;
+          greaseVersion = b.version;
+          break;
+        }
+      }
+      try {
+        const hev = await uad.getHighEntropyValues(['fullVersionList']);
+        for (const b of hev.fullVersionList || []) {
+          if (!b.brand.includes('Chromium') && !b.brand.includes('Chrome') && !b.brand.includes('Google')) {
+            greaseFullVersion = b.version;
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    return { majorVersion, fullVersion, greaseBrand, greaseVersion, greaseFullVersion };
+  });
+
+  await bareCtx.close();
+
+  const mobileUA = `Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${info.fullVersion} Mobile Safari/537.36`;
+
+  return { ...info, mobileUA };
+}
+
+/**
+ * CDP를 통한 모바일 환경 설정 (실제 Chrome 버전 기반)
+ *
+ * - User-Agent를 모바일로 변경
+ * - Client Hints (sec-ch-ua) 헤더를 실제 브라우저 버전으로 설정
+ * - platform, model, architecture 등 모바일 값 설정
+ * - Touch emulation 활성화 (maxTouchPoints: 5)
+ */
+export async function setupMobileCDP(cdp: any, chrome: RealChromeInfo) {
+  await cdp.send('Emulation.setUserAgentOverride', {
+    userAgent: chrome.mobileUA,
+    platform: 'Linux armv81',
+    userAgentMetadata: {
+      brands: [
+        { brand: 'Chromium', version: chrome.majorVersion },
+        { brand: 'Google Chrome', version: chrome.majorVersion },
+        { brand: chrome.greaseBrand, version: chrome.greaseVersion },
+      ],
+      fullVersionList: [
+        { brand: 'Chromium', version: chrome.fullVersion },
+        { brand: 'Google Chrome', version: chrome.fullVersion },
+        { brand: chrome.greaseBrand, version: chrome.greaseFullVersion },
+      ],
+      fullVersion: chrome.fullVersion,
+      platform: 'Android',
+      platformVersion: '14.0.0',
+      architecture: 'arm',
+      model: 'SM-S911B',
+      mobile: true,
+      bitness: '64',
+      wow64: false,
+    },
+  });
+  await cdp.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 5,
+  });
+}
 
 // ============================================
 // 디바이스 프로필 (통합 관리)
