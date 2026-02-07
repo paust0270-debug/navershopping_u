@@ -638,19 +638,25 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     // 2. 검색창 클릭
     await page.evaluate(() => window.scrollTo(0, 0));
     log(`[Worker ${workerId}] 검색창 클릭...`);
-    await page.locator('#MM_SEARCH_FAKE').click({ force: true });
+    const searchFake = await page.$('#MM_SEARCH_FAKE');
+    if (searchFake) {
+      await searchFake.click();
+    } else {
+      throw new Error('검색창(#MM_SEARCH_FAKE)을 찾을 수 없습니다');
+    }
     await sleep(randomBetween(800, 1200));
 
     // 3. 메인 키워드 입력 (자동완성 사용 안 함)
     log(`[Worker ${workerId}] "${keyword}" 입력...`);
-    const searchInput = page.locator('#query.sch_input').first();
+    const searchInput = await page.$('#query.sch_input');
+    if (!searchInput) throw new Error('검색창(#query.sch_input)을 찾을 수 없습니다');
     await searchInput.type(keyword, { delay: randomBetween(80, 150) });
     await sleep(randomBetween(500, 800));
 
     // 4. Enter로 바로 검색
     log(`[Worker ${workerId}] Enter로 검색 실행...`);
     await page.keyboard.press('Enter');
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {});
     await sleep(randomBetween(2000, 3000));
 
     // 5. 쇼핑탭 클릭 (자동완성 선택 후 바로)
@@ -734,7 +740,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
               log(`[Worker ${workerId}] 자동완성 선택: "${selectedKeyword}"`);
 
               await selectedItem.click();
-              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
               await sleep(randomBetween(2000, 3000));
 
               log(`[Worker ${workerId}] 자동완성 검색 완료`);
@@ -751,14 +757,14 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
                 await page.keyboard.press('Enter');
               }
 
-              await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+              await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
               await sleep(randomBetween(2000, 3000));
             }
           } else {
             // 자동완성 레이어가 없으면 Enter
             log(`[Worker ${workerId}] 자동완성 레이어 없음, Enter 입력`, "warn");
             await page.keyboard.press('Enter');
-            await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+            await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
             await sleep(randomBetween(2000, 3000));
           }
         } else {
@@ -862,28 +868,28 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     let midClicked = false;
 
     // 전략 1: data-shp-contents-id 속성으로 찾기
-    const linkByAttr = page.locator(`a[data-shp-contents-id="${mid}"]`).first();
-    const attrVisible = await linkByAttr.isVisible({ timeout: 2000 }).catch(() => false);
+    const linkByAttr = await page.$(`a[data-shp-contents-id="${mid}"]`);
+    const attrVisible = linkByAttr ? await linkByAttr.isIntersectingViewport() : false;
 
-    if (attrVisible) {
+    if (attrVisible && linkByAttr) {
       log(`[Worker ${workerId}] 클릭 (data-shp-contents-id)`);
       await linkByAttr.click();
       midClicked = true;
     } else {
       // 전략 2: URL 파라미터로 찾기
-      const linkByParam = page.locator(`a[href*="nv_mid=${mid}"]`).first();
-      const paramVisible = await linkByParam.isVisible({ timeout: 1000 }).catch(() => false);
+      const linkByParam = await page.$(`a[href*="nv_mid=${mid}"]`);
+      const paramVisible = linkByParam ? await linkByParam.isIntersectingViewport() : false;
 
-      if (paramVisible) {
+      if (paramVisible && linkByParam) {
         log(`[Worker ${workerId}] 클릭 (URL 파라미터)`);
         await linkByParam.click();
         midClicked = true;
       } else {
         // 전략 3: URL 경로로 찾기
-        const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
-        const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
+        const linkByPath = await page.$(`a[href*="/products/${mid}"]`);
+        const pathVisible = linkByPath ? await linkByPath.isIntersectingViewport() : false;
 
-        if (pathVisible) {
+        if (pathVisible && linkByPath) {
           log(`[Worker ${workerId}] 클릭 (URL 경로)`);
           await linkByPath.click();
           midClicked = true;
@@ -899,7 +905,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
 
     // 12. 페이지 로딩 대기
-    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     await sleep(2000);
     result.midMatched = true;
 

@@ -841,28 +841,78 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     // 3. 메인 키워드 입력 (자동완성 사용 안 함)
     log(`[Worker ${workerId}] "${keyword}" 입력...`);
-    const searchInput = page.locator('#query.sch_input').first();
+    const searchInput = await page.$('#query.sch_input');
+    if (!searchInput) throw new Error('검색창 없음');
     await searchInput.type(keyword, { delay: randomBetween(80, 150) });
     await sleep(randomBetween(500, 800));
 
     // 4. Enter로 바로 검색
     log(`[Worker ${workerId}] Enter로 검색 실행...`);
     await page.keyboard.press('Enter');
-    await page.waitForLoadState('domcontentloaded');
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {});
     await sleep(randomBetween(2000, 3000));
+
+    // 디버깅: 검색 후 URL 확인
+    const currentUrl = page.url();
+    log(`[Worker ${workerId}] DEBUG - 검색 후 URL: ${currentUrl}`);
 
     // 5. 쇼핑탭 클릭 (자동완성 선택 후 바로)
     log(`[Worker ${workerId}] 🛍️ 쇼핑탭 링크 클릭...`);
+
+    // 디버깅: 페이지 상태 확인
+    const debugInfo = await page.evaluate(() => {
+      const schTab = document.querySelector('#_sch_tab');
+      const allLinks = document.querySelectorAll('#_sch_tab a');
+
+      return {
+        schTabExists: !!schTab,
+        schTabHTML: schTab?.innerHTML.substring(0, 500) || 'N/A',
+        linkCount: allLinks.length,
+        links: Array.from(allLinks).map((a, i) => ({
+          index: i,
+          text: a.textContent?.trim() || '',
+          href: a.getAttribute('href')?.substring(0, 100) || '',
+          selector: `#_sch_tab > ${a.parentElement?.tagName} > a:nth-child(${i + 1})`
+        }))
+      };
+    });
+
+    log(`[Worker ${workerId}] DEBUG - #_sch_tab 존재: ${debugInfo.schTabExists}`);
+    log(`[Worker ${workerId}] DEBUG - 링크 개수: ${debugInfo.linkCount}`);
+    debugInfo.links.forEach(link => {
+      log(`[Worker ${workerId}] DEBUG - Link ${link.index}: "${link.text}" (${link.href})`);
+    });
+
+    // 스크린샷 저장 (디버깅용)
+    try {
+      await page.screenshot({ path: `debug-shopping-tab-${workerId}-${Date.now()}.png` });
+      log(`[Worker ${workerId}] DEBUG - 스크린샷 저장 완료`);
+    } catch (e) {}
+
     let shoppingTabClicked = false;
 
     for (let attempt = 1; attempt <= 5; attempt++) {
       shoppingTabClicked = await page.evaluate(() => {
-        // 검색 이후 쇼핑탭 셀렉터 (정확한 위치)
-        const link = document.querySelector<HTMLAnchorElement>('#_sch_tab > div > div:nth-child(2) > a');
-        if (!link) return false;
-        link.removeAttribute("target"); // 새 탭 방지
-        link.click();
-        return true;
+        // 여러 셀렉터 시도
+        const selectors = [
+          '#_sch_tab > div > div:nth-child(2) > a',  // 기존 셀렉터
+          '#_sch_tab a[href*="shopping"]',            // shopping 포함 링크
+          '#_sch_tab a:nth-child(2)',                 // 두번째 링크
+          'a[href*="search.shopping.naver.com"]',     // shopping 검색 URL
+          'a[href*="msearch.shopping.naver.com"]'     // 모바일 shopping 검색 URL
+        ];
+
+        for (const selector of selectors) {
+          const link = document.querySelector<HTMLAnchorElement>(selector);
+          if (link && link.textContent?.includes('쇼핑')) {
+            console.log(`[DEBUG] 쇼핑탭 발견 (셀렉터: ${selector})`);
+            link.removeAttribute("target");
+            link.click();
+            return true;
+          }
+        }
+
+        return false;
       });
 
       if (shoppingTabClicked) break;
@@ -1060,28 +1110,28 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     let midClicked = false;
 
     // 전략 1: data-shp-contents-id 속성으로 찾기
-    const linkByAttr = page.locator(`a[data-shp-contents-id="${mid}"]`).first();
-    const attrVisible = await linkByAttr.isVisible({ timeout: 2000 }).catch(() => false);
+    const linkByAttr = await page.$(`a[data-shp-contents-id="${mid}"]`);
+    const attrVisible = linkByAttr ? await linkByAttr.isIntersectingViewport() : false;
 
-    if (attrVisible) {
+    if (attrVisible && linkByAttr) {
       log(`[Worker ${workerId}] 클릭 (data-shp-contents-id)`);
       await linkByAttr.click();
       midClicked = true;
     } else {
       // 전략 2: URL 파라미터로 찾기
-      const linkByParam = page.locator(`a[href*="nv_mid=${mid}"]`).first();
-      const paramVisible = await linkByParam.isVisible({ timeout: 1000 }).catch(() => false);
+      const linkByParam = await page.$(`a[href*="nv_mid=${mid}"]`);
+      const paramVisible = linkByParam ? await linkByParam.isIntersectingViewport() : false;
 
-      if (paramVisible) {
+      if (paramVisible && linkByParam) {
         log(`[Worker ${workerId}] 클릭 (URL 파라미터)`);
         await linkByParam.click();
         midClicked = true;
       } else {
         // 전략 3: URL 경로로 찾기
-        const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
-        const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
+        const linkByPath = await page.$(`a[href*="/products/${mid}"]`);
+        const pathVisible = linkByPath ? await linkByPath.isIntersectingViewport() : false;
 
-        if (pathVisible) {
+        if (pathVisible && linkByPath) {
           log(`[Worker ${workerId}] 클릭 (URL 경로)`);
           await linkByPath.click();
           midClicked = true;
@@ -1097,7 +1147,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
 
     // 12. 페이지 로딩 대기
-    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+    await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
     await sleep(2000);
     result.midMatched = true;
 
