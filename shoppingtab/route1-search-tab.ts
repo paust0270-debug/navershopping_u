@@ -6,8 +6,8 @@
  * 실행: npx tsx shoppingtab/route1-search-tab.ts
  */
 
-import { connect } from "puppeteer-real-browser";
-import type { Page, Browser } from "puppeteer-core";
+import { chromium, type Page, type BrowserContext } from "patchright";
+import { applyMobileStealth, MOBILE_CONTEXT_OPTIONS } from "../shared/mobile-stealth";
 import * as fs from "fs";
 
 // ============ 설정 ============
@@ -16,8 +16,6 @@ const TARGET_PRODUCT_INDEX = 2;
 const SCREENSHOT_DIR = "./screenshots/route1";
 const MAX_CAPTCHA_ATTEMPTS = 5;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
-const MOBILE_UA = "Mozilla/5.0 (Linux; Android 14; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
-const MOBILE_VIEWPORT = { width: 412, height: 915, isMobile: true, hasTouch: true, deviceScaleFactor: 3 };
 
 // ============ 공통 유틸 ============
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -81,16 +79,17 @@ async function solveCaptcha(page: Page): Promise<boolean> {
 
     // 영수증 이미지 추출
     let base64 = "";
-    const imgEl = await page.evaluateHandle(() => {
-      const imgs = Array.from(document.querySelectorAll("img"));
-      let best: HTMLImageElement | null = null; let max = 0;
-      for (const img of imgs) { const r = img.getBoundingClientRect(); const a = r.width * r.height; if (a > max && r.width > 100) { max = a; best = img; } }
-      return best;
-    });
     try {
-      const el = imgEl.asElement ? imgEl.asElement() : imgEl;
-      if (el) { const buf = await (el as any).screenshot({ encoding: "binary" }) as Buffer; base64 = buf.toString("base64"); fs.writeFileSync(`${SCREENSHOT_DIR}/receipt-${i}.png`, buf); }
-    } catch { const buf = await page.screenshot({ encoding: "binary" }) as Buffer; base64 = buf.toString("base64"); }
+      const bestImg = await page.evaluateHandle(() => {
+        const imgs = Array.from(document.querySelectorAll("img"));
+        let best: HTMLImageElement | null = null; let max = 0;
+        for (const img of imgs) { const r = img.getBoundingClientRect(); const a = r.width * r.height; if (a > max && r.width > 100) { max = a; best = img; } }
+        return best;
+      });
+      const el = bestImg.asElement();
+      if (el) { const buf = await el.screenshot(); base64 = buf.toString("base64"); fs.writeFileSync(`${SCREENSHOT_DIR}/receipt-${i}.png`, buf); }
+      else { const buf = await page.screenshot(); base64 = buf.toString("base64"); }
+    } catch { const buf = await page.screenshot(); base64 = buf.toString("base64"); }
 
     let answer = "";
     try { answer = await analyzeReceipt(base64, question); } catch (e: any) { log(`AI 실패: ${e.message}`, "error"); continue; }
@@ -118,36 +117,9 @@ async function solveCaptcha(page: Page): Promise<boolean> {
   return (await pageStatus(page)) === "ok";
 }
 
-// ============ CDP 인터셉트 ============
-function calcSite(req: string, page: string): string {
-  if (!page || page === "about:blank") return "none";
-  try {
-    const rh = new URL(req).hostname, ph = new URL(page).hostname;
-    if (rh === ph) return "same-origin";
-    if (rh.split(".").slice(-2).join(".") === ph.split(".").slice(-2).join(".")) return "same-site";
-    return "cross-site";
-  } catch { return "cross-site"; }
-}
-async function setupCDP(page: Page, cdp: any) {
-  await cdp.send("Fetch.enable", { patterns: [{ requestStage: "Request", resourceType: "Document" }] });
-  let cur = page.url();
-  page.on("framenavigated", (f: any) => { try { if (f === page.mainFrame()) cur = f.url(); } catch {} });
-  cdp.on("Fetch.requestPaused", async (ev: any) => {
-    try {
-      const h = Object.entries(ev.request.headers).filter(([k]) => !k.toLowerCase().startsWith("sec-fetch")).map(([n, v]) => ({ name: n, value: String(v) }));
-      const s = calcSite(ev.request.url, cur);
-      await cdp.send("Fetch.continueRequest", { requestId: ev.requestId, headers: [...h,
-        { name: "Sec-Fetch-Dest", value: "document" }, { name: "Sec-Fetch-Mode", value: "navigate" },
-        { name: "Sec-Fetch-Site", value: s }, { name: "Sec-Fetch-User", value: "?1" },
-        { name: "Upgrade-Insecure-Requests", value: "1" },
-      ]});
-    } catch { try { await cdp.send("Fetch.continueRequest", { requestId: ev.requestId }); } catch {} }
-  });
-}
-
 // ============ 스크롤 ============
 async function touchScroll(cdp: any, page: Page, dist: number) {
-  const vp = page.viewport(); const x = vp ? vp.width / 2 : 200; const y = vp ? vp.height / 2 : 400;
+  const vp = page.viewportSize(); const x = vp ? vp.width / 2 : 200; const y = vp ? vp.height / 2 : 400;
   let s = 0;
   while (s < dist) {
     const step = rand(200, 400);
@@ -207,22 +179,51 @@ async function main() {
   log(`  키워드: "${KEYWORD}" | 타겟: ${TARGET_PRODUCT_INDEX}번째`);
   log("══════════════════════════════════════════");
 
-  const resp = await connect({
-    headless: false, turnstile: true,
-    args: ["--window-size=480,960", "--disable-blink-features=AutomationControlled", `--user-agent=${MOBILE_UA}`],
+  const browser = await chromium.launch({
+    headless: false,
+    channel: 'chrome',
+    args: ['--window-size=480,960'],
   });
-  const browser = resp.browser as Browser;
-  const page = resp.page as Page;
-  await page.setViewport(MOBILE_VIEWPORT);
+  // extraHTTPHeaders의 sec-ch-ua 제거 — Chrome이 자체 값 사용하도록
+  // (헤더에 "Not-A.Brand";v="99" vs JS에서 "Not(A:Brand";v="8" 불일치 방지)
+  const { extraHTTPHeaders, ...contextOpts } = MOBILE_CONTEXT_OPTIONS;
+  const context = await browser.newContext(contextOpts);
+  await applyMobileStealth(context);
+  const page = await context.newPage();
   page.setDefaultTimeout(30000);
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => false });
-    Object.defineProperty(navigator, "platform", { get: () => "Linux armv8l" });
-    Object.defineProperty(navigator, "maxTouchPoints", { get: () => 5 });
+  const cdp = await context.newCDPSession(page);
+
+  // CDP로 navigator.platform + userAgentData(Client Hints) 전부 설정
+  // addInitScript의 defineProperty는 C++ 레벨에서 무시되므로 CDP 필수
+  await cdp.send('Emulation.setUserAgentOverride', {
+    userAgent: MOBILE_CONTEXT_OPTIONS.userAgent,
+    platform: 'Linux armv81',
+    userAgentMetadata: {
+      brands: [
+        { brand: 'Chromium', version: '144' },
+        { brand: 'Google Chrome', version: '144' },
+        { brand: 'Not)A;Brand', version: '99' },
+      ],
+      fullVersionList: [
+        { brand: 'Chromium', version: '144.0.0.0' },
+        { brand: 'Google Chrome', version: '144.0.0.0' },
+        { brand: 'Not)A;Brand', version: '99.0.0.0' },
+      ],
+      fullVersion: '144.0.0.0',
+      platform: 'Android',
+      platformVersion: '14.0.0',
+      architecture: 'arm',
+      model: 'SM-S911B',
+      mobile: true,
+      bitness: '64',
+      wow64: false,
+    },
   });
-  const cdp = await (page as any).createCDPSession();
-  await setupCDP(page, cdp);
-  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+  // CDP로 maxTouchPoints 강제 설정 (context의 hasTouch:true는 1만 설정)
+  await cdp.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 5,
+  });
 
   try {
     // ── 1. m.naver.com ──
