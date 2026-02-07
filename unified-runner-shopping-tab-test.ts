@@ -196,6 +196,7 @@ let tasksSinceRotation = 0;  // IP 로테이션 후 처리된 작업 수
 
 // ============ 작업 큐 락 (동시 접근 방지) ============
 let isClaimingTask = false;
+let historyTableWarned = false;
 
 // ============ IP 로테이션 락 (동시 로테이션 방지) ============
 let isRotatingIP = false;
@@ -751,7 +752,15 @@ async function recordHistory(
       .insert([record]);
 
     if (error) {
-      log(`[History] 기록 실패: ${error.message}`, "warn");
+      // 테이블 없음 에러는 1회만 경고
+      if (error.message.includes('schema cache')) {
+        if (!historyTableWarned) {
+          log(`[History] ⚠️ 테이블 '${HISTORY_TABLE}'이 DB에 없습니다. schema-shopping-tab.sql 실행 필요.`, "warn");
+          historyTableWarned = true;
+        }
+      } else {
+        log(`[History] 기록 실패: ${error.message}`, "warn");
+      }
     }
   } catch (e: any) {
     log(`[History] 에러: ${e.message}`, "warn");
@@ -959,30 +968,29 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     let shoppingTabClicked = false;
 
     for (let attempt = 1; attempt <= 5; attempt++) {
-      shoppingTabClicked = await page.evaluate(() => {
-        // 여러 셀렉터 시도
+      // href를 추출해서 page.goto()로 직접 이동 (evaluate 내 click은 네비게이션 안됨)
+      const shoppingHref = await page.evaluate(() => {
         const selectors = [
-          '#_sch_tab > div > div:nth-child(2) > a',  // 기존 셀렉터
-          '#_sch_tab a[href*="shopping"]',            // shopping 포함 링크
-          '#_sch_tab a:nth-child(2)',                 // 두번째 링크
-          'a[href*="search.shopping.naver.com"]',     // shopping 검색 URL
-          'a[href*="msearch.shopping.naver.com"]'     // 모바일 shopping 검색 URL
+          '#_sch_tab a[href*="shopping"]',
+          'a[href*="msearch.shopping.naver.com"]',
+          'a[href*="search.shopping.naver.com"]',
         ];
-
         for (const selector of selectors) {
           const link = document.querySelector<HTMLAnchorElement>(selector);
           if (link && link.textContent?.includes('쇼핑')) {
-            console.log(`[DEBUG] 쇼핑탭 발견 (셀렉터: ${selector})`);
-            link.removeAttribute("target");
-            link.click();
-            return true;
+            return link.href;
           }
         }
-
-        return false;
+        return null;
       });
 
-      if (shoppingTabClicked) break;
+      if (shoppingHref) {
+        log(`[Worker ${workerId}] 쇼핑탭 URL 발견: ${shoppingHref.substring(0, 80)}...`);
+        await page.goto(shoppingHref, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        shoppingTabClicked = true;
+        break;
+      }
+
       log(`[Worker ${workerId}] 쇼핑탭 링크 대기 중... (${attempt}/5)`);
       await sleep(1000);
     }
@@ -995,7 +1003,7 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
 
     // 쇼핑탭 로딩 대기
-    await sleep(randomBetween(2000, 3000));
+    await sleep(randomBetween(1500, 2500));
 
     // 쇼핑탭 URL 확인 (모바일/PC 모두 허용)
     const finalUrl = page.url();
