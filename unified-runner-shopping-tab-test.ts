@@ -867,16 +867,55 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     }
     await sleep(randomBetween(800, 1200));
 
-    // 3. 메인 키워드 입력 (자동완성 사용 안 함)
+    // 3. 메인 키워드 입력
     log(`[Worker ${workerId}] "${keyword}" 입력...`);
     const searchInput = await page.$('#query.sch_input');
     if (!searchInput) throw new Error('검색창 없음');
     await searchInput.type(keyword, { delay: randomBetween(80, 150) });
-    await sleep(randomBetween(500, 800));
+    await sleep(randomBetween(1000, 1500));
 
-    // 4. Enter로 바로 검색
-    log(`[Worker ${workerId}] Enter로 검색 실행...`);
-    await page.keyboard.press('Enter');
+    // 4. 자동완성 선택 또는 검색 버튼 터치 (모바일 행동 모방)
+    let searched = false;
+
+    // 자동완성 항목 확인
+    const acItems = await page.$$('.mm_sug_lst li a, #acFrm .lst_kwd li a, ul[class*="auto"] li a');
+    if (acItems.length > 0) {
+      const idx = Math.min(Math.floor(Math.random() * 3), acItems.length - 1);
+      const acText = await acItems[idx].evaluate((el: Element) => el.textContent?.trim() || '');
+      log(`[Worker ${workerId}] 자동완성 선택: "${acText}"`);
+      await acItems[idx].click();
+      searched = true;
+    }
+
+    if (!searched) {
+      // 검색 버튼 터치 (돋보기 아이콘)
+      const searchBtnSelectors = [
+        'button.MM_SEARCH_SUBMIT_BUTTON',
+        '#MM_SEARCH_SUBMIT',
+        'button[type="submit"]',
+        '.sch_smit',
+        'button.btn_search',
+      ];
+      for (const sel of searchBtnSelectors) {
+        const btn = await page.$(sel);
+        if (btn) {
+          log(`[Worker ${workerId}] 검색 버튼 터치 (${sel})`);
+          await btn.click();
+          searched = true;
+          break;
+        }
+      }
+    }
+
+    // 폴백: 검색 버튼도 없으면 form submit
+    if (!searched) {
+      log(`[Worker ${workerId}] 검색 폼 submit (폴백)`);
+      await page.evaluate(() => {
+        const form = document.querySelector('#MM_SEARCH_FORM, form[action*="search"]') as HTMLFormElement;
+        if (form) form.submit();
+      });
+    }
+
     await page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {});
     await sleep(randomBetween(2000, 3000));
 
