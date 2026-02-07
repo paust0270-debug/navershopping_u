@@ -30,7 +30,7 @@ echo.
 :: 실행
 echo [시작] route2-store-search.ts 실행...
 echo.
-call npx tsx shoppingtab/route2-store-search.ts
+call npx tsx shoppingtab/pc/route2-store-search.ts
 
 :: 오류 발생 시 재시작
 echo.
