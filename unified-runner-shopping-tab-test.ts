@@ -320,7 +320,8 @@ const cdpSessions = new Map<Page, any>();
 
 async function getCDPSession(page: Page): Promise<any> {
   if (!cdpSessions.has(page)) {
-    const client = await page.context().newCDPSession(page);
+    // puppeteer-real-browser는 Puppeteer 기반: page.createCDPSession() 사용
+    const client = await (page as any).createCDPSession();
     cdpSessions.set(page, client);
   }
   return cdpSessions.get(page)!;
@@ -862,159 +863,106 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
     await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
     await sleep(randomBetween(1500, 2500));
 
-    // 2. 검색창 클릭
-    await page.evaluate(() => window.scrollTo(0, 0));
-    log(`[Worker ${workerId}] 검색창 클릭...`);
-    const fakeSearch = await page.$('#MM_SEARCH_FAKE');
-    if (fakeSearch) {
-      await fakeSearch.click();
-    } else {
-      await page.evaluate(() => {
-        const el = document.querySelector('#MM_SEARCH_FAKE') as HTMLElement;
-        if (el) el.click();
-      });
-    }
-    await sleep(randomBetween(800, 1200));
+    // 2. m.naver.com 메인에서 "스토어" 링크 터치 → 쇼핑 홈 진입
+    //    (검색→쇼핑탭 방식 대신, 메인페이지 스토어 링크 클릭 = 자연스러운 모바일 행동)
+    log(`[Worker ${workerId}] 🛍️ m.naver.com에서 스토어 링크 클릭...`);
 
-    // 3. 메인 키워드 입력
-    log(`[Worker ${workerId}] "${keyword}" 입력...`);
-    const searchInput = await page.$('#query.sch_input');
-    if (!searchInput) throw new Error('검색창 없음');
-    await searchInput.type(keyword, { delay: randomBetween(80, 150) });
-    await sleep(randomBetween(1000, 1500));
+    const storeSelectors = [
+      'a[data-clk="shortsho"]',
+      'a[href*="shopping.naver.com/ns/home"]',
+      'a.chm_service[href*="shopping"]',
+    ];
 
-    // 4. 자동완성 선택 또는 검색 버튼 터치 (모바일 행동 모방)
-    let searched = false;
-
-    // 자동완성 항목 확인
-    const acItems = await page.$$('.mm_sug_lst li a, #acFrm .lst_kwd li a, ul[class*="auto"] li a');
-    if (acItems.length > 0) {
-      const idx = Math.min(Math.floor(Math.random() * 3), acItems.length - 1);
-      const acText = await acItems[idx].evaluate((el: Element) => el.textContent?.trim() || '');
-      log(`[Worker ${workerId}] 자동완성 선택: "${acText}"`);
-      await acItems[idx].click();
-      searched = true;
+    let storeLink: any = null;
+    for (const selector of storeSelectors) {
+      const el = await page.$(selector);
+      if (el) {
+        storeLink = el;
+        const text = await el.evaluate((node: Element) => node.textContent?.trim() || '');
+        log(`[Worker ${workerId}] 스토어 링크 발견: "${text}" (${selector})`);
+        break;
+      }
     }
 
-    if (!searched) {
-      // 검색 버튼 터치 (돋보기 아이콘)
-      const searchBtnSelectors = [
-        'button.MM_SEARCH_SUBMIT_BUTTON',
-        '#MM_SEARCH_SUBMIT',
-        'button[type="submit"]',
-        '.sch_smit',
-        'button.btn_search',
-      ];
-      for (const sel of searchBtnSelectors) {
-        const btn = await page.$(sel);
-        if (btn) {
-          log(`[Worker ${workerId}] 검색 버튼 터치 (${sel})`);
-          await btn.click();
-          searched = true;
+    // 폴백: 모든 링크에서 "스토어" 텍스트 검색
+    if (!storeLink) {
+      const allLinks = await page.$$('a');
+      for (const link of allLinks) {
+        const text = await link.evaluate((node: Element) => node.textContent?.trim() || '');
+        if (text === '스토어') {
+          storeLink = link;
+          log(`[Worker ${workerId}] 스토어 링크 텍스트 폴백으로 발견`);
           break;
         }
       }
     }
 
-    // 폴백: 검색 버튼도 없으면 form submit
-    if (!searched) {
-      log(`[Worker ${workerId}] 검색 폼 submit (폴백)`);
-      await page.evaluate(() => {
-        const form = document.querySelector('#MM_SEARCH_FORM, form[action*="search"]') as HTMLFormElement;
-        if (form) form.submit();
-      });
-    }
-
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    await sleep(randomBetween(2000, 3000));
-
-    // 디버깅: 검색 후 URL 확인
-    const currentUrl = page.url();
-    log(`[Worker ${workerId}] DEBUG - 검색 후 URL: ${currentUrl}`);
-
-    // 5. 쇼핑탭 클릭 (자동완성 선택 후 바로)
-    log(`[Worker ${workerId}] 🛍️ 쇼핑탭 링크 클릭...`);
-
-    // 디버깅: 페이지 상태 확인
-    const debugInfo = await page.evaluate(() => {
-      const schTab = document.querySelector('#_sch_tab');
-      const allLinks = document.querySelectorAll('#_sch_tab a');
-
-      return {
-        schTabExists: !!schTab,
-        schTabHTML: schTab?.innerHTML.substring(0, 500) || 'N/A',
-        linkCount: allLinks.length,
-        links: Array.from(allLinks).map((a, i) => ({
-          index: i,
+    if (!storeLink) {
+      log(`[Worker ${workerId}] 스토어 링크를 찾을 수 없습니다.`, "warn");
+      // 디버깅: 페이지의 서비스 링크 목록
+      const serviceLinks = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('a.chm_service, a[data-clk]')).slice(0, 20).map(a => ({
           text: a.textContent?.trim() || '',
-          href: a.getAttribute('href')?.substring(0, 100) || '',
-          selector: `#_sch_tab > ${a.parentElement?.tagName} > a:nth-child(${i + 1})`
-        }))
-      };
-    });
-
-    log(`[Worker ${workerId}] DEBUG - #_sch_tab 존재: ${debugInfo.schTabExists}`);
-    log(`[Worker ${workerId}] DEBUG - 링크 개수: ${debugInfo.linkCount}`);
-    debugInfo.links.forEach(link => {
-      log(`[Worker ${workerId}] DEBUG - Link ${link.index}: "${link.text}" (${link.href})`);
-    });
-
-    // 스크린샷 저장 (디버깅용)
-    try {
-      await page.screenshot({ path: `debug-shopping-tab-${workerId}-${Date.now()}.png` });
-      log(`[Worker ${workerId}] DEBUG - 스크린샷 저장 완료`);
-    } catch (e) {}
-
-    let shoppingTabClicked = false;
-
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      // href를 추출해서 page.goto()로 직접 이동 (evaluate 내 click은 네비게이션 안됨)
-      const shoppingHref = await page.evaluate(() => {
-        const selectors = [
-          '#_sch_tab a[href*="shopping"]',
-          'a[href*="msearch.shopping.naver.com"]',
-          'a[href*="search.shopping.naver.com"]',
-        ];
-        for (const selector of selectors) {
-          const link = document.querySelector<HTMLAnchorElement>(selector);
-          if (link && link.textContent?.includes('쇼핑')) {
-            return link.href;
-          }
-        }
-        return null;
+          href: a.getAttribute('href')?.substring(0, 60) || '',
+          clk: a.getAttribute('data-clk') || ''
+        }));
       });
-
-      if (shoppingHref) {
-        log(`[Worker ${workerId}] 쇼핑탭 URL 발견: ${shoppingHref.substring(0, 80)}...`);
-        await page.goto(shoppingHref, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        shoppingTabClicked = true;
-        break;
-      }
-
-      log(`[Worker ${workerId}] 쇼핑탭 링크 대기 중... (${attempt}/5)`);
-      await sleep(1000);
-    }
-
-    if (!shoppingTabClicked) {
-      log(`[Worker ${workerId}] 쇼핑탭 링크를 찾을 수 없습니다.`, "warn");
-      result.failReason = 'NO_SHOPPING_TAB';
-      result.error = 'NoShoppingTab';
+      serviceLinks.forEach(l => log(`[Worker ${workerId}] DEBUG - service: "${l.text}" clk=${l.clk} (${l.href})`));
+      result.failReason = 'NO_STORE_LINK';
+      result.error = 'NoStoreLink';
       return result;
     }
 
-    // 쇼핑탭 로딩 대기
+    // target="_blank" 제거 (새 탭 방지)
+    await storeLink.evaluate((el: HTMLElement) => el.removeAttribute('target'));
+
+    // boundingBox → touchscreen.tap
+    const storeBox = await storeLink.evaluate((el: Element) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return null;
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
+
+    if (storeBox) {
+      const touchX = storeBox.x + storeBox.width / 2;
+      const touchY = storeBox.y + storeBox.height / 2;
+      log(`[Worker ${workerId}] 스토어 터치 좌표: (${touchX.toFixed(0)}, ${touchY.toFixed(0)})`);
+
+      const navPromise = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      try {
+        await page.touchscreen.tap(touchX, touchY);
+        log(`[Worker ${workerId}] 스토어 touchscreen.tap 완료`);
+      } catch {
+        await storeLink.evaluate((el: HTMLElement) => el.click());
+      }
+      await navPromise;
+    } else {
+      log(`[Worker ${workerId}] 스토어 boundingBox 없음, DOM click`);
+      const navPromise = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      await storeLink.evaluate((el: HTMLElement) => el.click());
+      await navPromise;
+    }
+
     await sleep(randomBetween(1500, 2500));
 
-    // 쇼핑탭 URL 확인 (모바일/PC 모두 허용)
+    // 쇼핑 홈 URL 확인
     const finalUrl = page.url();
+    log(`[Worker ${workerId}] 현재 URL: ${finalUrl}`);
+
+    // 스크린샷 저장 (쇼핑 홈 상태 확인)
+    try {
+      await page.screenshot({ path: `debug-shopping-home-${workerId}-${Date.now()}.png` });
+      log(`[Worker ${workerId}] DEBUG - 쇼핑 홈 스크린샷 저장`);
+    } catch (e) {}
+
     if (!finalUrl.includes("shopping.naver.com")) {
-      log(`[Worker ${workerId}] 쇼핑탭 URL 확인 실패: ${finalUrl}`, "warn");
-      result.failReason = 'SHOPPING_TAB_FAILED';
-      result.error = 'ShoppingTabFailed';
+      log(`[Worker ${workerId}] 쇼핑 페이지 진입 실패: ${finalUrl}`, "warn");
+      result.failReason = 'SHOPPING_NAV_FAILED';
+      result.error = 'ShoppingNavFailed';
       return result;
     }
 
-    log(`[Worker ${workerId}] 쇼핑탭 진입 완료: ${finalUrl}`);
+    log(`[Worker ${workerId}] 쇼핑 홈 진입 완료: ${finalUrl}`);
 
     // 6. 쇼핑탭 내 검색창에 키워드 입력 + 자동완성 선택
     log(`[Worker ${workerId}] 쇼핑탭 검색창에 키워드 입력...`);
@@ -1453,7 +1401,12 @@ async function runIndependentWorker(workerId: number, profile: Profile): Promise
 
       // Viewport 설정
       if (USE_MOBILE_MODE) {
-        await page.setViewport(MOBILE_CONTEXT_OPTIONS.viewport);
+        await page.setViewport({
+          ...MOBILE_CONTEXT_OPTIONS.viewport,
+          isMobile: true,
+          hasTouch: true,
+          deviceScaleFactor: MOBILE_CONTEXT_OPTIONS.deviceScaleFactor || 3,
+        });
         // 모바일 스텔스 스크립트 적용 (봇 탐지 우회)
         await applyMobileStealthPuppeteer(page);
       } else {
