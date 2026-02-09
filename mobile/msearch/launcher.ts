@@ -267,11 +267,11 @@ async function gitPull(failOnError: boolean = false): Promise<boolean> {
   try {
     log('Git 업데이트 중...');
 
-    // 로컬 변경사항 무시하고 강제 업데이트
-    execSync('git fetch origin main', {
+    // 로컬 변경사항 무시하고 강제 업데이트 (shallow fetch)
+    execSync('git fetch --depth 1 origin main', {
       cwd: WORK_DIR,
       encoding: 'utf-8',
-      timeout: 60000,  // 1분 (네트워크 느릴 수 있음)
+      timeout: 120000,  // 2분
       stdio: 'pipe'
     });
 
