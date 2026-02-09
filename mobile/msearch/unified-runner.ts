@@ -441,8 +441,42 @@ function generateQueryVariations(keyword: string, productName: string): string {
 }
 
 function pickQueryWords(keyword: string, productName: string): string {
-  // 새로운 쿼리 다양화 로직 사용
-  return generateQueryVariations(keyword, productName);
+  const tails = ["추천", "할인", "후기", "인기", "베스트", "구매", "쇼핑", "특가", "세일", "가성비", "최저가", "정품"];
+
+  // 키워드 + 상품명에서 단어 풀 만들기
+  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, ' ').replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ');
+  const allWords = [...new Set(allText.split(/\s+/).filter(w => w.length >= 2))];
+
+  // 합성어 분리된 단어도 풀에 추가
+  const expandedPool: string[] = [...allWords];
+  for (const w of allWords) {
+    if (w.length > 3) {
+      expandedPool.push(...splitCompoundWord(w));
+    }
+  }
+  const uniquePool = [...new Set(expandedPool.filter(w => w.length >= 2))];
+
+  // 셔플
+  for (let i = uniquePool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [uniquePool[i], uniquePool[j]] = [uniquePool[j], uniquePool[i]];
+  }
+
+  // 3단어 선택
+  const selected: string[] = [];
+  for (const w of uniquePool) {
+    if (selected.length >= 3) break;
+    if (!selected.includes(w)) selected.push(w);
+  }
+
+  // 부족하면 꼬리 키워드로 채우기
+  while (selected.length < 3) {
+    const avail = tails.filter(t => !selected.includes(t));
+    if (!avail.length) break;
+    selected.push(avail[Math.floor(Math.random() * avail.length)]);
+  }
+
+  return selected.slice(0, 3).join(' ');
 }
 
 function buildSearchUrl(query: string): string {
