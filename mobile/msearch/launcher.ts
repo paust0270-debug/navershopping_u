@@ -390,22 +390,17 @@ async function main() {
       process.exit(1);
     }
   } else {
-    // 디렉토리는 있지만 .git이 없는 경우
+    // 디렉토리는 있지만 .git이 없는 경우 → 그 자리에서 git init
     const gitDir = path.join(WORK_DIR, '.git');
     if (!fs.existsSync(gitDir)) {
-      log('Git 저장소가 아닙니다. 기존 폴더를 백업 후 클론합니다...');
-      const backupDir = WORK_DIR + '.backup.' + Date.now();
+      log('Git 저장소가 아닙니다. 기존 폴더에서 git 초기화...');
       try {
-        fs.renameSync(WORK_DIR, backupDir);
-        log('기존 폴더 백업: ' + backupDir);
+        execSync('git init', { cwd: WORK_DIR, encoding: 'utf-8', timeout: 10000, stdio: 'pipe' });
+        execSync(`git remote add origin ${GIT_REPO_URL}`, { cwd: WORK_DIR, encoding: 'utf-8', timeout: 10000, stdio: 'pipe' });
+        log('git init + remote 설정 완료');
       } catch (e: any) {
-        log('백업 실패: ' + e.message);
+        log('git 초기화 실패: ' + e.message);
         await waitForKey('아무 키나 눌러 종료...');
-        process.exit(1);
-      }
-
-      const cloneOk = await gitClone();
-      if (!cloneOk) {
         process.exit(1);
       }
     }
