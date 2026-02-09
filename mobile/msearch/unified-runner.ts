@@ -829,25 +829,26 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
 
     // ── 못 찾았으면 가격비교 "다음 페이지" 버튼으로 2~5페이지 탐색 ──
     if (!midClicked) {
-      // 가격비교 컴포넌트까지 스크롤 (페이지네이션 영역으로)
-      const paginationArea = page.locator('div.yjC59cXB').first();
-      if (await paginationArea.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await paginationArea.scrollIntoViewIfNeeded().catch(() => {});
+      // "다음 페이지" 버튼을 blind 텍스트로 찾기 (난독화 클래스 의존 X)
+      const nextPageBtn = page.locator('button:has(span:text("다음 페이지"))').first();
+      const hasPagination = await nextPageBtn.isVisible({ timeout: 2000 }).catch(() => false);
+
+      if (hasPagination) {
+        log(`[Worker ${workerId}] 가격비교 페이지네이션 발견 - 최대 ${MAX_PRICE_PAGES}페이지 탐색`);
+        await nextPageBtn.scrollIntoViewIfNeeded().catch(() => {});
         await sleep(500);
 
         for (let pg = 2; pg <= MAX_PRICE_PAGES; pg++) {
-          // "다음 페이지" 버튼 클릭 (disabled 아닌 것)
-          const nextBtn = paginationArea.locator('button:not([disabled])').last();
-          const nextBtnVisible = await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
-
-          if (!nextBtnVisible) {
-            log(`[Worker ${workerId}] 가격비교 ${pg}페이지 - 다음 버튼 없음`, "warn");
+          // "다음 페이지" 버튼이 disabled가 아닌지 확인
+          const isDisabled = await nextPageBtn.getAttribute('disabled').catch(() => null);
+          if (isDisabled !== null) {
+            log(`[Worker ${workerId}] 가격비교 ${pg}페이지 - 마지막 페이지`, "warn");
             break;
           }
 
           log(`[Worker ${workerId}] 가격비교 ${pg}페이지로 이동`);
-          await nextBtn.click();
-          await sleep(randomBetween(1000, 2000));
+          await nextPageBtn.click();
+          await sleep(randomBetween(1500, 2500));
 
           // 현재 페이지에서 MID 찾기
           if (await tryFindMid()) {
@@ -856,6 +857,8 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
             break;
           }
         }
+      } else {
+        log(`[Worker ${workerId}] 가격비교 페이지네이션 없음`, "warn");
       }
     }
 
