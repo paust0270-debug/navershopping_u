@@ -23,6 +23,8 @@
     "deploy:test-launcher": "npm run build:test-launcher-deploy && git add deploy/test-launcher.exe deploy/version.txt && git commit -m \"deploy: Update test-launcher\" && git push",
     "build:shopping-tab-launcher-exe": "npm run build:shopping-tab-launcher && pkg dist/shopping-tab-launcher.js -t node18-win-x64 -o shopping-tab-launcher.exe",
     "build:app-launcher-exe": "npm run build:app-launcher && pkg dist/app-launcher.js -t node18-win-x64 -o app-launcher.exe",
+    "build:msearch-launcher": "esbuild mobile/msearch/launcher.ts --bundle --platform=node --target=node18 --outfile=dist/msearch-launcher.js",
+    "build:msearch-launcher-exe": "npm run build:msearch-launcher && pkg dist/msearch-launcher.js -t node18-win-x64 -o msearch-launcher.exe",
     "build:launcher-vm": "esbuild launcher-vm.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-vm.js",
     "build:launcher-normal": "esbuild launcher-normal.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-normal.js",
     "build:launcher-vm-exe": "npm run build:launcher-vm && pkg dist/launcher-vm.js -t node18-win-x64 -o turafic-launcher-vm.exe",
