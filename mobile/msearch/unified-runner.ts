@@ -378,38 +378,71 @@ function generateAckey(): string {
   return r;
 }
 
+// ============ 합성어 분리 (띄어쓰기 없는 단어 → 2~3글자씩 분리) ============
+function splitCompoundWord(word: string): string[] {
+  if (word.length <= 3) return [word]; // 짧은 단어는 그대로
+  
+  const syllables: string[] = [];
+  let i = 0;
+  
+  while (i < word.length) {
+    // 2~3글자씩 랜덤으로 자르기
+    const chunkSize = Math.random() > 0.5 ? 2 : 3;
+    const chunk = word.substring(i, Math.min(i + chunkSize, word.length));
+    
+    if (chunk.length >= 2) {
+      syllables.push(chunk);
+    } else if (chunk.length === 1 && syllables.length > 0) {
+      // 마지막 1글자는 이전 단어에 붙이기
+      syllables[syllables.length - 1] += chunk;
+    } else {
+      syllables.push(chunk);
+    }
+    
+    i += chunkSize;
+  }
+  
+  return syllables;
+}
+
+// ============ 쿼리 다양화 (합성어 분리 + 꼬리 키워드) ============
+function generateQueryVariations(keyword: string, productName: string): string {
+  const tails = ["추천", "할인", "후기", "가격비교", "인기", "베스트", "구매", "쇼핑", "특가", "세일"];
+  
+  // 1. 키워드 처리
+  let baseQuery = keyword;
+  
+  // 띄어쓰기 없으면 합성어로 판단 → 분리
+  if (!keyword.includes(' ') && keyword.length > 3) {
+    const split = splitCompoundWord(keyword);
+    
+    // 패턴 랜덤 선택 (40% 원본, 30% 띄어쓰기, 30% 부분띄어쓰기)
+    const rand = Math.random();
+    if (rand < 0.4) {
+      baseQuery = keyword; // "아기상어장난감"
+    } else if (rand < 0.7) {
+      baseQuery = split.join(' '); // "아기 상어 장난감"
+    } else {
+      // 부분 띄어쓰기: 랜덤 위치에만 띄어쓰기
+      const parts = [...split];
+      const insertIdx = Math.floor(Math.random() * (parts.length - 1));
+      baseQuery = parts.slice(0, insertIdx + 1).join(' ') + parts.slice(insertIdx + 1).join('');
+      // 예: "아기 상어장난감" 또는 "아기상어 장난감"
+    }
+  }
+  
+  // 2. 꼬리 키워드 추가 여부 (50% 확률)
+  if (Math.random() < 0.5) {
+    const tail = tails[Math.floor(Math.random() * tails.length)];
+    baseQuery = `${baseQuery} ${tail}`;
+  }
+  
+  return baseQuery;
+}
+
 function pickQueryWords(keyword: string, productName: string): string {
-  // 1. 메인키워드를 단어 단위로 분리하여 선택 목록에 추가
-  const keywordWords = keyword.split(/\s+/).filter(w => w.length > 0);
-  const selected: string[] = [...keywordWords];
-
-  // 2. 상품명에서 단어 추출 (키워드 단어들과 중복 제거)
-  const cleaned = productName.replace(/[\[\](){}]/g, ' ').replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, ' ').trim();
-  const keywordSet = new Set(selected);
-  const productWords = [...new Set(cleaned.split(/\s+/).filter(w => w.length > 0))]
-    .filter(w => !keywordSet.has(w));
-
-  // Fisher-Yates 셔플
-  for (let i = productWords.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [productWords[i], productWords[j]] = [productWords[j], productWords[i]];
-  }
-
-  // 3. 상품명에서 추가하여 정확히 3단어로
-  for (const w of productWords) {
-    if (selected.length >= 3) break;
-    selected.push(w);
-  }
-
-  // 4. 부족하면 패딩
-  while (selected.length < 3) {
-    const avail = FILLER_WORDS.filter(f => !selected.includes(f));
-    if (!avail.length) break;
-    selected.push(avail[Math.floor(Math.random() * avail.length)]);
-  }
-
-  // 5. 키워드가 여러 단어여서 3개 초과 시 3개로 자르기
-  return selected.slice(0, 3).join(' ');
+  // 새로운 쿼리 다양화 로직 사용
+  return generateQueryVariations(keyword, productName);
 }
 
 function buildSearchUrl(query: string): string {
