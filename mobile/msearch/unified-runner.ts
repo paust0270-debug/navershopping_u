@@ -766,102 +766,51 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       }
     }
 
-    // 8. 스크롤하면서 MID 찾기 + 클릭
+    // 8. 스크롤하면서 MID 찾기 + 가격비교 페이지네이션 (최대 5페이지)
     log(`[Worker ${workerId}] MID 탐색: ${mid}`);
     const MAX_SCROLL = 10;
+    const MAX_PRICE_PAGES = 5;
     let midClicked = false;
 
-    for (let i = 0; i < MAX_SCROLL; i++) {
-      // 첫 스크롤에서만 디버그 로그
-      if (i === 0) {
-        log(`[Worker ${workerId}] 스크롤 ${i+1}/${MAX_SCROLL} - 3가지 전략으로 MID 탐색 시작`);
-      }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 1: 가격비교 - URL 파라미터
-      // 예: https://cr3.shopping.naver.com/...?nv_mid=90379584423
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ── MID 탐색 함수 (현재 페이지에서 3가지 전략으로 찾기) ──
+    async function tryFindMid(): Promise<boolean> {
+      // 전략 1: 가격비교 - URL 파라미터 (nv_mid=...)
       const linkByParam = page.locator(`a[href*="nv_mid=${mid}"]`).first();
-      const paramVisible = await linkByParam.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (paramVisible) {
+      if (await linkByParam.isVisible({ timeout: 1000 }).catch(() => false)) {
         log(`[Worker ${workerId}] MID 발견 (가격비교)`);
         await linkByParam.click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(2000);
-        midClicked = true;
-        result.midMatched = true;
-
-        // 체류 + 검증
-        const dwellTime = randomBetween(3000, 6000);
-        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-        await sleep(dwellTime);
-
-        const currentPageUrl = page.url();
-        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-          result.productPageEntered = true;
-        }
-        break;
+        return true;
       }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 2: 플러스스토어 - URL 경로
-      // 예: https://smartstore.naver.com/main/products/9211038096
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 전략 2: 플러스스토어 - URL 경로 (/products/...)
       const linkByPath = page.locator(`a[href*="/products/${mid}"]`).first();
-      const pathVisible = await linkByPath.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (pathVisible) {
+      if (await linkByPath.isVisible({ timeout: 1000 }).catch(() => false)) {
         log(`[Worker ${workerId}] MID 발견 (플러스스토어 URL)`);
         await linkByPath.click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(2000);
-        midClicked = true;
-        result.midMatched = true;
-
-        // 체류 + 검증
-        const dwellTime = randomBetween(3000, 6000);
-        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-        await sleep(dwellTime);
-
-        const currentPageUrl = page.url();
-        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-          result.productPageEntered = true;
-        }
-        break;
+        return true;
       }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // 전략 3: 플러스스토어 - ID 속성 (폴백)
-      // 예: id="nstore_productId_9211038096"
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 전략 3: 플러스스토어 - ID 속성
       const containerById = page.locator(`[id="nstore_productId_${mid}"]`).first();
-      const idVisible = await containerById.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (idVisible) {
-        log(`[Worker ${workerId}] MID 발견 (플러스스토어 ID)`);
+      if (await containerById.isVisible({ timeout: 1000 }).catch(() => false)) {
         const linkInContainer = containerById.locator('xpath=preceding-sibling::a[@href]').first();
         if (await linkInContainer.isVisible().catch(() => false)) {
+          log(`[Worker ${workerId}] MID 발견 (플러스스토어 ID)`);
           await linkInContainer.click();
-          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-          await sleep(2000);
-          midClicked = true;
-          result.midMatched = true;
-
-          // 체류 + 검증
-          const dwellTime = randomBetween(3000, 6000);
-          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-          await sleep(dwellTime);
-
-          const currentPageUrl = page.url();
-          log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
-          if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-            result.productPageEntered = true;
-          }
-          break;
+          return true;
         }
+      }
+      return false;
+    }
+
+    // ── 스크롤하면서 MID 탐색 ──
+    for (let i = 0; i < MAX_SCROLL; i++) {
+      if (i === 0) {
+        log(`[Worker ${workerId}] 스크롤 탐색 시작 (최대 ${MAX_SCROLL}회 스크롤 + ${MAX_PRICE_PAGES}페이지)`);
+      }
+
+      if (await tryFindMid()) {
+        midClicked = true;
+        result.midMatched = true;
+        break;
       }
 
       // 스크롤 (모바일 터치)
@@ -875,6 +824,54 @@ async function runPatchrightEngine(page: Page, mid: string, productName: string,
       if (newHeight === prevHeight && i > 3) {
         log(`[Worker ${workerId}] 스크롤 끝`, "warn");
         break;
+      }
+    }
+
+    // ── 못 찾았으면 가격비교 "다음 페이지" 버튼으로 2~5페이지 탐색 ──
+    if (!midClicked) {
+      // 가격비교 컴포넌트까지 스크롤 (페이지네이션 영역으로)
+      const paginationArea = page.locator('div.yjC59cXB').first();
+      if (await paginationArea.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await paginationArea.scrollIntoViewIfNeeded().catch(() => {});
+        await sleep(500);
+
+        for (let pg = 2; pg <= MAX_PRICE_PAGES; pg++) {
+          // "다음 페이지" 버튼 클릭 (disabled 아닌 것)
+          const nextBtn = paginationArea.locator('button:not([disabled])').last();
+          const nextBtnVisible = await nextBtn.isVisible({ timeout: 1000 }).catch(() => false);
+
+          if (!nextBtnVisible) {
+            log(`[Worker ${workerId}] 가격비교 ${pg}페이지 - 다음 버튼 없음`, "warn");
+            break;
+          }
+
+          log(`[Worker ${workerId}] 가격비교 ${pg}페이지로 이동`);
+          await nextBtn.click();
+          await sleep(randomBetween(1000, 2000));
+
+          // 현재 페이지에서 MID 찾기
+          if (await tryFindMid()) {
+            midClicked = true;
+            result.midMatched = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // ── MID 클릭 후 체류 + 검증 ──
+    if (midClicked) {
+      await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+      await sleep(2000);
+
+      const dwellTime = randomBetween(3000, 6000);
+      log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+      await sleep(dwellTime);
+
+      const currentPageUrl = page.url();
+      log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 50)}...`);
+      if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
+        result.productPageEntered = true;
       }
     }
 
