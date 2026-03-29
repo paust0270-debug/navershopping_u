@@ -7,6 +7,7 @@
  *
  * 환경변수:
  * - IP_ROTATION_METHOD: adb | adapter | auto | disabled (기본: auto)
+ * - STARTUP_MOBILE_DATA_TOGGLE: true|false (기본 true) — 프로그램 시작 시 ADB로 모바일 데이터 OFF→ON 1회
  */
 
 import { exec } from "child_process";
@@ -454,6 +455,77 @@ async function rotateIPWithAdapter(oldIP: string, adapterIndex?: string): Promis
     newIP,
     method: "adapter",
   };
+}
+
+/**
+ * USB ADB: 모바일 데이터 OFF→ON 사이클을 cycles회 반복 (비행기 모드·테더링 IP 갱신용)
+ * @returns cycles 모두 성공 시 true
+ */
+export async function toggleAdbMobileDataOffOn(reason: string, cycles = 1): Promise<boolean> {
+  const status = await checkAdbDeviceStatus();
+  if (status !== "device") {
+    if (status === "unauthorized") {
+      log(`[ADB] ${reason}: 미인증 — USB 디버깅 허용 필요. 스킵.`);
+    } else {
+      log(`[ADB] ${reason}: 기기 없음 — 스킵.`);
+    }
+    return false;
+  }
+
+  let oldIP = "";
+  try {
+    oldIP = await getCurrentIP();
+    log(`[ADB] ${reason}: 변경 전 IP = ${oldIP}`);
+  } catch {
+    log(`[ADB] ${reason}: 변경 전 IP 확인 실패`);
+  }
+
+  const n = Math.max(1, Math.floor(cycles));
+  for (let c = 0; c < n; c++) {
+    log(`[ADB] ${reason}: 모바일 데이터 OFF → ON (${c + 1}/${n})`);
+    if (!(await setMobileData(false))) {
+      logError(`[ADB] ${reason}: OFF 실패`);
+      return false;
+    }
+    await sleep(ADB_DATA_OFF_DELAY);
+    if (!(await setMobileData(true))) {
+      logError(`[ADB] ${reason}: ON 실패`);
+      return false;
+    }
+    await sleep(ADB_DATA_ON_DELAY);
+  }
+
+  let newIP = "";
+  try {
+    newIP = await getCurrentIP();
+    log(`[ADB] ${reason}: 변경 후 IP = ${newIP}`);
+  } catch {
+    log(`[ADB] ${reason}: 변경 후 IP 확인 실패`);
+  }
+
+  if (oldIP && newIP) {
+    if (oldIP === newIP) {
+      log(`[ADB] ${reason}: IP 동일 (${oldIP})`);
+    } else {
+      log(`[ADB] ${reason}: IP 변경 (${oldIP} -> ${newIP})`);
+    }
+  }
+
+  log(`[ADB] ${reason}: 재연결 대기 완료`);
+  return true;
+}
+
+/**
+ * 프로그램 시작 시 1회: USB ADB로 연결된 휴대폰 모바일 데이터 OFF → ON (IP 변경 검증 없음)
+ * - STARTUP_MOBILE_DATA_TOGGLE=false 이면 생략
+ * - ADB 기기 없음·미인증이면 로그만 남기고 그대로 진행 (프로세스 종료 안 함)
+ */
+export async function toggleMobileDataOnStartup(): Promise<void> {
+  if ((process.env.STARTUP_MOBILE_DATA_TOGGLE || "true").toLowerCase() === "false") {
+    log("[Startup] 모바일 데이터 토글 생략 (STARTUP_MOBILE_DATA_TOGGLE=false)");
+    return;
+  }
+  await toggleAdbMobileDataOffOn("시작 1회", 1);
 }
 
 // ============ 통합 IP 로테이션 ============

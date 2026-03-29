@@ -1,5 +1,0 @@
-version: 20260206T105523
-commit: 907c2ef4
-build_date: 2026-02-06T10:55:23.704Z
-launcher: shopping-tab-launcher
-commit_message: feat: 메인 테이블용 Shopping Tab Launcher 추가

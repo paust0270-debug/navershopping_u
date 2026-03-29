@@ -9,6 +9,12 @@
     "outDir": "./dist",
     "declaration": false
   },
-  "include": ["*.ts"],
+  "include": [
+    "unified-runner.ts",
+    "ipRotation.ts",
+    "engine-config.ts",
+    "captcha/**/*.ts",
+    "shared/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

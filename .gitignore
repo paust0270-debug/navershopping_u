@@ -12,6 +12,9 @@ node_modules/
 .env.local
 .env.remote
 
+# 네이버 계정 (unified-runner 자동 로그인용, 로컬만)
+naver-account.txt
+
 # 로컬 데이터
 backup/
 logs/

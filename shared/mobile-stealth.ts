@@ -15,7 +15,11 @@
  */
 
 import type { Browser, BrowserContext } from "patchright";
-import type { Page as PuppeteerPage } from "puppeteer-core";
+
+/** Puppeteer 호환 Page (이 레포 unified-runner는 patchright만 사용) */
+interface PuppeteerLikePage {
+  evaluateOnNewDocument(script: string): Promise<void>;
+}
 
 // ============================================
 // 실제 Chrome 버전 감지 (GREASE brand 포함)
@@ -310,7 +314,7 @@ export async function applyMobileStealth(context: BrowserContext): Promise<void>
 /**
  * Puppeteer Page에 모바일 스텔스 스크립트 적용
  */
-export async function applyMobileStealthPuppeteer(page: PuppeteerPage): Promise<void> {
+export async function applyMobileStealthPuppeteer(page: PuppeteerLikePage): Promise<void> {
   await page.evaluateOnNewDocument(MOBILE_STEALTH_SCRIPT);
 }
 

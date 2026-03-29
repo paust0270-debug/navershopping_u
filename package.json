@@ -1,79 +1,23 @@
 {
-  "name": "turafic-auto-updater",
+  "name": "sellermate-unified-runner",
   "version": "1.0.0",
-  "description": "TURAFIC 자동 업데이트 시스템 - 1000대 PC에 한 번만 배포",
-  "main": "auto-updater.js",
-  "bin": {
-    "turafic-auto-updater": "auto-updater.js"
-  },
+  "private": true,
+  "description": "unified-runner — 엔진 JSON 입출력, Patchright",
   "scripts": {
-    "build": "esbuild auto-updater.ts --bundle --platform=node --target=node18 --outfile=auto-updater.js",
-    "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:playwright --external:puppeteer-real-browser --external:puppeteer --external:@anthropic-ai/sdk --external:@supabase/supabase-js --outfile=worker-runner.js",
-    "build:launcher": "esbuild launcher.ts --bundle --platform=node --target=node18 --outfile=dist/launcher.js",
-    "build:launcher-dev": "node -e \"const fs=require('fs');let c=fs.readFileSync('launcher.ts','utf8');c=c.replace(/GIT_BRANCH = 'main'/,\\\"GIT_BRANCH = 'develop'\\\");fs.writeFileSync('launcher-dev.ts',c);\" && esbuild launcher-dev.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-dev.js",
-    "build:test-launcher": "esbuild test-launcher.ts --bundle --platform=node --target=node18 --outfile=dist/test-launcher.js",
-    "build:shopping-tab-launcher": "esbuild shopping-tab-launcher.ts --bundle --platform=node --target=node18 --outfile=dist/shopping-tab-launcher.js",
-    "build:app-launcher": "esbuild app-launcher.ts --bundle --platform=node --target=node18 --outfile=dist/app-launcher.js",
-    "build:all": "npm run build && npm run build:worker && npm run build:launcher",
-    "build:exe": "npm run build && pkg auto-updater.js -t node18-win-x64 -o turafic-updater.exe",
-    "build:launcher-exe": "npm run build:launcher && pkg dist/launcher.js -t node18-win-x64 -o turafic-launcher.exe",
-    "build:launcher-exe-dev": "npm run build:launcher-dev && pkg dist/launcher-dev.js -t node18-win-x64 -o turafic-launcher-dev.exe",
-    "build:test-launcher-exe": "npm run build:test-launcher && pkg dist/test-launcher.js -t node18-win-x64 -o test-launcher.exe",
-    "build:test-launcher-deploy": "npm run build:test-launcher-exe && node scripts/copy-to-deploy.js test-launcher",
-    "deploy:test-launcher": "npm run build:test-launcher-deploy && git add deploy/test-launcher.exe deploy/version.txt && git commit -m \"deploy: Update test-launcher\" && git push",
-    "build:shopping-tab-launcher-exe": "npm run build:shopping-tab-launcher && pkg dist/shopping-tab-launcher.js -t node18-win-x64 -o shopping-tab-launcher.exe",
-    "build:app-launcher-exe": "npm run build:app-launcher && pkg dist/app-launcher.js -t node18-win-x64 -o app-launcher.exe",
-    "build:msearch-launcher": "esbuild mobile/msearch/launcher.ts --bundle --platform=node --target=node18 --outfile=dist/msearch-launcher.js",
-    "build:msearch-launcher-exe": "npm run build:msearch-launcher && pkg dist/msearch-launcher.js -t node18-win-x64 -o msearch-launcher.exe",
-    "build:launcher-vm": "esbuild launcher-vm.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-vm.js",
-    "build:launcher-normal": "esbuild launcher-normal.ts --bundle --platform=node --target=node18 --outfile=dist/launcher-normal.js",
-    "build:launcher-vm-exe": "npm run build:launcher-vm && pkg dist/launcher-vm.js -t node18-win-x64 -o turafic-launcher-vm.exe",
-    "build:launcher-normal-exe": "npm run build:launcher-normal && pkg dist/launcher-normal.js -t node18-win-x64 -o turafic-launcher-normal.exe",
-    "build:all-exe": "npm run build:launcher-exe && npm run build:launcher-exe-dev",
-    "build:launchers-all": "npm run build:launcher-vm-exe && npm run build:launcher-normal-exe",
-    "start": "node auto-updater.js",
-    "dev": "tsx auto-updater.ts",
-    "launcher": "tsx launcher.ts"
-  },
-  "pkg": {
-    "scripts": "auto-updater.js",
-    "targets": [
-      "node18-win-x64"
-    ],
-    "outputPath": "dist",
-    "assets": []
+    "start": "npx tsx unified-runner.ts",
+    "once": "npx tsx unified-runner.ts --once",
+    "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:patchright --external:@anthropic-ai/sdk --outfile=worker-runner.js",
+    "build:gui-exe": "npm run build:worker && cd traffic-engine-gui && npm install && npm run pack"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "@supabase/supabase-js": "^2.86.2",
     "dotenv": "^16.0.0",
-    "node-cron": "^4.2.1",
-    "patchright": "^1.49.1",
-    "playwright": "^1.57.0",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "puppeteer-real-browser": "^1.4.4"
+    "patchright": "^1.49.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/node-cron": "^3.0.11",
     "esbuild": "^0.19.0",
-    "pkg": "^5.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
-  },
-  "directories": {
-    "doc": "docs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/mim1012/turafic_update.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/mim1012/turafic_update/issues"
-  },
-  "homepage": "https://github.com/mim1012/turafic_update#readme"
+  }
 }
