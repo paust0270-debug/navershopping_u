@@ -1,0 +1,53 @@
+{
+  "name": "traffic-engine-gui",
+  "version": "1.0.0",
+  "private": true,
+  "author": "sellermate",
+  "description": "Traffic Engine GUI (Electron)",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --win portable --x64"
+  },
+  "build": {
+    "appId": "com.sellermate.traffic-engine",
+    "productName": "TrafficEngine",
+    "directories": {
+      "output": "dist-exe"
+    },
+    "files": [
+      "**/*",
+      "!dist-exe/**"
+    ],
+    "asar": true,
+    "extraResources": [
+      {
+        "from": "../worker-runner.js",
+        "to": "runner/worker-runner.js"
+      },
+      {
+        "from": "../profiles",
+        "to": "runner/profiles"
+      },
+      {
+        "from": "../node_modules",
+        "to": "runner/node_modules"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  }
+}
