@@ -59,52 +59,72 @@ body {
   gap: 6px;
   flex: 1;
   min-height: 220px;
-}
-.task-panel {
-  flex: 1;
   min-width: 0;
 }
-.side-col {
-  flex: 0 1 480px;
-  min-width: 340px;
-  max-width: 560px;
+.task-panel {
+  flex: 1 1 55%;
+  min-width: 280px;
+  min-height: 0;
+}
+/* 작업딜레이 → User-Agent → 프록시 (세로 스택) */
+.config-row {
   display: flex;
   flex-direction: column;
+  flex: 0 1 45%;
+  min-width: 260px;
+  max-width: 380px;
   gap: 6px;
   min-height: 0;
+  overflow-y: auto;
+  align-items: stretch;
+}
+.config-panel {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .delay-panel {
   flex-shrink: 0;
 }
-.side-col .delay-grid {
-  grid-template-columns: minmax(0, 1fr) 58px 58px;
-}
-.row-mid {
-  display: flex;
-  gap: 6px;
-}
-.side-col .row-mid {
-  flex: 1;
-  min-height: 260px;
-  min-width: 0;
-}
-.row-mid .panel {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-.row-mid > .panel > .body {
-  overflow: hidden;
+.delay-body,
+.ua-body,
+.proxy-body {
   display: flex;
   flex-direction: column;
+  gap: 4px;
   min-height: 0;
+  overflow: auto;
 }
-.row-mid textarea.block.flex-grow {
-  flex: 1 1 0;
-  min-height: 110px;
+.delay-body {
+  width: max-content;
+  max-width: 100%;
+  align-self: flex-start;
 }
-.row-mid > .panel:last-child textarea.block.flex-grow {
-  resize: none;
+.proxy-body .checkbox-row-tight {
+  margin-top: 2px;
+}
+.compact-textarea {
+  width: 100%;
+  min-height: 36px;
+  max-height: 72px;
+  padding: 3px 5px;
+  resize: vertical;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+.config-row .compact-textarea,
+.config-row .proxy-textarea {
+  max-width: 280px;
+}
+.proxy-textarea {
+  min-height: 44px;
+  max-height: 88px;
+  flex: 0 0 auto;
+}
+.ua-body .compact-textarea {
+  max-height: 58px;
 }
 .log-wrap {
   height: 200px;
@@ -149,6 +169,44 @@ body {
   border-bottom: 1px solid #2a2a2a;
   color: #ffd866;
 }
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 8px;
+  background: #333;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+.panel-title-row h3 {
+  margin: 0;
+  padding: 2px 0;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: #ffd866;
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+}
+.panel-header-save {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid #444;
+  border-radius: 3px;
+  cursor: pointer;
+  background: linear-gradient(180deg, #6a6a6a, #484848);
+  color: #fff;
+}
+.panel-header-save:hover {
+  background: linear-gradient(180deg, #7a7a7a, #585858);
+}
+.panel-header-save:active {
+  background: #404040;
+}
 .panel .body {
   flex: 1;
   padding: 6px;
@@ -156,6 +214,7 @@ body {
 }
 table.data {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 11px;
 }
@@ -165,12 +224,26 @@ table.data td {
   padding: 4px 6px;
   text-align: left;
 }
+table.data th.col-rownum,
+table.data td:first-child {
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+  padding: 2px 4px;
+  text-align: center;
+  box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
+}
 table.data th {
   background: #2d2d2d;
   color: #ccc;
 }
 table.data th:nth-child(5),
-table.data th:nth-child(6) {
+table.data th:nth-child(6),
+table.data th:nth-child(7),
+table.data th:nth-child(8),
+table.data th:nth-child(9),
+table.data th:nth-child(10) {
   text-align: center;
 }
 table.data td input,
@@ -181,6 +254,13 @@ table.data td select {
   color: #eee;
   padding: 3px 4px;
 }
+table.data td.rank-display {
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: #b8d4ff;
+  background: #2f3540;
+}
 table.data tr.selected td {
   background: #254030;
 }
@@ -189,6 +269,19 @@ table.data td.stat-cell {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   color: #d0e8ff;
+}
+/* 트래픽·어제 — 좁은 카운터 열 (키워드·URL이 남는 폭 사용) */
+table.data th.col-traffic,
+table.data td:nth-child(7),
+table.data td:nth-child(8) {
+  width: 52px;
+  max-width: 52px;
+  min-width: 52px;
+  padding: 2px 3px;
+  font-size: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .row-tools {
   display: flex;
@@ -222,23 +315,70 @@ table.data td.stat-cell {
 .row-tools button.danger-inline:hover {
   filter: brightness(1.08);
 }
+/* 숫자 min/max·ms: 좌우 칸 동일 폭, 1fr 없음 → 삐뚤어짐·불필요한 넓이 방지 */
 .delay-grid {
   display: grid;
-  grid-template-columns: 1fr 70px 70px;
-  gap: 4px 6px;
+  grid-template-columns: max-content 52px 52px;
+  column-gap: 6px;
+  row-gap: 3px;
   align-items: center;
+  justify-content: start;
+  justify-items: stretch;
+  width: max-content;
+  max-width: 100%;
+}
+/* 작업 선택·워크 모드: 옵션 글자용으로 2·3열만 동일하게 조금 넓게 */
+.delay-grid.delay-grid--head {
+  grid-template-columns: max-content 88px 88px;
 }
 .delay-grid label {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
   font-size: 11px;
   color: #ccc;
+  white-space: nowrap;
+  padding-right: 4px;
+  justify-self: start;
 }
-.delay-grid input,
-.delay-grid select.mode {
+.delay-grid input {
   width: 100%;
+  box-sizing: border-box;
   background: #2a2a2a;
   border: 1px solid #555;
   color: #eee;
-  padding: 3px 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.delay-grid input:placeholder-shown,
+.delay-grid input::placeholder {
+  text-align: center;
+}
+.delay-grid select.mode {
+  width: 100%;
+  box-sizing: border-box;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  color: #eee;
+  padding: 3px 20px 3px 5px;
+  font-size: 11px;
+}
+.delay-grid select.mode-span {
+  grid-column: 2 / 4;
+  width: 100%;
+  min-width: 0;
+}
+.delay-grid input#maxScroll.delay-num-tight,
+.delay-grid input.delay-num-tight {
+  grid-column: 2 / 4;
+  justify-self: start;
+  width: 52px;
+  max-width: 52px;
+  min-width: 0;
+  box-sizing: border-box;
+  text-align: center;
 }
 .checkbox-row {
   display: flex;

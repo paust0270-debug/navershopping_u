@@ -96,9 +96,9 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs3 = require("fs");
-    var path3 = require("path");
-    var os = require("os");
+    var fs4 = require("fs");
+    var path4 = require("path");
+    var os2 = require("os");
     var crypto = require("crypto");
     var packageJson = require_package();
     var version = packageJson.version;
@@ -205,7 +205,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs3.existsSync(filepath)) {
+            if (fs4.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -213,15 +213,15 @@ var require_main = __commonJS({
           possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
         }
       } else {
-        possibleVaultPath = path3.resolve(process.cwd(), ".env.vault");
+        possibleVaultPath = path4.resolve(process.cwd(), ".env.vault");
       }
-      if (fs3.existsSync(possibleVaultPath)) {
+      if (fs4.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
     }
     function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path3.join(os.homedir(), envPath.slice(1)) : envPath;
+      return envPath[0] === "~" ? path4.join(os2.homedir(), envPath.slice(1)) : envPath;
     }
     function _configVault(options) {
       const debug = Boolean(options && options.debug);
@@ -238,7 +238,7 @@ var require_main = __commonJS({
       return { parsed };
     }
     function configDotenv(options) {
-      const dotenvPath = path3.resolve(process.cwd(), ".env");
+      const dotenvPath = path4.resolve(process.cwd(), ".env");
       let encoding = "utf8";
       const debug = Boolean(options && options.debug);
       const quiet = options && "quiet" in options ? options.quiet : true;
@@ -262,13 +262,13 @@ var require_main = __commonJS({
       }
       let lastError;
       const parsedAll = {};
-      for (const path4 of optionPaths) {
+      for (const path5 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs3.readFileSync(path4, { encoding }));
+          const parsed = DotenvModule.parse(fs4.readFileSync(path5, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
-            _debug(`Failed to load ${path4} ${e.message}`);
+            _debug(`Failed to load ${path5} ${e.message}`);
           }
           lastError = e;
         }
@@ -283,7 +283,7 @@ var require_main = __commonJS({
         const shortPaths = [];
         for (const filePath of optionPaths) {
           try {
-            const relative = path3.relative(process.cwd(), filePath);
+            const relative = path4.relative(process.cwd(), filePath);
             shortPaths.push(relative);
           } catch (e) {
             if (debug) {
@@ -385,9 +385,36 @@ var require_main = __commonJS({
 
 // unified-runner.ts
 var dotenv = __toESM(require_main());
-var path2 = __toESM(require("path"));
-var fs2 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
+var fs3 = __toESM(require("fs"));
+var os = __toESM(require("os"));
 var import_child_process2 = require("child_process");
+
+// pw-version-override.ts
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+if (!process.env.PW_VERSION_OVERRIDE) {
+  const tryRead = (base) => {
+    const p = path.join(base, "node_modules", "patchright-core", "package.json");
+    try {
+      const v2 = JSON.parse(fs.readFileSync(p, "utf8"))?.version;
+      if (typeof v2 === "string" && v2.length)
+        return v2;
+    } catch {
+    }
+    return null;
+  };
+  const bases = [__dirname, path.resolve(__dirname, "..")];
+  let v = null;
+  for (const b of bases) {
+    v = tryRead(b);
+    if (v)
+      break;
+  }
+  process.env.PW_VERSION_OVERRIDE = v || "1.49.1";
+}
+
+// unified-runner.ts
 var import_patchright = require("patchright");
 
 // ipRotation.ts
@@ -397,7 +424,7 @@ var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var ADB_DATA_OFF_DELAY = 5e3;
 var ADB_DATA_ON_DELAY = 5e3;
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
 }
 function log(msg) {
   console.log(`[IPRotation] ${msg}`);
@@ -522,189 +549,11 @@ async function toggleAdbMobileDataOffOn(reason, cycles = 1) {
 }
 
 // engine-config.ts
-var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
-
-// shared/mobile-stealth.ts
-var MOBILE_STEALTH_SCRIPT = `
-// ============================================================
-// \uBAA8\uBC14\uC77C \uC2A4\uD154\uC2A4 \uC2A4\uD06C\uB9BD\uD2B8 - navigator \uBC0F API \uC624\uBC84\uB77C\uC774\uB4DC
-// Chrome 144 / Android 14 / SM-S911B (Galaxy S23)
-// ============================================================
-
-// 1. navigator.userAgentData \uC624\uBC84\uB77C\uC774\uB4DC (Client Hints API)
-Object.defineProperty(navigator, 'userAgentData', {
-  get: () => ({
-    brands: [
-      { brand: 'Chromium', version: '144' },
-      { brand: 'Google Chrome', version: '144' },
-      { brand: 'Not-A.Brand', version: '99' }
-    ],
-    mobile: true,
-    platform: 'Android',
-    getHighEntropyValues: async (hints) => ({
-      brands: [
-        { brand: 'Chromium', version: '144' },
-        { brand: 'Google Chrome', version: '144' },
-        { brand: 'Not-A.Brand', version: '99' }
-      ],
-      mobile: true,
-      platform: 'Android',
-      platformVersion: '14.0.0',
-      architecture: 'arm',
-      bitness: '64',
-      model: 'SM-S911B',
-      uaFullVersion: '144.0.0.0',
-      fullVersionList: [
-        { brand: 'Chromium', version: '144.0.0.0' },
-        { brand: 'Google Chrome', version: '144.0.0.0' },
-        { brand: 'Not-A.Brand', version: '99.0.0.0' }
-      ]
-    }),
-    toJSON: function() {
-      return {
-        brands: this.brands,
-        mobile: this.mobile,
-        platform: this.platform
-      };
-    }
-  })
-});
-
-// 2. navigator.platform \uC624\uBC84\uB77C\uC774\uB4DC
-Object.defineProperty(navigator, 'platform', {
-  get: () => 'Linux armv81'
-});
-
-// 3. navigator.webdriver \uC228\uAE30\uAE30
-Object.defineProperty(navigator, 'webdriver', {
-  get: () => false
-});
-
-// 4. navigator.maxTouchPoints \uC124\uC815 (\uBAA8\uBC14\uC77C)
-Object.defineProperty(navigator, 'maxTouchPoints', {
-  get: () => 5
-});
-
-// 5. navigator.hardwareConcurrency (\uBAA8\uBC14\uC77C \uC218\uC900)
-Object.defineProperty(navigator, 'hardwareConcurrency', {
-  get: () => 8
-});
-
-// 6. navigator.deviceMemory (\uBAA8\uBC14\uC77C \uC218\uC900)
-Object.defineProperty(navigator, 'deviceMemory', {
-  get: () => 8
-});
-
-// 7. navigator.connection \uBAA8\uBC14\uC77C \uC124\uC815
-Object.defineProperty(navigator, 'connection', {
-  get: () => ({
-    effectiveType: '4g',
-    rtt: 50,
-    downlink: 10,
-    saveData: false,
-    type: 'cellular',
-    addEventListener: () => {},
-    removeEventListener: () => {}
-  })
-});
-
-// 8. screen orientation (portrait)
-if (screen.orientation) {
-  try {
-    Object.defineProperty(screen.orientation, 'type', {
-      get: () => 'portrait-primary'
-    });
-    Object.defineProperty(screen.orientation, 'angle', {
-      get: () => 0
-    });
-  } catch (e) {}
-}
-
-// 9. window.chrome \uAC1D\uCCB4 (\uC548\uB4DC\uB85C\uC774\uB4DC \uD06C\uB86C)
-window.chrome = {
-  runtime: {},
-  loadTimes: function() {},
-  csi: function() {},
-  app: {}
-};
-
-// 10. Permissions API \uC218\uC815
-const originalQuery = window.navigator.permissions?.query;
-if (originalQuery) {
-  window.navigator.permissions.query = (parameters) => (
-    parameters.name === 'notifications' ?
-      Promise.resolve({ state: Notification.permission }) :
-      originalQuery(parameters)
-  );
-}
-
-// 11. WebGL Vendor/Renderer \uC2A4\uD478\uD551 (Snapdragon 8 Gen 2)
-const getParameterOrig = WebGLRenderingContext.prototype.getParameter;
-WebGLRenderingContext.prototype.getParameter = function(parameter) {
-  // UNMASKED_VENDOR_WEBGL
-  if (parameter === 37445) {
-    return 'Qualcomm';
-  }
-  // UNMASKED_RENDERER_WEBGL
-  if (parameter === 37446) {
-    return 'Adreno (TM) 740';
-  }
-  return getParameterOrig.call(this, parameter);
-};
-
-const getParameterOrig2 = WebGL2RenderingContext.prototype.getParameter;
-WebGL2RenderingContext.prototype.getParameter = function(parameter) {
-  if (parameter === 37445) {
-    return 'Qualcomm';
-  }
-  if (parameter === 37446) {
-    return 'Adreno (TM) 740';
-  }
-  return getParameterOrig2.call(this, parameter);
-};
-
-// 12. \uBC30\uD130\uB9AC API \uBAA8\uBC14\uC77C\uD654
-if (navigator.getBattery) {
-  navigator.getBattery = () => Promise.resolve({
-    charging: true,
-    chargingTime: 0,
-    dischargingTime: Infinity,
-    level: 0.85 + Math.random() * 0.1,  // 85~95% \uB79C\uB364
-    addEventListener: () => {},
-    removeEventListener: () => {}
-  });
-}
-
-// 13. Playwright \uC804\uC5ED \uBCC0\uC218 \uC81C\uAC70
-delete window.__playwright__binding__;
-delete window.__pwInitScripts;
-`;
-async function applyMobileStealth(context) {
-  await context.addInitScript(MOBILE_STEALTH_SCRIPT);
-}
-var MOBILE_CONTEXT_OPTIONS = {
-  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
-  viewport: { width: 400, height: 700 },
-  isMobile: true,
-  hasTouch: true,
-  deviceScaleFactor: 3,
-  locale: "ko-KR",
-  timezoneId: "Asia/Seoul",
-  extraHTTPHeaders: {
-    "sec-ch-ua": '"Chromium";v="144", "Google Chrome";v="144", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?1",
-    "sec-ch-ua-platform": '"Android"'
-    // High entropy 헤더 제거 (네이버는 Accept-CH로 요청하지 않음 - 봇 탐지 위험)
-    // 'sec-ch-ua-platform-version': '"14.0.0"',
-    // 'sec-ch-ua-model': '"SM-S911B"',
-  }
-};
-
-// engine-config.ts
+var path2 = __toESM(require("path"));
+var fs2 = __toESM(require("fs"));
 var CONFIG_CANDIDATES = [
-  path.join(process.cwd(), "engine-config.json"),
-  path.join(__dirname, "engine-config.json")
+  path2.join(process.cwd(), "engine-config.json"),
+  path2.join(__dirname, "engine-config.json")
 ];
 var DEFAULT_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 var DEFAULT_DELAY_SPECS = {
@@ -726,11 +575,25 @@ var DEFAULT_DELAY_SPECS = {
   proxySetup: 3e3,
   taskGapRest: { min: 2e3, max: 3e3 }
 };
+var MOBILE_CONTEXT_OPTIONS = {
+  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
+  viewport: { width: 400, height: 700 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 3,
+  locale: "ko-KR",
+  timezoneId: "Asia/Seoul",
+  extraHTTPHeaders: {
+    "sec-ch-ua": '"Chromium";v="144", "Google Chrome";v="144", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": '"Android"'
+  }
+};
 function readConfigJson() {
   for (const p of CONFIG_CANDIDATES) {
-    if (fs.existsSync(p)) {
+    if (fs2.existsSync(p)) {
       try {
-        const raw = fs.readFileSync(p, "utf-8");
+        const raw = fs2.readFileSync(p, "utf-8");
         return JSON.parse(raw);
       } catch {
         console.warn(`[EngineConfig] \uD30C\uC2F1 \uC2E4\uD328: ${p}`);
@@ -746,6 +609,36 @@ function delayMs(spec, fallback) {
   const min = Math.min(s.min, s.max);
   const max = Math.max(s.min, s.max);
   return min + Math.floor(Math.random() * (max - min + 1));
+}
+function parseSearchFlowVersion(v) {
+  if (v === "B" || v === "C" || v === "D")
+    return v;
+  return "A";
+}
+function resolveEngineTaskFilePath(file) {
+  if (process.env.ENGINE_TASK_FILE?.trim()) {
+    const e = process.env.ENGINE_TASK_FILE.trim();
+    return path2.isAbsolute(e) ? e : path2.join(process.cwd(), e);
+  }
+  const p = file.taskSource?.taskFilePath?.trim();
+  if (p)
+    return path2.isAbsolute(p) ? p : path2.join(process.cwd(), p);
+  return path2.join(process.cwd(), "engine-next-task.json");
+}
+function resolveKeywordBlacklistPath(file) {
+  const rel = file.search?.keywordBlacklistFile?.trim();
+  const p = rel && rel.length > 0 ? rel : path2.join("data", "keyword-blacklist.json");
+  return path2.isAbsolute(p) ? p : path2.join(process.cwd(), p);
+}
+function resolveEngineResultFilePath(file) {
+  if (process.env.ENGINE_RESULT_FILE?.trim()) {
+    const r = process.env.ENGINE_RESULT_FILE.trim();
+    return path2.isAbsolute(r) ? r : path2.join(process.cwd(), r);
+  }
+  const p = file.taskSource?.resultFilePath?.trim();
+  if (p)
+    return path2.isAbsolute(p) ? p : path2.join(process.cwd(), p);
+  return path2.join(process.cwd(), "engine-last-result.json");
 }
 function loadEngineConfig() {
   const file = readConfigJson();
@@ -766,7 +659,9 @@ function loadEngineConfig() {
     explorationScrollPixels: Math.max(100, file.search?.explorationScrollPixels ?? 500),
     keywordBlacklistEnabled: file.search?.keywordBlacklistEnabled !== false,
     keywordBlacklistPath: resolveKeywordBlacklistPath(file),
-    airplaneBeforeTask: !!file.airplaneMode?.toggleBeforeEachTask,
+    searchFlowVersion: parseSearchFlowVersion(file.search?.searchFlowVersion),
+    /** 설정 생략 시 기본 true (기존 “항상 실행” 동작 유지) */
+    airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask !== false,
     airplaneCycles: Math.max(1, file.airplaneMode?.offOnCycles ?? 1),
     logEngineEvents: file.logging?.engineEvents !== false,
     emptyQueueWaitMs: Math.max(1e3, file.scheduling?.emptyQueueWaitMs ?? 1e4),
@@ -774,32 +669,6 @@ function loadEngineConfig() {
     engineTaskFilePath: resolveEngineTaskFilePath(file),
     engineResultFilePath: resolveEngineResultFilePath(file)
   };
-}
-function resolveEngineTaskFilePath(file) {
-  if (process.env.ENGINE_TASK_FILE?.trim()) {
-    return path.isAbsolute(process.env.ENGINE_TASK_FILE) ? process.env.ENGINE_TASK_FILE : path.join(process.cwd(), process.env.ENGINE_TASK_FILE);
-  }
-  const p = file.taskSource?.taskFilePath?.trim();
-  if (p) {
-    return path.isAbsolute(p) ? p : path.join(process.cwd(), p);
-  }
-  return path.join(process.cwd(), "engine-next-task.json");
-}
-function resolveKeywordBlacklistPath(file) {
-  const rel = file.search?.keywordBlacklistFile?.trim();
-  const p = rel && rel.length > 0 ? rel : path.join("data", "keyword-blacklist.json");
-  return path.isAbsolute(p) ? p : path.join(process.cwd(), p);
-}
-function resolveEngineResultFilePath(file) {
-  if (process.env.ENGINE_RESULT_FILE?.trim()) {
-    const r = process.env.ENGINE_RESULT_FILE.trim();
-    return path.isAbsolute(r) ? r : path.join(process.cwd(), r);
-  }
-  const p = file.taskSource?.resultFilePath?.trim();
-  if (p) {
-    return path.isAbsolute(p) ? p : path.join(process.cwd(), p);
-  }
-  return path.join(process.cwd(), "engine-last-result.json");
 }
 function resolveMobileForTask(runtime) {
   if (runtime.workMode === "mobile")
@@ -842,6 +711,9 @@ function buildBrowserContextOptions(isMobile, userAgent) {
     deviceScaleFactor: 1
   };
 }
+
+// unified-runner.ts
+var import_puppeteer_real_browser = require("puppeteer-real-browser");
 
 // captcha/ReceiptCaptchaSolverPRB.ts
 var import_sdk = __toESM(require("@anthropic-ai/sdk"));
@@ -1219,14 +1091,475 @@ var ReceiptCaptchaSolverPRB = class {
     return !stillCaptcha;
   }
   delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise((resolve2) => setTimeout(resolve2, ms));
   }
 };
+
+// shared/mobile-stealth.ts
+var MOBILE_STEALTH_SCRIPT = `
+// ============================================================
+// \uBAA8\uBC14\uC77C \uC2A4\uD154\uC2A4 \uC2A4\uD06C\uB9BD\uD2B8 - navigator \uBC0F API \uC624\uBC84\uB77C\uC774\uB4DC
+// Chrome 144 / Android 14 / SM-S911B (Galaxy S23)
+// ============================================================
+
+// 1. navigator.userAgentData \uC624\uBC84\uB77C\uC774\uB4DC (Client Hints API)
+Object.defineProperty(navigator, 'userAgentData', {
+  get: () => ({
+    brands: [
+      { brand: 'Chromium', version: '144' },
+      { brand: 'Google Chrome', version: '144' },
+      { brand: 'Not-A.Brand', version: '99' }
+    ],
+    mobile: true,
+    platform: 'Android',
+    getHighEntropyValues: async (hints) => ({
+      brands: [
+        { brand: 'Chromium', version: '144' },
+        { brand: 'Google Chrome', version: '144' },
+        { brand: 'Not-A.Brand', version: '99' }
+      ],
+      mobile: true,
+      platform: 'Android',
+      platformVersion: '14.0.0',
+      architecture: 'arm',
+      bitness: '64',
+      model: 'SM-S911B',
+      uaFullVersion: '144.0.0.0',
+      fullVersionList: [
+        { brand: 'Chromium', version: '144.0.0.0' },
+        { brand: 'Google Chrome', version: '144.0.0.0' },
+        { brand: 'Not-A.Brand', version: '99.0.0.0' }
+      ]
+    }),
+    toJSON: function() {
+      return {
+        brands: this.brands,
+        mobile: this.mobile,
+        platform: this.platform
+      };
+    }
+  })
+});
+
+// 2. navigator.platform \uC624\uBC84\uB77C\uC774\uB4DC
+Object.defineProperty(navigator, 'platform', {
+  get: () => 'Linux armv81'
+});
+
+// 3. navigator.webdriver \uC228\uAE30\uAE30
+Object.defineProperty(navigator, 'webdriver', {
+  get: () => false
+});
+
+// 4. navigator.maxTouchPoints \uC124\uC815 (\uBAA8\uBC14\uC77C)
+Object.defineProperty(navigator, 'maxTouchPoints', {
+  get: () => 5
+});
+
+// 5. navigator.hardwareConcurrency (\uBAA8\uBC14\uC77C \uC218\uC900)
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+  get: () => 8
+});
+
+// 6. navigator.deviceMemory (\uBAA8\uBC14\uC77C \uC218\uC900)
+Object.defineProperty(navigator, 'deviceMemory', {
+  get: () => 8
+});
+
+// 7. navigator.connection \uBAA8\uBC14\uC77C \uC124\uC815
+Object.defineProperty(navigator, 'connection', {
+  get: () => ({
+    effectiveType: '4g',
+    rtt: 50,
+    downlink: 10,
+    saveData: false,
+    type: 'cellular',
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  })
+});
+
+// 8. screen orientation (portrait)
+if (screen.orientation) {
+  try {
+    Object.defineProperty(screen.orientation, 'type', {
+      get: () => 'portrait-primary'
+    });
+    Object.defineProperty(screen.orientation, 'angle', {
+      get: () => 0
+    });
+  } catch (e) {}
+}
+
+// 9. window.chrome \uAC1D\uCCB4 (\uC548\uB4DC\uB85C\uC774\uB4DC \uD06C\uB86C)
+window.chrome = {
+  runtime: {},
+  loadTimes: function() {},
+  csi: function() {},
+  app: {}
+};
+
+// 10. Permissions API \uC218\uC815
+const originalQuery = window.navigator.permissions?.query;
+if (originalQuery) {
+  window.navigator.permissions.query = (parameters) => (
+    parameters.name === 'notifications' ?
+      Promise.resolve({ state: Notification.permission }) :
+      originalQuery(parameters)
+  );
+}
+
+// 11. WebGL Vendor/Renderer \uC2A4\uD478\uD551 (Snapdragon 8 Gen 2)
+const getParameterOrig = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+  // UNMASKED_VENDOR_WEBGL
+  if (parameter === 37445) {
+    return 'Qualcomm';
+  }
+  // UNMASKED_RENDERER_WEBGL
+  if (parameter === 37446) {
+    return 'Adreno (TM) 740';
+  }
+  return getParameterOrig.call(this, parameter);
+};
+
+const getParameterOrig2 = WebGL2RenderingContext.prototype.getParameter;
+WebGL2RenderingContext.prototype.getParameter = function(parameter) {
+  if (parameter === 37445) {
+    return 'Qualcomm';
+  }
+  if (parameter === 37446) {
+    return 'Adreno (TM) 740';
+  }
+  return getParameterOrig2.call(this, parameter);
+};
+
+// 12. \uBC30\uD130\uB9AC API \uBAA8\uBC14\uC77C\uD654
+if (navigator.getBattery) {
+  navigator.getBattery = () => Promise.resolve({
+    charging: true,
+    chargingTime: 0,
+    dischargingTime: Infinity,
+    level: 0.85 + Math.random() * 0.1,  // 85~95% \uB79C\uB364
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  });
+}
+
+// 13. Playwright \uC804\uC5ED \uBCC0\uC218 \uC81C\uAC70
+delete window.__playwright__binding__;
+delete window.__pwInitScripts;
+`;
+async function applyMobileStealth(context) {
+  await context.addInitScript(MOBILE_STEALTH_SCRIPT);
+}
+
+// rank-check-shopping.ts
+var ITEMS_PER_PAGE = 40;
+var TITLE_MAX = 300;
+var SAFE_DELAY_MS = 1500;
+var HYDRATE_SCROLL_TOTAL = 18 * 550;
+function microDelay(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+async function humanType(page, text) {
+  for (const char of text) {
+    await page.keyboard.type(char);
+    await microDelay(50 + Math.random() * 100);
+    if (Math.random() < 0.05) {
+      await microDelay(200 + Math.random() * 300);
+    }
+  }
+}
+async function humanScroll(page, totalDistance) {
+  let scrolled = 0;
+  while (scrolled < totalDistance) {
+    const scrollAmount = 300 + Math.random() * 300;
+    const actualScroll = Math.min(scrollAmount, totalDistance - scrolled);
+    await page.evaluate((y) => window.scrollBy(0, y), actualScroll);
+    scrolled += actualScroll;
+    await microDelay(50 + Math.random() * 100);
+    if (Math.random() < 0.03) {
+      await microDelay(200 + Math.random() * 300);
+    }
+  }
+}
+async function isShoppingBlocked(page) {
+  return page.evaluate(() => {
+    const body = document.body?.innerText ?? "";
+    return body.includes("\uBCF4\uC548 \uD655\uC778") || body.includes("\uC790\uB3D9 \uC785\uB825 \uBC29\uC9C0") || body.includes("\uC77C\uC2DC\uC801\uC73C\uB85C \uC81C\uD55C");
+  });
+}
+var SHOPPING_HOST = "search.shopping.naver.com";
+async function tripleClickSearchInput(page, log3) {
+  try {
+    if (typeof page.locator === "function") {
+      const raw = page.locator('input[name="query"]');
+      if (raw && typeof raw.first === "function") {
+        const searchInput = raw.first();
+        await searchInput.waitFor({ state: "visible", timeout: 15e3 });
+        await searchInput.click({ clickCount: 3 });
+        return true;
+      }
+    }
+    if (typeof page.waitForSelector === "function") {
+      const el = await page.waitForSelector('input[name="query"]', { visible: true, timeout: 15e3 });
+      if (!el) {
+        log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C");
+        return false;
+      }
+      await el.click({ clickCount: 3 });
+      return true;
+    }
+  } catch {
+    log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C");
+    return false;
+  }
+  log3("\uAC80\uC0C9 \uC785\uB825\uCC3D API \uBBF8\uC9C0\uC6D0");
+  return false;
+}
+async function enterNaverShoppingSearch(page, kw, log3, sleepMs) {
+  log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785\u2026");
+  try {
+    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded", timeout: 45e3 });
+  } catch {
+    log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785 \uC2E4\uD328");
+    return false;
+  }
+  await sleepMs(SAFE_DELAY_MS);
+  const inputOk = await tripleClickSearchInput(page, log3);
+  if (!inputOk)
+    return false;
+  await humanType(page, kw);
+  await page.keyboard.press("Enter");
+  log3("\uAC80\uC0C9 \uACB0\uACFC \uB300\uAE30 \uC911\u2026");
+  try {
+    await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15e3 });
+  } catch {
+  }
+  await sleepMs(1e3);
+  log3("\uC1FC\uD551\uD0ED\uC73C\uB85C \uC774\uB3D9");
+  let clicked = false;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    clicked = await page.evaluate(() => {
+      const link = document.querySelector('a[href*="search.shopping.naver.com"]');
+      if (!link)
+        return false;
+      link.removeAttribute("target");
+      link.click();
+      return true;
+    });
+    if (clicked)
+      break;
+    log3(`\uC1FC\uD551\uD0ED \uB300\uAE30 \uC911\u2026 (${attempt}/5)`);
+    await sleepMs(2e3);
+  }
+  if (!clicked) {
+    log3("\uC1FC\uD551\uD0ED \uB9C1\uD06C \uC5C6\uC74C");
+    return false;
+  }
+  await sleepMs(SAFE_DELAY_MS + 800);
+  if (!page.url().includes(SHOPPING_HOST)) {
+    log3("\uC1FC\uD551\uD0ED URL \uBBF8\uD655\uC778");
+    return false;
+  }
+  if (await isShoppingBlocked(page)) {
+    log3("\uBCF4\uC548/\uCC28\uB2E8 \uD398\uC774\uC9C0 \uAC10\uC9C0");
+    return false;
+  }
+  return true;
+}
+async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, log3, sleepMs) {
+  const empty = {
+    rank: null,
+    reviewCount: null,
+    starRating: null,
+    productTitle: null
+  };
+  const mid = targetMid.trim();
+  const kw = keyword.trim();
+  if (!mid || !kw) {
+    log3("\uD0A4\uC6CC\uB4DC \uB610\uB294 MID \uBE44\uC5B4 \uC788\uC74C");
+    return empty;
+  }
+  const entered = await enterNaverShoppingSearch(page, kw, log3, sleepMs);
+  if (!entered) {
+    return empty;
+  }
+  const out = { ...empty };
+  let currentPage = 1;
+  while (currentPage <= maxPages) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await humanScroll(page, HYDRATE_SCROLL_TOTAL);
+    await sleepMs(150);
+    const result = await page.evaluate(
+      ({ targetId, pageNum, itemsPerPage, titleMax }) => {
+        function clip(s) {
+          const t = s.replace(/\s+/g, " ").trim();
+          return t.length > titleMax ? t.substring(0, titleMax) : t;
+        }
+        function titleFromProductItem(productItem, fromJson) {
+          if (fromJson && fromJson.trim())
+            return clip(fromJson);
+          const img = productItem.querySelector(
+            'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
+          );
+          const alt = img?.getAttribute("alt")?.trim();
+          if (alt)
+            return clip(alt);
+          const titleEl = productItem.querySelector(".product_title__") || productItem.querySelector('[class*="product_title__"]');
+          const tx = titleEl?.textContent?.trim();
+          return tx ? clip(tx) : null;
+        }
+        function extractFromProductItem(productItem) {
+          let reviewCount2 = null;
+          let starRating2 = null;
+          const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
+          for (const elem of reviewElements) {
+            const text = elem.textContent || "";
+            if (text.includes("\uB9AC\uBDF0")) {
+              const reviewMatch = text.match(/리뷰\s*(\d+)|\((\d+(?:,\d+)*)\)/);
+              if (reviewMatch) {
+                const reviewNum = reviewMatch[1] || reviewMatch[2];
+                reviewCount2 = parseInt(reviewNum.replace(/,/g, ""), 10) || null;
+                break;
+              }
+            }
+          }
+          const starEl = productItem.querySelector(".product_grade__O_5f5") || productItem.querySelector('[class*="product_grade__"]');
+          if (starEl) {
+            const starText = starEl.textContent?.trim() || "";
+            const starMatch = starText.match(/(\d+\.?\d*)/);
+            if (starMatch) {
+              starRating2 = parseFloat(starMatch[1]) || null;
+            }
+          }
+          return { reviewCount: reviewCount2, starRating: starRating2 };
+        }
+        const anchors = document.querySelectorAll(
+          "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
+        );
+        for (let i = 0; i < anchors.length; i++) {
+          const anchor = anchors[i];
+          const dtl = anchor.getAttribute("data-shp-contents-dtl");
+          const rankStr = anchor.getAttribute("data-shp-contents-rank");
+          if (!dtl || !rankStr)
+            continue;
+          try {
+            const normalized = dtl.replace(/&quot;/g, '"');
+            const parsed = JSON.parse(normalized);
+            if (!Array.isArray(parsed))
+              continue;
+            let chnlProdNo = null;
+            let prodNm = null;
+            for (const item of parsed) {
+              if (item.key === "chnl_prod_no" && item.value) {
+                chnlProdNo = String(item.value);
+              }
+              if (item.key === "prod_nm" && item.value) {
+                prodNm = String(item.value);
+              }
+            }
+            if (!chnlProdNo || chnlProdNo !== targetId)
+              continue;
+            const pageRank = parseInt(rankStr, 10);
+            const rank2 = (pageNum - 1) * 40 + (Number.isFinite(pageRank) ? pageRank : i + 1);
+            const productItem = anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
+            const extra = productItem ? extractFromProductItem(productItem) : { reviewCount: null, starRating: null };
+            const productTitle2 = productItem ? titleFromProductItem(productItem, prodNm) : prodNm ? clip(prodNm) : null;
+            return {
+              found: true,
+              rank: rank2,
+              reviewCount: extra.reviewCount,
+              starRating: extra.starRating,
+              productTitle: productTitle2
+            };
+          } catch {
+          }
+        }
+        const mids = [];
+        const patterns = [/nv_mid[=:](\d+)/, /nvMid[=:](\d+)/, /products\/(\d+)/, /catalog\/(\d+)/];
+        document.querySelectorAll("a").forEach((a) => {
+          const href = a.href || "";
+          for (const p of patterns) {
+            const hit = href.match(p);
+            if (hit && !mids.includes(hit[1])) {
+              mids.push(hit[1]);
+              break;
+            }
+          }
+        });
+        const idx = mids.indexOf(targetId);
+        if (idx === -1) {
+          return {
+            found: false,
+            rank: null,
+            reviewCount: null,
+            starRating: null,
+            productTitle: null
+          };
+        }
+        const rank = (pageNum - 1) * itemsPerPage + idx + 1;
+        let reviewCount = null;
+        let starRating = null;
+        let productTitle = null;
+        const linkEl = document.querySelector(
+          `a[href*="/products/${targetId}"], a[href*="products%2F${targetId}"]`
+        );
+        const container = linkEl?.closest(".product_item__KQayS") || linkEl?.closest('[class*="product_item__"]');
+        if (container) {
+          const ex = extractFromProductItem(container);
+          reviewCount = ex.reviewCount;
+          starRating = ex.starRating;
+          productTitle = titleFromProductItem(container, null);
+        }
+        return { found: true, rank, reviewCount, starRating, productTitle };
+      },
+      { targetId: mid, pageNum: currentPage, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
+    );
+    log3(`${currentPage}\uD398\uC774\uC9C0 \uC218\uC9D1: ${result.found ? "\uBC1C\uACAC" : "\uBBF8\uBC1C\uACAC"}`);
+    if (result.found && result.rank != null) {
+      out.rank = result.rank;
+      out.reviewCount = result.reviewCount;
+      out.starRating = result.starRating;
+      out.productTitle = result.productTitle;
+      break;
+    }
+    const nextClicked = await page.evaluate((nextPage) => {
+      const selectors = [".pagination_num__B3C28", 'a[class*="pagination"]', 'a[href*="pagingIndex"]'];
+      for (const sel of selectors) {
+        const buttons = document.querySelectorAll(sel);
+        for (const btn of buttons) {
+          if (btn.textContent?.trim() === String(nextPage)) {
+            btn.click();
+            return true;
+          }
+        }
+      }
+      const nextSelectors = [".pagination_next__pZuC6", 'a[class*="next"]'];
+      for (const sel of nextSelectors) {
+        const nextBtn = document.querySelector(sel);
+        if (nextBtn && !nextBtn.classList.contains("pagination_disabled__qUdaH")) {
+          nextBtn.click();
+          return true;
+        }
+      }
+      return false;
+    }, currentPage + 1);
+    if (!nextClicked) {
+      log3(`${currentPage}\uD398\uC774\uC9C0\uAE4C\uC9C0 \uD0D0\uC0C9 \uC885\uB8CC(\uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C)`);
+      break;
+    }
+    await sleepMs(1e3);
+    currentPage++;
+  }
+  return out;
+}
 
 // unified-runner.ts
 var getDriveLetter = () => {
   try {
-    if (fs2.existsSync("D:\\")) {
+    if (fs3.existsSync("D:\\")) {
       return "D:\\temp";
     }
   } catch (e) {
@@ -1235,8 +1568,8 @@ var getDriveLetter = () => {
 };
 var TEMP_DIR = getDriveLetter();
 try {
-  if (!fs2.existsSync(TEMP_DIR)) {
-    fs2.mkdirSync(TEMP_DIR, { recursive: true });
+  if (!fs3.existsSync(TEMP_DIR)) {
+    fs3.mkdirSync(TEMP_DIR, { recursive: true });
   }
   process.env.TEMP = TEMP_DIR;
   process.env.TMP = TEMP_DIR;
@@ -1247,9 +1580,9 @@ try {
   console.error(`[TEMP] Using system default temp dir`);
 }
 var envPaths = [
-  path2.join(process.cwd(), ".env.local"),
-  path2.join(process.cwd(), ".env"),
-  path2.join(__dirname, ".env"),
+  path3.join(process.cwd(), ".env.local"),
+  path3.join(process.cwd(), ".env"),
+  path3.join(__dirname, ".env"),
   "C:\\turafic\\.env"
 ];
 for (const envPath of envPaths) {
@@ -1285,9 +1618,9 @@ function storedComboFromItem(e) {
 }
 function readKeywordBlacklistItems(filePath) {
   try {
-    if (!fs2.existsSync(filePath))
+    if (!fs3.existsSync(filePath))
       return [];
-    const raw = fs2.readFileSync(filePath, "utf-8");
+    const raw = fs3.readFileSync(filePath, "utf-8");
     const j = JSON.parse(raw);
     return Array.isArray(j.items) ? j.items : [];
   } catch {
@@ -1308,7 +1641,7 @@ async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase)
   if (!mid || !norm)
     return;
   const filePath = runtime.keywordBlacklistPath;
-  const dir = path2.dirname(filePath);
+  const dir = path3.dirname(filePath);
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
       const items = readKeywordBlacklistItems(filePath);
@@ -1324,10 +1657,10 @@ async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase)
           { mid, secondCombo: norm, addedAt: (/* @__PURE__ */ new Date()).toISOString() }
         ]
       };
-      if (!fs2.existsSync(dir)) {
-        fs2.mkdirSync(dir, { recursive: true });
+      if (!fs3.existsSync(dir)) {
+        fs3.mkdirSync(dir, { recursive: true });
       }
-      fs2.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
+      fs3.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
       log2(
         `[KeywordBlacklist] 2\uCC28 \uC870\uD569 \uB4F1\uB85D: mid=${mid} combo="${norm.substring(0, 48)}${norm.length > 48 ? "..." : ""}" \u2192 ${filePath}`
       );
@@ -1404,7 +1737,7 @@ async function getCDPSession(page) {
   }
   return cdpSessions.get(page);
 }
-async function humanScroll(page, targetY) {
+async function humanScroll2(page, targetY) {
   const viewport = page.viewportSize();
   if (!viewport || viewport.width < 100 || viewport.height < 100) {
     await page.evaluate((y2) => window.scrollBy(0, y2), targetY).catch(() => {
@@ -1441,20 +1774,20 @@ async function humanScroll(page, targetY) {
 }
 var NAVER_LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/";
 var NAVER_ACCOUNT_PATHS = [
-  path2.join(process.cwd(), "naver-account.txt"),
-  path2.join(__dirname, "naver-account.txt")
+  path3.join(process.cwd(), "naver-account.txt"),
+  path3.join(__dirname, "naver-account.txt")
 ];
 function readNaverAccountFile() {
   let found = null;
   for (const p of NAVER_ACCOUNT_PATHS) {
-    if (fs2.existsSync(p)) {
+    if (fs3.existsSync(p)) {
       found = p;
       break;
     }
   }
   if (!found)
     return { status: "absent" };
-  const raw = fs2.readFileSync(found, "utf-8");
+  const raw = fs3.readFileSync(found, "utf-8");
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith("#"));
   if (lines.length < 2) {
     log2("[NaverLogin] naver-account.txt: \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638 2\uC904 \uD544\uC694", "warn");
@@ -1508,19 +1841,72 @@ async function ensureNaverLoginIfConfigured(page, workerId) {
     return false;
   }
 }
+async function ensureNaverLoginPrbPage(page, workerId) {
+  const r = readNaverAccountFile();
+  if (r.status === "absent")
+    return true;
+  if (r.status === "invalid")
+    return false;
+  const acc = r;
+  const masked = acc.id.length <= 4 ? "****" : `${acc.id.slice(0, 2)}\u2026${acc.id.slice(-2)}`;
+  log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 PRB (${masked})`);
+  try {
+    await page.goto(NAVER_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 6e4 });
+    await sleep2(randomBetween(1e3, 1800));
+    await page.waitForSelector("#id", { visible: true, timeout: 2e4 });
+    await page.click("#id", { clickCount: 3 });
+    await page.keyboard.type(acc.id, { delay: randomKeyDelay() });
+    await sleep2(randomBetween(400, 700));
+    await page.waitForSelector("#pw", { visible: true, timeout: 1e4 });
+    await page.click("#pw", { clickCount: 3 });
+    await page.keyboard.type(acc.pw, { delay: randomKeyDelay() });
+    await sleep2(randomBetween(500, 900));
+    const loginClicked = await page.evaluate(() => {
+      const el = document.getElementById("log.login");
+      if (el) {
+        el.click();
+        return true;
+      }
+      const s = document.querySelector('button[type="submit"]');
+      if (s) {
+        s.click();
+        return true;
+      }
+      return false;
+    });
+    if (!loginClicked) {
+      log2(`[Worker ${workerId}] \uB85C\uADF8\uC778 \uBC84\uD2BC \uC5C6\uC74C(PRb)`, "warn");
+      return false;
+    }
+    const deadline = Date.now() + 45e3;
+    while (Date.now() < deadline) {
+      await sleep2(500);
+      if (!page.url().includes("nidlogin.login")) {
+        await sleep2(randomBetween(1500, 2500));
+        log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC644\uB8CC`);
+        return true;
+      }
+    }
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uD0C0\uC784\uC544\uC6C3(PRb)`, "warn");
+    return false;
+  } catch (e) {
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC608\uC678(PRb): ${e.message}`, "warn");
+    return false;
+  }
+}
 function cleanupChromeTempFolders() {
   const tempDirs = ["D:\\temp", "D:\\tmp"];
   let totalCleaned = 0;
   for (const tempDir of tempDirs) {
-    if (!fs2.existsSync(tempDir))
+    if (!fs3.existsSync(tempDir))
       continue;
     try {
-      const entries = fs2.readdirSync(tempDir, { withFileTypes: true });
+      const entries = fs3.readdirSync(tempDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && (entry.name.startsWith("puppeteer_") || entry.name.startsWith("lighthouse") || entry.name.startsWith("chrome_") || entry.name.startsWith(".org.chromium.") || entry.name.startsWith("scoped_dir"))) {
-          const folderPath = path2.join(tempDir, entry.name);
+          const folderPath = path3.join(tempDir, entry.name);
           try {
-            fs2.rmSync(folderPath, { recursive: true, force: true });
+            fs3.rmSync(folderPath, { recursive: true, force: true });
             totalCleaned++;
           } catch {
           }
@@ -1534,9 +1920,9 @@ function cleanupChromeTempFolders() {
   }
 }
 function loadProfile(profileName) {
-  const profilePath = path2.join(__dirname, "profiles", `${profileName}.json`);
-  if (fs2.existsSync(profilePath)) {
-    const content = fs2.readFileSync(profilePath, "utf-8");
+  const profilePath = path3.join(__dirname, "profiles", `${profileName}.json`);
+  if (fs3.existsSync(profilePath)) {
+    const content = fs3.readFileSync(profilePath, "utf-8");
     return JSON.parse(content);
   }
   return {
@@ -1616,16 +2002,16 @@ function tryClaimWorkItemFromEngineFile() {
   const filePath = ENGINE.engineTaskFilePath;
   const processingPath = `${filePath}.processing`;
   try {
-    fs2.renameSync(filePath, processingPath);
+    fs3.renameSync(filePath, processingPath);
   } catch {
     return null;
   }
   let raw;
   try {
-    raw = fs2.readFileSync(processingPath, "utf-8");
+    raw = fs3.readFileSync(processingPath, "utf-8");
   } catch {
     try {
-      fs2.unlinkSync(processingPath);
+      fs3.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -1636,7 +2022,7 @@ function tryClaimWorkItemFromEngineFile() {
   } catch {
     log2(`[EngineFile] JSON \uD30C\uC2F1 \uC2E4\uD328: ${processingPath}`, "warn");
     try {
-      fs2.unlinkSync(processingPath);
+      fs3.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -1648,7 +2034,7 @@ function tryClaimWorkItemFromEngineFile() {
   if (!keyword || !linkUrl) {
     log2(`[EngineFile] keyword\xB7linkUrl \uD544\uC218 \u2014 \uCC98\uB9AC\uBCF8 \uC0AD\uC81C`, "warn");
     try {
-      fs2.unlinkSync(processingPath);
+      fs3.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -1657,7 +2043,7 @@ function tryClaimWorkItemFromEngineFile() {
   if (!mid) {
     log2(`[EngineFile] linkUrl\uC5D0\uC11C mid \uCD94\uCD9C \uBD88\uAC00 \u2014 ${linkUrl}`, "warn");
     try {
-      fs2.unlinkSync(processingPath);
+      fs3.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -1676,10 +2062,10 @@ function tryClaimWorkItemFromEngineFile() {
         "warn"
       );
       try {
-        fs2.renameSync(processingPath, filePath);
+        fs3.renameSync(processingPath, filePath);
       } catch {
         try {
-          fs2.unlinkSync(processingPath);
+          fs3.unlinkSync(processingPath);
         } catch {
         }
       }
@@ -1688,7 +2074,7 @@ function tryClaimWorkItemFromEngineFile() {
     markCombinedKeywordUsedToday(combined);
   }
   try {
-    fs2.unlinkSync(processingPath);
+    fs3.unlinkSync(processingPath);
   } catch {
   }
   const taskId = Date.now();
@@ -1702,7 +2088,8 @@ function tryClaimWorkItemFromEngineFile() {
     productName,
     mid,
     linkUrl,
-    keywordName
+    keywordName,
+    secondKeywordRaw: keywordNameRaw.length > 0 ? keywordNameRaw : void 0
   };
 }
 async function claimWorkItem() {
@@ -1725,9 +2112,12 @@ function shouldBlacklistSecondComboAfterRun(r) {
   return r.failReason === "NO_MID_MATCH" || r.failReason === "DETAIL_NOT_REACHED";
 }
 function writeEngineTaskResult(work, result) {
+  const okTraffic = result.productPageEntered;
+  const okRank = !!result.rankCheckOk;
   const payload = {
-    ok: result.productPageEntered,
+    ok: result.rankCheckMode ? okRank : okTraffic,
     finishedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    mode: result.rankCheckMode ? "rankCheck" : "traffic",
     task: {
       taskId: work.taskId,
       keyword: work.keyword,
@@ -1743,14 +2133,65 @@ function writeEngineTaskResult(work, result) {
     captchaSolved: result.captchaSolved,
     midMatched: result.midMatched,
     failReason: result.failReason ?? null,
-    error: result.error ?? null
+    error: result.error ?? null,
+    rankCheckMode: !!result.rankCheckMode,
+    rankCheckOk: !!result.rankCheckOk,
+    shoppingRank: result.shoppingRank ?? null,
+    reviewCount: result.reviewCount ?? null,
+    starRating: result.starRating ?? null,
+    extractedProductTitle: result.extractedProductTitle ?? null
   };
   try {
-    fs2.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
+    fs3.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
     log2(`[EngineFile] \uACB0\uACFC \uC800\uC7A5: ${ENGINE.engineResultFilePath} ok=${payload.ok}`);
   } catch (e) {
     log2(`[EngineFile] \uACB0\uACFC \uD30C\uC77C \uAE30\uB85D \uC2E4\uD328: ${e.message}`, "warn");
   }
+}
+async function runShoppingRankCheck(page, work, workerId, engine) {
+  const result = {
+    productPageEntered: false,
+    captchaDetected: false,
+    captchaSolved: false,
+    midMatched: false,
+    rankCheckMode: true,
+    rankCheckOk: false,
+    shoppingRank: null
+  };
+  try {
+    const kw = work.keyword.trim();
+    const mid = work.mid;
+    const maxPages = 15;
+    log2(`[Worker ${workerId}] D\uBAA8\uB4DC \uC21C\uC704\uCCB4\uD06C: "${kw.substring(0, 40)}..." mid=${mid} (\uCD5C\uB300 ${maxPages}\uD398\uC774\uC9C0)`);
+    const detail = await findNaverShoppingRankByMid(
+      page,
+      kw,
+      mid,
+      maxPages,
+      (m) => log2(`[Worker ${workerId}] ${m}`),
+      sleep2
+    );
+    if (detail.rank != null && detail.rank > 0) {
+      result.shoppingRank = detail.rank;
+      result.reviewCount = detail.reviewCount;
+      result.starRating = detail.starRating;
+      result.extractedProductTitle = detail.productTitle?.trim() || null;
+      result.rankCheckOk = true;
+      result.midMatched = true;
+      log2(
+        `[Worker ${workerId}] \uC21C\uC704: ${detail.rank}\uC704` + (detail.reviewCount != null ? ` | \uB9AC\uBDF0 ${detail.reviewCount}` : "") + (detail.starRating != null ? ` | \uBCC4 ${detail.starRating}` : "") + (result.extractedProductTitle ? ` | \uC81C\uBAA9 "${result.extractedProductTitle.substring(0, 36)}${result.extractedProductTitle.length > 36 ? "\u2026" : ""}"` : "")
+      );
+    } else {
+      result.failReason = "NO_MID_MATCH";
+      result.error = "\uC21C\uC704\uAD8C_\uBBF8\uBC1C\uACAC";
+      log2(`[Worker ${workerId}] \uC21C\uC704\uAD8C \uB0B4 MID \uC5C6\uC74C`, "warn");
+    }
+  } catch (e) {
+    result.error = e?.message || "Unknown";
+    result.failReason = "TIMEOUT";
+    log2(`[Worker ${workerId}] \uC21C\uC704\uCCB4\uD06C \uC608\uC678: ${result.error}`, "warn");
+  }
+  return result;
 }
 async function pasteFirstSearchKeywordIntoPortal(page, context, portalSearchInput, firstKeyword, workerId, engine) {
   await portalSearchInput.click({ force: true });
@@ -1787,7 +2228,7 @@ async function pasteFirstSearchKeywordIntoPortal(page, context, portalSearchInpu
     log2(`[Worker ${workerId}] 1\uCC28 \uAC80\uC0C9\uC5B4 \uC785\uB825 \uD6C4\uC5D0\uB3C4 \uBE44\uC5B4 \uC788\uC74C`, "warn");
   }
 }
-async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName) {
+async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw) {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log2(`[Worker ${workerId}] ${msg}`));
   const result = {
     productPageEntered: false,
@@ -1795,9 +2236,12 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     captchaSolved: false,
     midMatched: false
   };
+  const flow = engine.searchFlowVersion;
   try {
     const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
-    log2(`[Worker ${workerId}] m.naver.com \uC811\uC18D \u2192 1\uCC28 \uAC80\uC0C9 (traffic.keyword): ${firstKeyword}`);
+    log2(
+      `[Worker ${workerId}] m.naver.com \uC811\uC18D (\uC791\uC5C5 \uBAA8\uB4DC: ${flow === "A" ? "A \uC870\uD569\uD615" : flow === "B" ? "B \uBA54\uC778\uD0A4\uC6CC\uB4DC\uB9CC" : "C 2\uCC28\uD0A4\uC6CC\uB4DC\uB9CC"})`
+    );
     await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 6e4 });
     await sleep2(engine.delay("browserLoad"));
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -1810,48 +2254,72 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     }
     await sleep2(engine.delay("searchFakeClickGap"));
     const portalSearchInput = page.locator("#query.sch_input, #query, input[name='query']").first();
-    await pasteFirstSearchKeywordIntoPortal(
-      page,
-      page.context(),
-      portalSearchInput,
-      firstKeyword,
-      workerId,
-      engine
-    );
-    await page.keyboard.press("Enter");
-    await page.waitForLoadState("domcontentloaded", { timeout: 6e4 }).catch(() => {
-    });
-    await sleep2(engine.delay("afterFirstSearchLoad"));
-    const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
-    const secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
-      engine,
-      mid,
-      firstKeyword,
-      nameForSecond,
-      workerId
-    );
-    result.secondSearchPhraseUsed = secondSearchKeyword;
-    log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
-    const searchInput = page.locator('#query, .sch_input, input[name="query"]').first();
-    await searchInput.click({ force: true });
-    await sleep2(engine.delay("secondSearchField"));
-    await page.keyboard.press("Control+a");
-    await sleep2(100);
-    await page.keyboard.press("Backspace");
-    await sleep2(200);
-    await searchInput.type(secondSearchKeyword, { delay: engine.delay("secondKeywordTypingDelay") });
-    await sleep2(engine.delay("afterSecondKeywordType"));
-    await page.keyboard.press("Enter");
-    log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uACB0\uACFC \uB85C\uB529 \uB300\uAE30...`);
-    try {
-      await page.waitForLoadState("domcontentloaded", { timeout: 1e3 });
-    } catch {
-      log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uB85C\uB529 \uC5C6\uC74C/\uC9C0\uC5F0 \u2014 \uD398\uC774\uC9C0 \uC0C8\uB85C\uACE0\uCE68 1\uD68C`, "warn");
-      await page.reload({ waitUntil: "domcontentloaded", timeout: 6e4 }).catch((e) => {
-        log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uC0C8\uB85C\uACE0\uCE68 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
+    if (flow === "C") {
+      const onlySecond = (secondKeywordRaw || "").trim();
+      if (!onlySecond) {
+        log2(`[Worker ${workerId}] C\uBAA8\uB4DC\uB294 2\uCC28 \uD0A4\uC6CC\uB4DC \uD544\uC218 \u2014 \uC791\uC5C5 \uC2A4\uD0B5`, "warn");
+        result.failReason = "INVALID_TASK";
+        result.error = "C\uBAA8\uB4DC_2\uCC28\uD0A4\uC6CC\uB4DC\uC5C6\uC74C";
+        return result;
+      }
+      log2(`[Worker ${workerId}] C\uBAA8\uB4DC \uB2E8\uC77C \uAC80\uC0C9 (2\uCC28 \uD0A4\uC6CC\uB4DC): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
+      await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, onlySecond, workerId, engine);
+      await page.keyboard.press("Enter");
+      await page.waitForLoadState("domcontentloaded", { timeout: 6e4 }).catch(() => {
       });
+      await sleep2(engine.delay("afterFirstSearchLoad"));
+      result.secondSearchPhraseUsed = onlySecond;
+    } else {
+      log2(`[Worker ${workerId}] 1\uCC28 \uAC80\uC0C9 (\uAC80\uC0C9 \uD0A4\uC6CC\uB4DC): ${firstKeyword}`);
+      await pasteFirstSearchKeywordIntoPortal(
+        page,
+        page.context(),
+        portalSearchInput,
+        firstKeyword,
+        workerId,
+        engine
+      );
+      await page.keyboard.press("Enter");
+      await page.waitForLoadState("domcontentloaded", { timeout: 6e4 }).catch(() => {
+      });
+      await sleep2(engine.delay("afterFirstSearchLoad"));
+      if (flow === "A") {
+        const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
+        const secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
+          engine,
+          mid,
+          firstKeyword,
+          nameForSecond,
+          workerId
+        );
+        result.secondSearchPhraseUsed = secondSearchKeyword;
+        log2(
+          `[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`
+        );
+        const searchInput = page.locator('#query, .sch_input, input[name="query"]').first();
+        await searchInput.click({ force: true });
+        await sleep2(engine.delay("secondSearchField"));
+        await page.keyboard.press("Control+a");
+        await sleep2(100);
+        await page.keyboard.press("Backspace");
+        await sleep2(200);
+        await searchInput.type(secondSearchKeyword, { delay: engine.delay("secondKeywordTypingDelay") });
+        await sleep2(engine.delay("afterSecondKeywordType"));
+        await page.keyboard.press("Enter");
+        log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uACB0\uACFC \uB85C\uB529 \uB300\uAE30...`);
+        try {
+          await page.waitForLoadState("domcontentloaded", { timeout: 1e3 });
+        } catch {
+          log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uB85C\uB529 \uC5C6\uC74C/\uC9C0\uC5F0 \u2014 \uD398\uC774\uC9C0 \uC0C8\uB85C\uACE0\uCE68 1\uD68C`, "warn");
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 6e4 }).catch((e) => {
+            log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uC0C8\uB85C\uACE0\uCE68 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
+          });
+        }
+        await sleep2(engine.delay("afterSecondSearchLoad"));
+      } else {
+        log2(`[Worker ${workerId}] B\uBAA8\uB4DC \u2014 2\uCC28 \uAC80\uC0C9 \uC0DD\uB7B5, 1\uCC28 \uACB0\uACFC\uC5D0\uC11C \uC0C1\uD488 \uD0D0\uC0C9`);
+      }
     }
-    await sleep2(engine.delay("afterSecondSearchLoad"));
     const isBlocked = await page.evaluate(() => {
       const bodyText = document.body?.innerText || "";
       return bodyText.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC811\uADFC") || bodyText.includes("\uC790\uB3D9\uD654\uB41C \uC811\uADFC") || bodyText.includes("\uC811\uADFC\uC774 \uC81C\uD55C") || bodyText.includes("\uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC") || bodyText.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC694\uCCAD") || bodyText.includes("\uC774\uC6A9\uC774 \uC81C\uD55C");
@@ -1927,7 +2395,7 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
         }
         break;
       }
-      await humanScroll(page, engine.explorationScrollPixels);
+      await humanScroll2(page, engine.explorationScrollPixels);
       await sleep2(engine.delay("explorationBetweenScrolls"));
     }
     if (!linkClicked) {
@@ -1947,6 +2415,11 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     }
     return result;
   }
+}
+function getPrbRankUserDataDir(workerId) {
+  const dir = path3.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
+  fs3.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 async function clearBrowserContextCookiesAndCache(context, workerId) {
   try {
@@ -1968,6 +2441,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
   while (true) {
     let browser = null;
     let context = null;
+    let rankPrbBrowser = null;
     try {
       const work = await claimWorkItem();
       if (!work) {
@@ -1980,41 +2454,81 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       }
       const productShort = work.productName.substring(0, 30);
       log2(`[Worker ${workerId}] \uC791\uC5C5: ${productShort}... (mid=${work.mid}) [IP: ${currentIP}]`);
-      await toggleAdbMobileDataOffOn(`Worker ${workerId} \uC791\uC5C5 \uC804`, 1);
-      const pos = BROWSER_POSITIONS[(workerId - 1) % BROWSER_POSITIONS.length];
-      browser = await import_patchright.chromium.launch({
-        headless: false,
-        channel: "chrome",
-        args: [
-          `--window-position=${pos.x},${pos.y}`,
-          `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`
-        ]
-      });
-      await sleep2(ENGINE.delay("browserLaunch"));
-      if (ENGINE.proxyEnabled) {
-        await sleep2(ENGINE.delay("proxySetup"));
+      const isRankD = ENGINE.searchFlowVersion === "D";
+      if (!isRankD && ENGINE.airplaneBeforeTask) {
+        await toggleAdbMobileDataOffOn(`Worker ${workerId} \uC791\uC5C5 \uC804`, ENGINE.airplaneCycles);
       }
-      const isMobileTask = resolveMobileForTask(ENGINE);
+      const winW = isRankD ? 1280 : BROWSER_WIDTH;
+      const winH = isRankD ? 880 : BROWSER_HEIGHT;
+      const pos = BROWSER_POSITIONS[(workerId - 1) % BROWSER_POSITIONS.length];
+      const isMobileTask = isRankD ? false : resolveMobileForTask(ENGINE);
       const ua = pickUserAgent(ENGINE, isMobileTask);
       const proxy = pickProxyConfig(ENGINE);
       if (ENGINE.logEngineEvents) {
         log2(
-          `[Engine] Worker ${workerId} mode=${isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
+          `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat\xB7puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
         );
       }
-      const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
-      context = await browser.newContext({
-        ...ctxOpts,
-        ...proxy ? { proxy } : {}
-      });
-      if (isMobileTask) {
-        await applyMobileStealth(context);
+      let page;
+      if (isRankD) {
+        const userDataDir = getPrbRankUserDataDir(workerId);
+        if (ENGINE.logEngineEvents) {
+          log2(`[Engine] Worker ${workerId} \uC21C\uC704 PRB \uD504\uB85C\uD544: ${userDataDir}`);
+        }
+        const connectOpts = {
+          headless: false,
+          turnstile: true,
+          fingerprint: true,
+          customConfig: { userDataDir }
+        };
+        const conn = await (0, import_puppeteer_real_browser.connect)(connectOpts);
+        rankPrbBrowser = conn.browser;
+        page = conn.page;
+        await page.setViewport?.({ width: 1920, height: 1080 });
+        await page.goto("about:blank", { waitUntil: "domcontentloaded" }).catch(() => {
+        });
+        try {
+          const tabPages = await rankPrbBrowser.pages();
+          for (const p of tabPages) {
+            if (p !== page && p.url() === "about:blank")
+              await p.close().catch(() => {
+              });
+          }
+        } catch {
+        }
+        page.setDefaultTimeout?.(6e4);
+        page.setDefaultNavigationTimeout?.(6e4);
+        browser = null;
+        context = null;
+      } else {
+        browser = await import_patchright.chromium.launch({
+          headless: false,
+          channel: "chrome",
+          args: [
+            `--window-position=${pos.x},${pos.y}`,
+            `--window-size=${winW},${winH}`
+          ]
+        });
+        const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
+        context = await browser.newContext({
+          ...ctxOpts,
+          ...proxy ? { proxy } : {}
+        });
+        if (isMobileTask) {
+          await applyMobileStealth(context);
+        }
+        page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
+        page.setDefaultTimeout(6e4);
+        page.setDefaultNavigationTimeout(6e4);
       }
-      const page = await context.newPage();
-      page.setDefaultTimeout(6e4);
-      page.setDefaultNavigationTimeout(6e4);
+      if (!isRankD) {
+        await sleep2(ENGINE.delay("browserLaunch"));
+      }
+      if (!isRankD && ENGINE.proxyEnabled) {
+        await sleep2(ENGINE.delay("proxySetup"));
+      }
       totalRuns++;
-      const loginOk = await ensureNaverLoginIfConfigured(page, workerId);
+      const loginOk = isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : await ensureNaverLoginIfConfigured(page, workerId);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -2033,16 +2547,32 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
           process.exit(1);
         continue;
       }
-      const engineResult = await runPatchrightEngine(
+      const engineResult = isRankD ? await runShoppingRankCheck(page, work, workerId, ENGINE) : await runPatchrightEngine(
         page,
         work.mid,
         work.productName,
         work.keyword,
         workerId,
         ENGINE,
-        work.keywordName
+        work.keywordName,
+        work.secondKeywordRaw
       );
-      if (engineResult.productPageEntered) {
+      if (isRankD) {
+        if (engineResult.rankCheckOk) {
+          totalSuccess++;
+          writeEngineTaskResult(work, engineResult);
+          const successMsg = `[\uC131\uACF5\xB7\uC21C\uC704] Worker${workerId} | ${engineResult.shoppingRank}\uC704 | slot_sequence=${work.slotSequence} | ${productShort}...`;
+          log2(successMsg);
+          console.log(successMsg);
+        } else {
+          totalFailed++;
+          const failReason = engineResult.failReason === "NO_MID_MATCH" ? "\uC21C\uC704\uBBF8\uBC1C\uACAC" : engineResult.failReason === "TIMEOUT" ? "\uD0C0\uC784\uC544\uC6C3" : engineResult.error || "Unknown";
+          writeEngineTaskResult(work, engineResult);
+          const failMsg = `[\uC2E4\uD328\xB7\uC21C\uC704] Worker${workerId} | slot_sequence=${work.slotSequence} | \uC0AC\uC720=${failReason} | ${productShort}...`;
+          log2(failMsg, "warn");
+          console.log(failMsg);
+        }
+      } else if (engineResult.productPageEntered) {
         totalSuccess++;
         writeEngineTaskResult(work, engineResult);
         const successMsg = `[\uC131\uACF5] Worker${workerId} | slot_sequence=${work.slotSequence} | ${productShort}...${engineResult.captchaSolved ? " (CAPTCHA\uD574\uACB0)" : ""}`;
@@ -2055,7 +2585,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         }
       } else {
         totalFailed++;
-        const failReason = engineResult.failReason === "CAPTCHA_UNSOLVED" ? "CAPTCHA" : engineResult.failReason === "IP_BLOCKED" ? "IP\uCC28\uB2E8" : engineResult.failReason === "NO_MID_MATCH" ? "MID\uC5C6\uC74C" : engineResult.failReason === "DETAIL_NOT_REACHED" ? "\uC0C1\uC138\uBBF8\uC9C4\uC785" : engineResult.failReason === "TIMEOUT" ? "\uD0C0\uC784\uC544\uC6C3" : engineResult.error || "Unknown";
+        const failReason = engineResult.failReason === "CAPTCHA_UNSOLVED" ? "CAPTCHA" : engineResult.failReason === "IP_BLOCKED" ? "IP\uCC28\uB2E8" : engineResult.failReason === "NO_MID_MATCH" ? "MID\uC5C6\uC74C" : engineResult.failReason === "DETAIL_NOT_REACHED" ? "\uC0C1\uC138\uBBF8\uC9C4\uC785" : engineResult.failReason === "TIMEOUT" ? "\uD0C0\uC784\uC544\uC6C3" : engineResult.failReason === "INVALID_TASK" ? "\uC791\uC5C5\uC124\uC815\uC624\uB958" : engineResult.error || "Unknown";
         writeEngineTaskResult(work, engineResult);
         const failMsg = `[\uC2E4\uD328] Worker${workerId} | slot_sequence=${work.slotSequence} | \uC0AC\uC720=${failReason} | ${productShort}...`;
         log2(failMsg, "warn");
@@ -2071,10 +2601,12 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
           log2(`[Worker ${workerId}] FAIL(\uC0C1\uC138\uBBF8\uC9C4\uC785) | ${productShort}...`, "warn");
         } else if (engineResult.failReason === "TIMEOUT") {
           log2(`[Worker ${workerId}] FAIL(\uD0C0\uC784\uC544\uC6C3) | ${productShort}...`, "warn");
+        } else if (engineResult.failReason === "INVALID_TASK") {
+          log2(`[Worker ${workerId}] FAIL(\uC791\uC5C5\uC124\uC815) | ${productShort}...`, "warn");
         } else {
           log2(`[Worker ${workerId}] FAIL(${engineResult.error || "Unknown"}) | ${productShort}...`, "warn");
         }
-        if (shouldBlacklistSecondComboAfterRun(engineResult)) {
+        if (ENGINE.searchFlowVersion === "A" && shouldBlacklistSecondComboAfterRun(engineResult)) {
           await appendSecondComboBlacklistEntry(
             ENGINE,
             work.mid,
@@ -2093,13 +2625,19 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         process.exit(1);
       await sleep2(5e3);
     } finally {
-      if (context) {
-        await clearBrowserContextCookiesAndCache(context, workerId);
-      }
-      if (browser) {
+      if (rankPrbBrowser) {
         await sleep2(randomBetween(100, 500));
-        await browser.close().catch(() => {
+        await rankPrbBrowser.close().catch(() => {
         });
+      } else {
+        if (context) {
+          await clearBrowserContextCookiesAndCache(context, workerId);
+        }
+        if (browser) {
+          await sleep2(randomBetween(100, 500));
+          await browser.close().catch(() => {
+          });
+        }
       }
     }
     if (totalRuns % 10 === 0 && workerId === 1) {
@@ -2133,6 +2671,8 @@ async function main() {
   }
   const onceMode = process.argv.includes("--once");
   const workerCount = onceMode ? 1 : PARALLEL_BROWSERS;
+  const adbBeforeTaskEnabled = ENGINE.airplaneBeforeTask && ENGINE.searchFlowVersion !== "D";
+  const adbLabel = adbBeforeTaskEnabled ? `\uC791\uC5C5\uC804ADB=ON(${ENGINE.airplaneCycles}\uD68C)` : ENGINE.searchFlowVersion === "D" ? "\uC791\uC5C5\uC804ADB=OFF(D\uBAA8\uB4DC\xB7start.bat \uB3D9\uC77C)" : "\uC791\uC5C5\uC804ADB=OFF";
   console.log(`
 ${"=".repeat(60)}`);
   console.log(`  Unified Runner (Patchright + \uC5D4\uC9C4 \uD30C\uC77C)`);
@@ -2143,10 +2683,16 @@ ${"=".repeat(60)}`);
     console.log(`  [\uC8FC\uC758] \uC791\uC5C5 JSON 1\uAC1C \uD050 \u2014 PARALLEL_BROWSERS=1 \uAD8C\uC7A5`);
   }
   console.log(
-    `  \uC785\uCD9C\uB825: \uC791\uC5C5=${ENGINE.engineTaskFilePath} | \uACB0\uACFC=${ENGINE.engineResultFilePath} | workMode=${ENGINE.workMode} | proxy=${ENGINE.proxyEnabled} | \uC791\uC5C5\uC804ADB=\uD56D\uC0C1(1\uD68C)`
+    `  \uC785\uCD9C\uB825: \uC791\uC5C5=${ENGINE.engineTaskFilePath} | \uACB0\uACFC=${ENGINE.engineResultFilePath} | workMode=${ENGINE.workMode} | \uAC80\uC0C9\uBAA8\uB4DC=${ENGINE.searchFlowVersion} | proxy=${ENGINE.proxyEnabled} | ${adbLabel}`
   );
   console.log(`${"=".repeat(60)}`);
-  log2("\uC2DC\uC791 \uC804 \uB370\uC774\uD130 \uD1A0\uAE00 \uC0DD\uB7B5 \u2014 \uC791\uC5C5 1\uAC74\uB2F9 1\uD68C OFF\u2192ON \uC2E4\uD589");
+  if (adbBeforeTaskEnabled) {
+    log2(`\uC2DC\uC791 \uC804 \uB370\uC774\uD130 \uD1A0\uAE00 \uC0DD\uB7B5 \u2014 \uC791\uC5C5 1\uAC74\uB2F9 ${ENGINE.airplaneCycles}\uD68C OFF\u2192ON \uC2E4\uD589`);
+  } else if (ENGINE.searchFlowVersion === "D") {
+    log2("D\uBAA8\uB4DC: \uC791\uC5C5 \uC804 ADB \uB370\uC774\uD130 \uD1A0\uAE00 \uBE44\uD65C\uC131\uD654 (start.bat \uB3D9\uC77C)");
+  } else {
+    log2("\uC791\uC5C5 \uC804 ADB \uB370\uC774\uD130 \uD1A0\uAE00 \uBE44\uD65C\uC131\uD654");
+  }
   startGitUpdateChecker();
   log2(`Git update checker started (interval: ${GIT_CHECK_INTERVAL / 1e3}s)`);
   const profile = loadProfile("pc_v7");

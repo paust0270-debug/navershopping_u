@@ -6,13 +6,14 @@
   "scripts": {
     "start": "npx tsx unified-runner.ts",
     "once": "npx tsx unified-runner.ts --once",
-    "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:patchright --external:@anthropic-ai/sdk --outfile=worker-runner.js",
+    "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:patchright --external:@anthropic-ai/sdk --external:puppeteer-real-browser --outfile=worker-runner.js",
     "build:gui-exe": "npm run build:worker && cd traffic-engine-gui && npm install && npm run pack"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
     "dotenv": "^16.0.0",
-    "patchright": "^1.49.1"
+    "patchright": "^1.49.1",
+    "puppeteer-real-browser": "^1.4.4"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

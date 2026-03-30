@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
-  <title>트래픽 엔진</title>
+  <title>네이버 트래픽 자동화</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -25,12 +25,16 @@
             <table class="data" id="taskTable">
               <thead>
                 <tr>
-                  <th style="width:22px">#</th>
+                  <th class="col-rownum">#</th>
                   <th>검색 키워드</th>
                   <th>상품 URL</th>
                   <th title="2차 검색 조합에 사용할 추가 키워드">2차 키워드</th>
-                  <th style="width:88px" title="오늘 성공/실패 (자정에 어제로 이월 후 0/0)">트래픽</th>
-                  <th style="width:88px" title="어제 성공/실패">어제</th>
+                  <th style="width:56px" title="D순위체크 결과">현재순위</th>
+                  <th style="width:56px" title="기준 순위(비우면 첫 성공 시 현재순위로 자동)">시작순위</th>
+                  <th class="col-traffic" title="오늘 성공/실패 (자정에 어제로 이월 후 0/0)">트래픽</th>
+                  <th class="col-traffic" title="어제 성공/실패">어제</th>
+                  <th style="width:64px" title="D순위체크 시 리뷰 수">리뷰수</th>
+                  <th style="width:48px" title="D순위체크 시 별점">별점</th>
                 </tr>
               </thead>
               <tbody id="taskBody"></tbody>
@@ -42,18 +46,30 @@
             </div>
           </div>
         </div>
-        <div class="side-col">
-          <div class="panel delay-panel">
-            <h3>작업 딜레이 (ms)</h3>
-            <div class="body">
-              <div class="delay-grid" id="delayGrid"></div>
-              <div class="delay-grid" style="margin-top:8px">
-                <label>최대 스크롤</label>
-                <input type="number" id="maxScroll" min="1" value="20" style="grid-column:2/4" />
+        <div class="config-row">
+          <div class="panel config-panel delay-panel">
+            <div class="panel-title-row">
+              <h3>작업 딜레이 (ms)</h3>
+              <button type="button" class="panel-header-save" id="btnSaveDelays" title="딜레이·작업 선택(A/B)·최대 스크롤·워크 모드 등 engine-config.json에 저장">저장</button>
+            </div>
+            <div class="body delay-body">
+              <div class="delay-grid delay-grid--head">
+                <label>작업 선택</label>
+                <select id="searchFlowVersion" class="mode mode-span" style="grid-column:2/4">
+                  <option value="A">A버전 (조합형)</option>
+                  <option value="B">B버전 (메인키워드)</option>
+                  <option value="C">C버전 (제목풀)</option>
+                  <option value="D">D버전 (순위체크)</option>
+                </select>
               </div>
-              <div class="delay-grid" style="margin-top:4px">
+              <div class="delay-grid" id="delayGrid"></div>
+              <div class="delay-grid">
+                <label title="트래픽: 목록 스크롤 / D순위: 쇼핑 최대 페이지">최대 스크롤</label>
+                <input type="number" id="maxScroll" class="delay-num-tight" min="1" value="20" style="grid-column:2/4" title="D모드에서는 쇼핑 검색 최대 페이지 수" />
+              </div>
+              <div class="delay-grid delay-grid--head">
                 <label>워크 모드</label>
-                <select id="workMode" class="mode" style="grid-column:2/4">
+                <select id="workMode" class="mode mode-span" style="grid-column:2/4">
                   <option value="mobile">Mobile</option>
                   <option value="desktop">Desktop</option>
                   <option value="random">PC+Mobile 랜덤</option>
@@ -61,31 +77,34 @@
               </div>
             </div>
           </div>
-          <div class="row-mid">
-            <div class="panel">
-              <h3>프록시 · 비행기모드</h3>
-              <div class="body" style="display:flex;flex-direction:column;height:100%">
-                <div class="checkbox-row">
-                  <input type="checkbox" id="proxyEnabled" />
-                  <label for="proxyEnabled">프록시 사용</label>
-                </div>
-                <textarea
-                  class="block flex-grow"
-                  id="proxyList"
-                  placeholder="한 줄에 하나 — http://ip:포트"
-                ></textarea>
-                <div class="checkbox-row" style="margin-top:6px">
-                  <label>작업 전 USB 데이터 OFF→ON: 항상 실행 (고정)</label>
-                </div>
-              </div>
+          <div class="panel config-panel ua-panel">
+            <h3>User-Agent</h3>
+            <div class="body ua-body">
+              <label class="ua-label">Desktop (줄당 1개)</label>
+              <textarea class="block compact-textarea" rows="2" id="uaDesktop"></textarea>
+              <label class="ua-label">Mobile</label>
+              <textarea class="block compact-textarea" rows="2" id="uaMobile"></textarea>
             </div>
-            <div class="panel">
-              <h3>User-Agent</h3>
-              <div class="body" style="display:flex;flex-direction:column;gap:6px;height:100%">
-                <label class="ua-label">Desktop (줄당 1개)</label>
-                <textarea class="block flex-grow" id="uaDesktop"></textarea>
-                <label class="ua-label">Mobile</label>
-                <textarea class="block flex-grow" id="uaMobile"></textarea>
+          </div>
+          <div class="panel config-panel proxy-panel">
+            <div class="panel-title-row">
+              <h3>프록시 · 비행기모드</h3>
+              <button type="button" class="panel-header-save" id="btnSaveProxyAirplane" title="프록시·USB 토글 설정을 engine-config.json에 저장">저장</button>
+            </div>
+            <div class="body proxy-body">
+              <div class="checkbox-row">
+                <input type="checkbox" id="proxyEnabled" />
+                <label for="proxyEnabled">프록시 사용</label>
+              </div>
+              <textarea
+                class="block compact-textarea proxy-textarea"
+                rows="3"
+                id="proxyList"
+                placeholder="한 줄에 하나 — http://ip:포트"
+              ></textarea>
+              <div class="checkbox-row">
+                <input type="checkbox" id="toggleUsbDataBeforeTask" checked />
+                <label for="toggleUsbDataBeforeTask">작업 전 USB 데이터 OFF→ON 실행</label>
               </div>
             </div>
           </div>

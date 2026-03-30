@@ -32,6 +32,14 @@
       {
         "from": "../node_modules",
         "to": "runner/node_modules"
+      },
+      {
+        "from": "../node_modules/patchright-core/package.json",
+        "to": "runner/node_modules/patchright-core/package.json"
+      },
+      {
+        "from": "../node_modules/patchright/package.json",
+        "to": "runner/node_modules/patchright/package.json"
       }
     ],
     "win": {

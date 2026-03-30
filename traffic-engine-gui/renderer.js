@@ -17,6 +17,10 @@ let taskRows = [
     keyword: "",
     linkUrl: "",
     keywordName: "",
+    currentRank: "",
+    startRank: "",
+    reviewCount: "",
+    starRating: "",
     trafficOk: 0,
     trafficFail: 0,
     yesterdayOk: 0,
@@ -27,6 +31,7 @@ let taskRowsStatsDate = "";
 let infiniteRunEnabled = false;
 let infiniteRunTimer = null;
 let infiniteTaskIndex = 0;
+let infiniteFeedInProgress = false;
 let lastProcessedFinishedAt = null;
 let resultPollTimer = null;
 let midnightCheckTimer = null;
@@ -44,10 +49,16 @@ function normalizeTaskRow(r) {
     keyword: String(r?.keyword ?? "").trim(),
     linkUrl: String(r?.linkUrl ?? "").trim(),
     keywordName: String(r?.keywordName ?? "").trim(),
+    currentRank: String(r?.currentRank ?? "").trim(),
+    startRank: String(r?.startRank ?? "").trim(),
+    reviewCount: String(r?.reviewCount ?? "").trim(),
+    starRating: String(r?.starRating ?? "").trim(),
     trafficOk: Math.max(0, Math.floor(Number(r?.trafficOk) || 0)),
     trafficFail: Math.max(0, Math.floor(Number(r?.trafficFail) || 0)),
     yesterdayOk: Math.max(0, Math.floor(Number(r?.yesterdayOk) || 0)),
     yesterdayFail: Math.max(0, Math.floor(Number(r?.yesterdayFail) || 0)),
+    // D순위 미발견(-1) 연속 횟수: 10회 누적 시에만 현재순위를 "-"로 갱신
+    rankMissStreak: Math.max(0, Math.floor(Number(r?.rankMissStreak) || 0)),
   };
 }
 
@@ -205,10 +216,11 @@ async function buildConfigObject() {
     search: {
       ...existing.search,
       maxScrollAttempts: Math.max(1, parseInt(document.getElementById("maxScroll").value, 10) || 20),
+      searchFlowVersion: document.getElementById("searchFlowVersion").value,
     },
     airplaneMode: {
-      toggleBeforeEachTask: true,
-      offOnCycles: 1,
+      toggleBeforeEachTask: document.getElementById("toggleUsbDataBeforeTask").checked,
+      offOnCycles: Math.max(1, Number((existing.airplaneMode && existing.airplaneMode.offOnCycles) || 1)),
     },
     logging: { engineEvents: true },
   };
@@ -218,13 +230,22 @@ async function applyConfigToForm(cfg) {
   if (!cfg) return;
   applyDelaysToForm(cfg.delays || {});
   document.getElementById("maxScroll").value = cfg.search?.maxScrollAttempts ?? 20;
-  document.getElementById("workMode").value = cfg.workMode || "mobile";
+  const flow = cfg.search?.searchFlowVersion;
+  document.getElementById("searchFlowVersion").value =
+    flow === "B" || flow === "C" || flow === "D" ? flow : "A";
+  const wm = cfg.workMode || "mobile";
+  document.getElementById("workMode").value =
+    wm === "mobile" || wm === "desktop" || wm === "random" ? wm : "mobile";
   document.getElementById("proxyEnabled").checked = !!cfg.proxy?.enabled;
   document.getElementById("proxyList").value = (cfg.proxy?.entries || [])
     .map((e) => e.server)
     .join("\n");
   document.getElementById("uaDesktop").value = (cfg.userAgents?.desktop || []).join("\n");
   document.getElementById("uaMobile").value = (cfg.userAgents?.mobile || []).join("\n");
+  const usbToggle = document.getElementById("toggleUsbDataBeforeTask");
+  if (usbToggle) {
+    usbToggle.checked = cfg.airplaneMode?.toggleBeforeEachTask !== false;
+  }
 }
 
 function renderTaskTable() {
@@ -237,13 +258,21 @@ function renderTaskTable() {
     const tFail = row.trafficFail ?? 0;
     const yOk = row.yesterdayOk ?? 0;
     const yFail = row.yesterdayFail ?? 0;
+    const curR = escapeHtml(row.currentRank ?? "");
+    const stR = escapeHtml(row.startRank ?? "");
+    const rev = escapeHtml(row.reviewCount ?? "");
+    const star = escapeHtml(row.starRating ?? "");
     tr.innerHTML = `
       <td>${i + 1}</td>
       <td><input type="text" data-f="keyword" value="${escapeAttr(row.keyword)}" /></td>
       <td><input type="text" data-f="linkUrl" value="${escapeAttr(row.linkUrl)}" /></td>
       <td><input type="text" data-f="keywordName" value="${escapeAttr(row.keywordName)}" /></td>
+      <td class="stat-cell rank-display" title="D순위체크 결과">${curR || "—"}</td>
+      <td class="stat-cell rank-display" title="기준 순위(비우면 첫 성공 시 현재순위로 자동)">${stR || "—"}</td>
       <td class="stat-cell">${tOk} / ${tFail}</td>
       <td class="stat-cell">${yOk} / ${yFail}</td>
+      <td class="stat-cell rank-display" title="D순위체크 리뷰 수">${rev || "—"}</td>
+      <td class="stat-cell rank-display" title="D순위체크 별점">${star || "—"}</td>
     `;
     tr.addEventListener("click", (ev) => {
       if (ev.target.tagName === "INPUT") return;
@@ -269,6 +298,13 @@ function escapeAttr(s) {
     .replace(/</g, "&lt;");
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function getSelectedTask() {
   syncAllTaskRowsFromDom();
   return taskRows[selectedTaskRow];
@@ -288,14 +324,31 @@ function buildTaskFromRow(row) {
   };
 }
 
-async function saveConfigToDisk() {
-  rolloverStatsIfNeeded();
+async function persistEngineConfigFromForm() {
   const cfg = await buildConfigObject();
   if (cfg.userAgents && !cfg.userAgents.desktop?.length) delete cfg.userAgents.desktop;
   if (cfg.userAgents && !cfg.userAgents.mobile?.length) delete cfg.userAgents.mobile;
   if (cfg.userAgents && Object.keys(cfg.userAgents).length === 0) delete cfg.userAgents;
-  syncAllTaskRowsFromDom();
   await window.engineApi.saveEngineConfig(cfg);
+  return cfg;
+}
+
+/** 딜레이 패널·작업 선택(A/B)·최대 스크롤·워크 모드·UA·프록시까지 engine-config.json만 저장 (tasks.txt는 건드리지 않음) */
+async function saveEngineConfigOnly() {
+  await persistEngineConfigFromForm();
+  logLine("engine-config.json 저장됨 (작업 딜레이·검색 버전·기타 설정)");
+}
+
+/** 프록시·USB 토글만 저장하는 UX (실제로는 폼 전체를 engine-config.json에 반영) */
+async function saveProxyAirplaneSection() {
+  await persistEngineConfigFromForm();
+  logLine("engine-config.json 저장됨 (프록시·비행기모드·USB 토글)");
+}
+
+async function saveConfigToDisk() {
+  rolloverStatsIfNeeded();
+  await persistEngineConfigFromForm();
+  syncAllTaskRowsFromDom();
   if (!taskRowsStatsDate) taskRowsStatsDate = localDateYmd();
   const saveTaskRes = await window.engineApi.saveTaskRowsText({
     rows: taskRows,
@@ -318,6 +371,44 @@ async function processNewResultIfAny() {
   if (!kw || !url) return;
   const row = taskRows.find((r) => r.keyword.trim() === kw && r.linkUrl.trim() === url);
   if (!row) return;
+
+  if (res.mode === "rankCheck") {
+    const rankNum = res.shoppingRank;
+    if (res.ok === true && rankNum != null && Number(rankNum) > 0) {
+      row.currentRank = String(rankNum);
+      row.rankMissStreak = 0;
+      if (!String(row.startRank || "").trim()) {
+        row.startRank = String(rankNum);
+      }
+      row.reviewCount = res.reviewCount != null ? String(res.reviewCount) : "";
+      row.starRating = res.starRating != null ? String(res.starRating) : "";
+      const title = (res.extractedProductTitle || "").trim();
+      if (title && !String(row.keywordName || "").trim()) {
+        row.keywordName = title;
+      }
+    } else {
+      const noRankDetected =
+        Number(rankNum) === -1 ||
+        res.failReason === "NO_MID_MATCH" ||
+        String(res.error || "").includes("순위권_미발견");
+
+      if (noRankDetected) {
+        row.rankMissStreak = Math.max(0, Number(row.rankMissStreak) || 0) + 1;
+        if (row.rankMissStreak >= 10) {
+          row.currentRank = "-";
+          row.reviewCount = "-";
+          row.starRating = "-";
+        }
+      } else {
+        // 타임아웃/기타 오류는 연속 미발견 카운트에서 제외하고, 기존 순위를 유지
+        row.rankMissStreak = 0;
+      }
+    }
+    renderTaskTable();
+    await persistTasksFileOnly();
+    return;
+  }
+
   if (res.ok === true) {
     row.trafficOk = (Number(row.trafficOk) || 0) + 1;
   } else {
@@ -341,6 +432,11 @@ async function startRunner(once) {
   const row = getSelectedTask();
   if (!row.keyword?.trim() || !row.linkUrl?.trim()) {
     logLine("검색 키워드와 상품 URL 필수");
+    return;
+  }
+  const flow = document.getElementById("searchFlowVersion").value;
+  if (flow === "C" && !row.keywordName?.trim()) {
+    logLine("C버전(제목풀)은 2차 키워드 필수");
     return;
   }
 
@@ -377,6 +473,9 @@ function stopInfiniteRun(silent = false) {
 }
 
 async function feedNextInfiniteTask() {
+  if (infiniteFeedInProgress) return;
+  infiniteFeedInProgress = true;
+  try {
   if (!infiniteRunEnabled) return;
   const st = await window.engineApi.runnerStatus();
   if (!st.running) return;
@@ -390,13 +489,17 @@ async function feedNextInfiniteTask() {
     return;
   }
 
+  // 인덱스를 먼저 선점해 중복 등록(레이스) 방지
   const idx = infiniteTaskIndex % rows.length;
+  infiniteTaskIndex += 1;
   const row = rows[idx];
   const task = buildTaskFromRow(row);
   await saveConfigToDisk();
   await window.engineApi.writeTaskFile(task);
-  infiniteTaskIndex += 1;
   logLine(`무제한 큐 등록 [${idx + 1}/${rows.length}]: ${task.keyword.substring(0, 24)}...`);
+  } finally {
+    infiniteFeedInProgress = false;
+  }
 }
 
 async function startInfiniteRunner() {
@@ -515,6 +618,20 @@ async function init() {
   };
   document.getElementById("btnSaveConfig").onclick = async () => {
     await saveConfigToDisk();
+  };
+  document.getElementById("btnSaveDelays").onclick = async () => {
+    try {
+      await saveEngineConfigOnly();
+    } catch (e) {
+      logLine("설정 저장 오류: " + (e?.message || String(e)));
+    }
+  };
+  document.getElementById("btnSaveProxyAirplane").onclick = async () => {
+    try {
+      await saveProxyAirplaneSection();
+    } catch (e) {
+      logLine("프록시·비행기모드 저장 오류: " + (e?.message || String(e)));
+    }
   };
   document.getElementById("btnSaveResults").onclick = async () => {
     try {
