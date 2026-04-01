@@ -2,6 +2,88 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+const { createClient } = require("@supabase/supabase-js");
+
+// ============ Supabase Auth ============
+function loadEnvFile() {
+  const candidates = [
+    path.join(__dirname, "..", ".env.local"),
+    path.join(__dirname, "..", ".env"),
+    path.join(__dirname, ".env"),
+    "C:\\turafic\\.env",
+  ];
+  for (const p of candidates) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const lines = fs.readFileSync(p, "utf-8").split(/\r?\n/);
+      for (const line of lines) {
+        const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)/);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+      }
+    } catch { /* skip */ }
+  }
+}
+loadEnvFile();
+
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false },
+  });
+}
+
+// ============ HWID ============
+const { execSync } = require("child_process");
+let cachedHwid = null;
+
+function getHwid() {
+  if (cachedHwid) return cachedHwid;
+  try {
+    const raw = execSync(
+      'powershell -NoProfile -Command "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID"',
+      { encoding: "utf8", timeout: 10000, windowsHide: true }
+    );
+    cachedHwid = raw.trim();
+  } catch {
+    cachedHwid = "UNKNOWN";
+  }
+  return cachedHwid;
+}
+
+/**
+ * HWID 검증: 최초 로그인 시 등록, 이후 불일치 시 차단
+ * @returns {{ ok: boolean, error?: string }}
+ */
+async function verifyHwid(userId) {
+  const hwid = getHwid();
+  if (hwid === "UNKNOWN") return { ok: true }; // HWID 추출 실패 시 통과
+
+  // 기존 등록 확인
+  const { data, error } = await supabase
+    .from("user_devices")
+    .select("hwid")
+    .eq("user_id", userId)
+    .single();
+
+  if (error && error.code === "PGRST116") {
+    // 미등록 → 최초 등록
+    const { error: insertErr } = await supabase
+      .from("user_devices")
+      .insert({ user_id: userId, hwid });
+    if (insertErr) return { ok: false, error: "기기 등록 실패: " + insertErr.message };
+    return { ok: true };
+  }
+
+  if (error) return { ok: false, error: "기기 확인 실패: " + error.message };
+
+  // 등록된 HWID와 비교
+  if (data.hwid !== hwid) {
+    return { ok: false, error: "다른 PC에서 등록된 계정입니다. 관리자에게 문의하세요." };
+  }
+  return { ok: true };
+}
 
 /** 개발: 저장소 루트 / 배포: resources/runner (electron-builder extraResources) */
 const RUNNER_ROOT = app.isPackaged
@@ -95,11 +177,13 @@ ipcMain.handle("save-task-rows-text", (_e, payload) => {
       ? payload.statsDate.trim()
       : ymdToday();
   const header =
-    "검색 키워드\t상품 URL\t2차 키워드\t현재순위\t시작순위\t트래픽성공\t트래픽실패\t어제성공\t어제실패\t리뷰수\t별점";
+    "검색 키워드\t상품 URL\t2차 키워드\t목표\t상품명\t현재순위\t시작순위\t트래픽성공\t트래픽실패\t어제성공\t어제실패\t리뷰수\t별점";
   const lines = safeRows.map((r) => {
     const keyword = String(r?.keyword ?? "").replace(/\r?\n/g, " ").trim();
     const linkUrl = String(r?.linkUrl ?? "").replace(/\r?\n/g, " ").trim();
     const keywordName = String(r?.keywordName ?? "").replace(/\r?\n/g, " ").trim();
+    const targetCount = Math.max(0, Math.floor(Number(r?.targetCount) || 0));
+    const productTitle = String(r?.productTitle ?? "").replace(/\r?\n/g, " ").trim();
     const currentRank = String(r?.currentRank ?? "").replace(/\r?\n/g, " ").trim();
     const startRank = String(r?.startRank ?? "").replace(/\r?\n/g, " ").trim();
     const tOk = Math.max(0, Math.floor(Number(r?.trafficOk) || 0));
@@ -108,7 +192,7 @@ ipcMain.handle("save-task-rows-text", (_e, payload) => {
     const yFail = Math.max(0, Math.floor(Number(r?.yesterdayFail) || 0));
     const reviewCount = String(r?.reviewCount ?? "").replace(/\r?\n/g, " ").trim();
     const starRating = String(r?.starRating ?? "").replace(/\r?\n/g, " ").trim();
-    return `${keyword}\t${linkUrl}\t${keywordName}\t${currentRank}\t${startRank}\t${tOk}\t${tFail}\t${yOk}\t${yFail}\t${reviewCount}\t${starRating}`;
+    return `${keyword}\t${linkUrl}\t${keywordName}\t${targetCount}\t${productTitle}\t${currentRank}\t${startRank}\t${tOk}\t${tFail}\t${yOk}\t${yFail}\t${reviewCount}\t${starRating}`;
   });
   const body = [`#date\t${statsDate}`, header, ...lines].join("\n");
   fs.writeFileSync(TASKS_TEXT_PATH, body, "utf-8");
@@ -139,26 +223,43 @@ ipcMain.handle("load-task-rows-text", () => {
     const keyword = p[0] ?? "";
     const linkUrl = p[1] ?? "";
     const keywordName = p[2] ?? "";
-    if (p.length >= 12) {
+    // 신 포맷 v2 (14컬럼): keyword url kw2 target productTitle curRank startRank ok fail yOk yFail review star
+    if (p.length >= 14) {
       return {
-        keyword,
-        linkUrl,
-        keywordName,
-        currentRank: p[3] ?? "",
-        startRank: p[4] ?? "",
-        trafficOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[6]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
-        reviewCount: p[9] ?? "",
-        starRating: p[10] ?? "",
+        keyword, linkUrl, keywordName,
+        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
+        productTitle: p[4] ?? "",
+        currentRank: p[5] ?? "",
+        startRank: p[6] ?? "",
+        trafficOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
+        trafficFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
+        yesterdayOk: Math.max(0, Math.floor(Number(p[9]) || 0)),
+        yesterdayFail: Math.max(0, Math.floor(Number(p[10]) || 0)),
+        reviewCount: p[11] ?? "",
+        starRating: p[12] ?? "",
       };
     }
+    // 신 포맷 v1 (13컬럼): keyword url kw2 target curRank startRank ok fail yOk yFail review star
+    if (p.length >= 13) {
+      return {
+        keyword, linkUrl, keywordName,
+        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
+        productTitle: "",
+        currentRank: p[4] ?? "",
+        startRank: p[5] ?? "",
+        trafficOk: Math.max(0, Math.floor(Number(p[6]) || 0)),
+        trafficFail: Math.max(0, Math.floor(Number(p[7]) || 0)),
+        yesterdayOk: Math.max(0, Math.floor(Number(p[8]) || 0)),
+        yesterdayFail: Math.max(0, Math.floor(Number(p[9]) || 0)),
+        reviewCount: p[10] ?? "",
+        starRating: p[11] ?? "",
+      };
+    }
+    // 구 포맷 (11~12컬럼): keyword url kw2 curRank startRank ok fail yOk yFail review star
     if (p.length >= 11) {
       return {
-        keyword,
-        linkUrl,
-        keywordName,
+        keyword, linkUrl, keywordName,
+        targetCount: 0,
         currentRank: p[3] ?? "",
         startRank: p[4] ?? "",
         trafficOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
@@ -167,42 +268,11 @@ ipcMain.handle("load-task-rows-text", () => {
         yesterdayFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
         reviewCount: p[9] ?? "",
         starRating: p[10] ?? "",
-      };
-    }
-    if (p.length >= 9) {
-      return {
-        keyword,
-        linkUrl,
-        keywordName,
-        currentRank: p[3] ?? "",
-        startRank: p[4] ?? "",
-        trafficOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[6]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
-        reviewCount: "",
-        starRating: "",
-      };
-    }
-    if (p.length >= 7) {
-      return {
-        keyword,
-        linkUrl,
-        keywordName,
-        currentRank: "",
-        startRank: "",
-        trafficOk: Math.max(0, Math.floor(Number(p[3]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[4]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[6]) || 0)),
-        reviewCount: "",
-        starRating: "",
       };
     }
     return {
-      keyword,
-      linkUrl,
-      keywordName,
+      keyword, linkUrl, keywordName,
+      targetCount: 0,
       currentRank: "",
       startRank: "",
       trafficOk: 0,
@@ -364,16 +434,66 @@ ipcMain.handle("runner-stop", () => {
     /* ignore */
   }
   runnerChild = null;
-  /** /T 는 트리 전체 종료 — 포터블/일렉트론과 PID 가 겹치거나 부모까지 영향 줄 때 임시 resources 가 깨질 수 있어, 먼저 해당 PID 만 강제 종료 */
   if (process.platform === "win32" && pid) {
+    // 1단계: 프로세스 트리 즉시 종료
+    try {
+      require("child_process").execSync(
+        `taskkill /pid ${pid} /T /F`,
+        { stdio: "ignore", timeout: 5000, windowsHide: true }
+      );
+    } catch { /* ignore */ }
+    // 2단계: PRB가 띄운 user-data-dir 기반 Chrome도 정리
     setTimeout(() => {
-      spawn("taskkill", ["/pid", String(pid), "/F"], {
-        shell: true,
-        stdio: "ignore",
-      }).unref();
-    }, 1500);
+      try {
+        require("child_process").execSync(
+          `taskkill /F /IM chrome.exe /FI "WINDOWTITLE eq *prb-rank*"`,
+          { stdio: "ignore", timeout: 5000, windowsHide: true }
+        );
+      } catch { /* ignore */ }
+    }, 500);
   }
   return { ok: true };
 });
 
 ipcMain.handle("runner-status", () => ({ running: !!runnerChild }));
+
+// ============ Auth IPC Handlers ============
+ipcMain.handle("auth-login", async (_e, { email, password }) => {
+  if (!supabase) {
+    return { ok: false, error: "SUPABASE_URL / SUPABASE_ANON_KEY 미설정" };
+  }
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { ok: false, error: error.message };
+
+    // HWID 검증
+    const hwidResult = await verifyHwid(data.user.id);
+    if (!hwidResult.ok) {
+      await supabase.auth.signOut();
+      return { ok: false, error: hwidResult.error };
+    }
+
+    return { ok: true, user: { email: data.user.email, id: data.user.id } };
+  } catch (e) {
+    return { ok: false, error: e.message || "로그인 실패" };
+  }
+});
+
+ipcMain.handle("auth-logout", async () => {
+  if (!supabase) return { ok: true };
+  try {
+    await supabase.auth.signOut();
+  } catch { /* ignore */ }
+  return { ok: true };
+});
+
+ipcMain.handle("auth-check", async () => {
+  if (!supabase) return null; // Supabase 미설정 시 인증 건너뜀
+  try {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) return { email: data.user.email, id: data.user.id };
+  } catch { /* ignore */ }
+  return null;
+});
+
+ipcMain.handle("auth-available", () => !!supabase);

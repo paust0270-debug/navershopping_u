@@ -54,6 +54,9 @@
       "signAndEditExecutable": false
     }
   },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0"
+  },
   "devDependencies": {
     "electron": "^28.3.3",
     "electron-builder": "^24.13.3"

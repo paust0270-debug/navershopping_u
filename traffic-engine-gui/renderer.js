@@ -1,14 +1,14 @@
 /** @typedef {import('../engine-config').EngineConfigFile} EngineConfigFile */
 
 const DELAY_ROWS = [
-  { label: "브라우저 로드", key: "browserLoad", range: true },
-  { label: "프록시 설정", key: "proxySetup", range: false },
-  { label: "브라우저 실행", key: "browserLaunch", range: false },
-  { label: "1차 검색 후", key: "afterFirstSearchLoad", range: true },
-  { label: "2차 검색 후", key: "afterSecondSearchLoad", range: true },
-  { label: "탐색 간격", key: "explorationBetweenScrolls", range: true },
-  { label: "체류(상품)", key: "stayOnProduct", range: true },
-  { label: "작업 간 휴식", key: "taskGapRest", range: true },
+  { label: "브라우저 로드", key: "browserLoad", range: true, defMin: 2500, defMax: 4000 },
+  { label: "프록시 설정", key: "proxySetup", range: false, defMin: 3000 },
+  { label: "브라우저 실행", key: "browserLaunch", range: false, defMin: 2000 },
+  { label: "1차 검색 후", key: "afterFirstSearchLoad", range: true, defMin: 2000, defMax: 3000 },
+  { label: "2차 검색 후", key: "afterSecondSearchLoad", range: true, defMin: 2000, defMax: 3000 },
+  { label: "탐색 간격", key: "explorationBetweenScrolls", range: true, defMin: 300, defMax: 500 },
+  { label: "체류(상품)", key: "stayOnProduct", range: true, defMin: 3000, defMax: 6000 },
+  { label: "작업 간 휴식", key: "taskGapRest", range: true, defMin: 2000, defMax: 3000 },
 ];
 
 let selectedTaskRow = 0;
@@ -44,15 +44,25 @@ function localDateYmd() {
   return `${y}-${m}-${day}`;
 }
 
+function extractMid(url) {
+  const m = String(url || "").match(/\/products\/(\d+)/);
+  return m ? m[1] : "";
+}
+
 function normalizeTaskRow(r) {
+  const linkUrl = String(r?.linkUrl ?? "").trim();
   return {
+    checked: r?.checked === true || r?.checked === "true",
     keyword: String(r?.keyword ?? "").trim(),
-    linkUrl: String(r?.linkUrl ?? "").trim(),
+    linkUrl,
     keywordName: String(r?.keywordName ?? "").trim(),
+    mid: extractMid(linkUrl),
+    productTitle: String(r?.productTitle ?? "").trim(),
     currentRank: String(r?.currentRank ?? "").trim(),
     startRank: String(r?.startRank ?? "").trim(),
     reviewCount: String(r?.reviewCount ?? "").trim(),
     starRating: String(r?.starRating ?? "").trim(),
+    targetCount: Math.max(0, Math.floor(Number(r?.targetCount) || 0)),
     trafficOk: Math.max(0, Math.floor(Number(r?.trafficOk) || 0)),
     trafficFail: Math.max(0, Math.floor(Number(r?.trafficFail) || 0)),
     yesterdayOk: Math.max(0, Math.floor(Number(r?.yesterdayOk) || 0)),
@@ -127,7 +137,7 @@ function parseSpec(a, b, range) {
 function buildDelaySection() {
   const root = document.getElementById("delayGrid");
   root.innerHTML = "";
-  DELAY_ROWS.forEach(({ label, key, range }) => {
+  DELAY_ROWS.forEach(({ label, key, range, defMin, defMax }) => {
     const lab = document.createElement("label");
     lab.textContent = label;
     root.appendChild(lab);
@@ -135,13 +145,13 @@ function buildDelaySection() {
     i1.type = "number";
     i1.dataset.delayKey = key;
     i1.dataset.part = "a";
-    i1.placeholder = range ? "min" : "ms";
+    i1.placeholder = range ? `${defMin}` : `${defMin}`;
     root.appendChild(i1);
     const i2 = document.createElement("input");
     i2.type = "number";
     i2.dataset.delayKey = key;
     i2.dataset.part = "b";
-    i2.placeholder = range ? "max" : "";
+    i2.placeholder = range ? `${defMax}` : "";
     i2.disabled = !range;
     if (!range) {
       i2.style.opacity = "0.35";
@@ -173,18 +183,6 @@ function readDelaysFromForm() {
 }
 
 async function buildConfigObject() {
-  const proxyText = document.getElementById("proxyList").value;
-  const entries = proxyText
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((line) => {
-      if (/^https?:\/\//i.test(line)) return { server: line };
-      const m = line.match(/^([^:]+):(\d+)$/);
-      if (m) return { server: `http://${m[1]}:${m[2]}` };
-      return { server: line.startsWith("http") ? line : `http://${line}` };
-    });
-
   const desk = document
     .getElementById("uaDesktop")
     .value.split(/\r?\n/)
@@ -208,14 +206,10 @@ async function buildConfigObject() {
     delays: { ...(existing.delays || {}), ...readDelaysFromForm() },
     workMode: document.getElementById("workMode").value,
     userAgents: { desktop: desk.length ? desk : undefined, mobile: mob.length ? mob : undefined },
-    proxy: {
-      enabled: document.getElementById("proxyEnabled").checked && entries.length > 0,
-      rotatePerTask: true,
-      entries,
-    },
+    proxy: existing.proxy || { enabled: false, rotatePerTask: true, entries: [] },
     search: {
       ...existing.search,
-      maxScrollAttempts: Math.max(1, parseInt(document.getElementById("maxScroll").value, 10) || 20),
+      maxScrollAttempts: Math.max(1, parseInt(document.getElementById("maxScroll").value, 10) || 4),
       searchFlowVersion: document.getElementById("searchFlowVersion").value,
     },
     airplaneMode: {
@@ -229,22 +223,25 @@ async function buildConfigObject() {
 async function applyConfigToForm(cfg) {
   if (!cfg) return;
   applyDelaysToForm(cfg.delays || {});
-  document.getElementById("maxScroll").value = cfg.search?.maxScrollAttempts ?? 20;
+  document.getElementById("maxScroll").value = cfg.search?.maxScrollAttempts ?? 4;
   const flow = cfg.search?.searchFlowVersion;
   document.getElementById("searchFlowVersion").value =
     flow === "B" || flow === "C" || flow === "D" ? flow : "A";
   const wm = cfg.workMode || "mobile";
   document.getElementById("workMode").value =
     wm === "mobile" || wm === "desktop" || wm === "random" ? wm : "mobile";
-  document.getElementById("proxyEnabled").checked = !!cfg.proxy?.enabled;
-  document.getElementById("proxyList").value = (cfg.proxy?.entries || [])
-    .map((e) => e.server)
-    .join("\n");
+  // 2차 키워드 헤더 동적 업데이트
+  const thSec = document.getElementById("thSecondKeyword");
+  if (thSec) {
+    const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
+    const activeFlow = document.getElementById("searchFlowVersion").value;
+    thSec.textContent = labels[activeFlow] || "2차 키워드 (선택)";
+  }
   document.getElementById("uaDesktop").value = (cfg.userAgents?.desktop || []).join("\n");
   document.getElementById("uaMobile").value = (cfg.userAgents?.mobile || []).join("\n");
   const usbToggle = document.getElementById("toggleUsbDataBeforeTask");
   if (usbToggle) {
-    usbToggle.checked = cfg.airplaneMode?.toggleBeforeEachTask !== false;
+    usbToggle.checked = cfg.airplaneMode?.toggleBeforeEachTask === true;
   }
 }
 
@@ -262,17 +259,24 @@ function renderTaskTable() {
     const stR = escapeHtml(row.startRank ?? "");
     const rev = escapeHtml(row.reviewCount ?? "");
     const star = escapeHtml(row.starRating ?? "");
+    const target = row.targetCount || 0;
+    const done = target > 0 && tOk >= target;
+    const progressText = target > 0 ? `${tOk}/${target}` : `${tOk}`;
+    const midDisplay = row.mid || "—";
     tr.innerHTML = `
+      <td style="text-align:center"><input type="checkbox" data-f="checked" ${row.checked ? 'checked' : ''} /></td>
       <td>${i + 1}</td>
-      <td><input type="text" data-f="keyword" value="${escapeAttr(row.keyword)}" /></td>
-      <td><input type="text" data-f="linkUrl" value="${escapeAttr(row.linkUrl)}" /></td>
-      <td><input type="text" data-f="keywordName" value="${escapeAttr(row.keywordName)}" /></td>
-      <td class="stat-cell rank-display" title="D순위체크 결과">${curR || "—"}</td>
-      <td class="stat-cell rank-display" title="기준 순위(비우면 첫 성공 시 현재순위로 자동)">${stR || "—"}</td>
-      <td class="stat-cell">${tOk} / ${tFail}</td>
-      <td class="stat-cell">${yOk} / ${yFail}</td>
-      <td class="stat-cell rank-display" title="D순위체크 리뷰 수">${rev || "—"}</td>
-      <td class="stat-cell rank-display" title="D순위체크 별점">${star || "—"}</td>
+      <td><input type="text" data-f="keyword" value="${escapeAttr(row.keyword)}" placeholder="검색어" /></td>
+      <td><input type="text" data-f="linkUrl" value="${escapeAttr(row.linkUrl)}" placeholder="상품 URL" /></td>
+      <td><input type="text" data-f="keywordName" value="${escapeAttr(row.keywordName)}" placeholder="선택" /></td>
+      <td class="stat-cell" title="${midDisplay}" style="font-size:10px;color:#aaa">${midDisplay}</td>
+      <td class="stat-cell" title="${escapeAttr(row.productTitle || '')}" style="font-size:10px;color:#ccc;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.productTitle || '—'}</td>
+      <td class="stat-cell"><input type="number" data-f="targetCount" value="${target || ''}" placeholder="0" min="0" style="width:48px;text-align:center" title="일일 목표 (0=무제한)" /></td>
+      <td class="stat-cell ${done ? 'target-done' : ''}" title="성공/목표">${progressText}</td>
+      <td class="stat-cell">${tFail}</td>
+      <td class="stat-cell rank-display">${curR || "—"}</td>
+      <td class="stat-cell rank-display">${rev || "—"}</td>
+      <td class="stat-cell rank-display">${star || "—"}</td>
     `;
     tr.addEventListener("click", (ev) => {
       if (ev.target.tagName === "INPUT") return;
@@ -282,7 +286,17 @@ function renderTaskTable() {
     tr.querySelectorAll("input").forEach((inp) => {
       const sync = () => {
         const f = inp.dataset.f;
-        if (f) taskRows[i][f] = inp.value;
+        if (!f) return;
+        if (inp.type === "checkbox") {
+          taskRows[i][f] = inp.checked;
+        } else {
+          taskRows[i][f] = inp.value;
+          // linkUrl 변경 시 MID 자동 갱신
+          if (f === "linkUrl") {
+            taskRows[i].mid = extractMid(inp.value);
+            renderTaskTable();
+          }
+        }
       };
       inp.addEventListener("input", sync);
       inp.addEventListener("change", sync);
@@ -312,7 +326,24 @@ function getSelectedTask() {
 
 function getRunnableRows() {
   syncAllTaskRowsFromDom();
-  return taskRows.filter((row) => row.keyword?.trim() && row.linkUrl?.trim());
+  return taskRows.filter((row) => row.checked && row.keyword?.trim() && row.linkUrl?.trim());
+}
+
+function validateCheckedRows() {
+  syncAllTaskRowsFromDom();
+  const checked = taskRows.filter((r) => r.checked);
+  if (!checked.length) return "작업할 행을 체크하세요";
+  for (const r of checked) {
+    if (!r.keyword?.trim()) return `"${r.linkUrl || '빈 행'}": 검색 키워드를 입력하세요`;
+    if (!r.linkUrl?.trim()) return `"${r.keyword}": 상품 URL을 입력하세요`;
+    if (!extractMid(r.linkUrl)) return `"${r.keyword}": URL에서 MID를 추출할 수 없습니다 (/products/숫자 형식 필요)`;
+  }
+  const flow = document.getElementById("searchFlowVersion").value;
+  if (flow !== "D") {
+    const noTarget = checked.filter((r) => !r.targetCount || r.targetCount <= 0);
+    if (noTarget.length) return `"${noTarget[0].keyword}": 목표 횟수를 입력하세요 (0=무제한은 불가)`;
+  }
+  return null;
 }
 
 function buildTaskFromRow(row) {
@@ -321,6 +352,10 @@ function buildTaskFromRow(row) {
     linkUrl: row.linkUrl.trim(),
     slotSequence: 0,
     keywordName: row.keywordName?.trim() || undefined,
+    // 순위체크에서 수집한 Catalog MID (쇼핑 검색결과 nv_mid= 매칭용)
+    catalogMid: row.mid && row.mid !== extractMid(row.linkUrl) ? row.mid : undefined,
+    // 순위체크에서 수집한 상품 풀네임 (2차 검색어로 사용)
+    productTitle: row.productTitle || undefined,
   };
 }
 
@@ -368,8 +403,11 @@ async function processNewResultIfAny() {
   lastProcessedFinishedAt = res.finishedAt;
   const kw = (res.task?.keyword || "").trim();
   const url = (res.task?.linkUrl || "").trim();
+  const resMid = (res.task?.mid || "").trim();
   if (!kw || !url) return;
-  const row = taskRows.find((r) => r.keyword.trim() === kw && r.linkUrl.trim() === url);
+  // URL 완전 일치 우선, 실패 시 MID로 폴백 매칭
+  const row = taskRows.find((r) => r.keyword.trim() === kw && r.linkUrl.trim() === url)
+    || (resMid ? taskRows.find((r) => r.keyword.trim() === kw && extractMid(r.linkUrl) === resMid) : null);
   if (!row) return;
 
   if (res.mode === "rankCheck") {
@@ -385,6 +423,14 @@ async function processNewResultIfAny() {
       const title = (res.extractedProductTitle || "").trim();
       if (title && !String(row.keywordName || "").trim()) {
         row.keywordName = title;
+      }
+      // Catalog MID 수집 (검색용 실제 MID)
+      if (res.catalogMid) {
+        row.mid = res.catalogMid;
+      }
+      // 상품 제목 수집 (트래픽 2차 검색어로 사용)
+      if (res.extractedProductTitle && !row.productTitle) {
+        row.productTitle = res.extractedProductTitle.trim();
       }
     } else {
       const noRankDetected =
@@ -485,18 +531,32 @@ async function feedNextInfiniteTask() {
 
   const rows = getRunnableRows();
   if (!rows.length) {
-    logLine("무제한 실행할 작업이 없습니다. (키워드/URL 입력 필요)");
+    logLine("실행할 작업이 없습니다. (키워드/URL 입력 필요)");
     return;
   }
 
-  // 인덱스를 먼저 선점해 중복 등록(레이스) 방지
-  const idx = infiniteTaskIndex % rows.length;
+  // 목표 미달성 행만 필터링
+  const pendingRows = rows.filter((r) => {
+    if (!r.targetCount || r.targetCount <= 0) return true; // 목표 0=무제한
+    return (r.trafficOk || 0) < r.targetCount;
+  });
+
+  if (!pendingRows.length) {
+    logLine("모든 작업이 일일 목표를 달성했습니다. 자동 중지합니다.");
+    stopInfiniteRun();
+    await window.engineApi.runnerStop();
+    setStopped();
+    return;
+  }
+
+  const idx = infiniteTaskIndex % pendingRows.length;
   infiniteTaskIndex += 1;
-  const row = rows[idx];
+  const row = pendingRows[idx];
   const task = buildTaskFromRow(row);
+  const target = row.targetCount > 0 ? `(${row.trafficOk || 0}/${row.targetCount})` : "";
   await saveConfigToDisk();
   await window.engineApi.writeTaskFile(task);
-  logLine(`무제한 큐 등록 [${idx + 1}/${rows.length}]: ${task.keyword.substring(0, 24)}...`);
+  logLine(`큐 등록 [${idx + 1}/${pendingRows.length}] ${target}: ${task.keyword.substring(0, 24)}`);
   } finally {
     infiniteFeedInProgress = false;
   }
@@ -535,7 +595,72 @@ async function startInfiniteRunner() {
   await feedNextInfiniteTask();
 }
 
+// ============ Auth ============
+function showLoginOverlay() {
+  const overlay = document.getElementById("loginOverlay");
+  if (overlay) overlay.style.display = "flex";
+  const emailInput = document.getElementById("loginEmail");
+  if (emailInput) emailInput.focus();
+
+  document.getElementById("btnLogin").onclick = handleLogin;
+  document.getElementById("loginPassword").onkeydown = (e) => {
+    if (e.key === "Enter") handleLogin();
+  };
+  document.getElementById("loginEmail").onkeydown = (e) => {
+    if (e.key === "Enter") document.getElementById("loginPassword").focus();
+  };
+}
+
+function hideLoginOverlay() {
+  const overlay = document.getElementById("loginOverlay");
+  if (overlay) overlay.style.display = "none";
+}
+
+async function handleLogin() {
+  const btn = document.getElementById("btnLogin");
+  const errEl = document.getElementById("loginError");
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
+
+  if (!email || !password) {
+    errEl.textContent = "이메일과 비밀번호를 입력하세요";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "로그인 중...";
+  errEl.textContent = "";
+
+  try {
+    const result = await window.engineApi.authLogin(email, password);
+    if (result.ok) {
+      hideLoginOverlay();
+      logLine(`로그인 성공: ${result.user.email}`);
+      await initApp();
+    } else {
+      errEl.textContent = result.error || "로그인 실패";
+    }
+  } catch (e) {
+    errEl.textContent = "연결 오류: " + (e?.message || String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "로그인";
+  }
+}
+
 async function init() {
+  // Supabase 설정 여부 확인
+  const authAvailable = await window.engineApi.isAuthAvailable();
+  if (authAvailable) {
+    // 매번 로그인 요구 (세션 미저장)
+    showLoginOverlay();
+    return;
+  }
+  // Supabase 미설정 시 인증 없이 진행
+  await initApp();
+}
+
+async function initApp() {
   buildDelaySection();
   const cfg = await window.engineApi.loadEngineConfig();
   await applyConfigToForm(cfg);
@@ -646,18 +771,46 @@ async function init() {
     }
   };
   document.getElementById("btnStart").onclick = async () => {
+    const err = validateCheckedRows();
+    if (err) {
+      logLine("시작 불가: " + err);
+      return;
+    }
     try {
-      await startInfiniteRunner();
+      const flow = document.getElementById("searchFlowVersion").value;
+      if (flow === "D") {
+        await startRunner(true);
+      } else {
+        await startInfiniteRunner();
+      }
     } catch (e) {
       logLine("시작 처리 오류: " + (e?.message || String(e)));
     }
   };
+
+  // 전체 선택 체크박스
+  document.getElementById("checkAll").addEventListener("change", (e) => {
+    const checked = e.target.checked;
+    taskRows.forEach((r) => { r.checked = checked; });
+    renderTaskTable();
+    document.getElementById("checkAll").checked = checked;
+  });
   document.getElementById("btnStop").onclick = async () => {
     stopInfiniteRun(true);
     await window.engineApi.runnerStop();
     setStopped();
     logLine("중지 요청");
   };
+
+  function updateSecondKeywordHeader() {
+    const flow = document.getElementById("searchFlowVersion").value;
+    const th = document.getElementById("thSecondKeyword");
+    if (!th) return;
+    const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
+    th.textContent = labels[flow] || "2차 키워드";
+  }
+  document.getElementById("searchFlowVersion").addEventListener("change", updateSecondKeywordHeader);
+  updateSecondKeywordHeader();
 
   window.engineApi.onRunnerLog(({ line, stream }) => {
     logLine(stream === "stderr" ? "[err] " + line : line);
