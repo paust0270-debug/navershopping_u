@@ -7,6 +7,18 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- 로그인 오버레이 -->
+  <div id="loginOverlay" class="login-overlay" style="display:none">
+    <div class="login-box">
+      <h2>네이버 트래픽 자동화</h2>
+      <p class="login-sub">인증된 사용자만 이용 가능합니다</p>
+      <input type="email" id="loginEmail" placeholder="이메일" autocomplete="email" />
+      <input type="password" id="loginPassword" placeholder="비밀번호" autocomplete="current-password" />
+      <button type="button" id="btnLogin" class="login-btn">로그인</button>
+      <p id="loginError" class="login-error"></p>
+    </div>
+  </div>
+
   <div class="app">
     <div class="toolbar">
       <button type="button" class="primary" id="btnStart">▶ 시작</button>
@@ -25,16 +37,19 @@
             <table class="data" id="taskTable">
               <thead>
                 <tr>
+                  <th style="width:28px"><input type="checkbox" id="checkAll" title="전체 선택" /></th>
                   <th class="col-rownum">#</th>
                   <th>검색 키워드</th>
                   <th>상품 URL</th>
-                  <th title="2차 검색 조합에 사용할 추가 키워드">2차 키워드</th>
-                  <th style="width:56px" title="D순위체크 결과">현재순위</th>
-                  <th style="width:56px" title="기준 순위(비우면 첫 성공 시 현재순위로 자동)">시작순위</th>
-                  <th class="col-traffic" title="오늘 성공/실패 (자정에 어제로 이월 후 0/0)">트래픽</th>
-                  <th class="col-traffic" title="어제 성공/실패">어제</th>
-                  <th style="width:64px" title="D순위체크 시 리뷰 수">리뷰수</th>
-                  <th style="width:48px" title="D순위체크 시 별점">별점</th>
+                  <th id="thSecondKeyword" title="2차 검색 조합에 사용할 추가 키워드">2차 키워드 (선택)</th>
+                  <th style="width:80px" title="URL에서 자동 추출">MID</th>
+                  <th style="width:160px" title="순위체크 시 자동 수집">상품명</th>
+                  <th style="width:56px" title="일일 목표 횟수 (0=무제한)">목표</th>
+                  <th style="width:64px" title="성공/목표">성공</th>
+                  <th style="width:48px" title="실패 횟수">실패</th>
+                  <th style="width:56px" title="D순위체크 결과">순위</th>
+                  <th style="width:56px" title="리뷰 수">리뷰</th>
+                  <th style="width:48px" title="별점">별점</th>
                 </tr>
               </thead>
               <tbody id="taskBody"></tbody>
@@ -56,16 +71,16 @@
               <div class="delay-grid delay-grid--head">
                 <label>작업 선택</label>
                 <select id="searchFlowVersion" class="mode mode-span" style="grid-column:2/4">
-                  <option value="A">A버전 (조합형)</option>
-                  <option value="B">B버전 (메인키워드)</option>
-                  <option value="C">C버전 (제목풀)</option>
-                  <option value="D">D버전 (순위체크)</option>
+                  <option value="A">A — 조합검색 (1차+2차 키워드)</option>
+                  <option value="B">B — 메인키워드만 검색</option>
+                  <option value="C">C — 2차키워드만 (제목풀, 필수입력)</option>
+                  <option value="D">D — 쇼핑 순위체크만 (트래픽 없음)</option>
                 </select>
               </div>
               <div class="delay-grid" id="delayGrid"></div>
               <div class="delay-grid">
                 <label title="트래픽: 목록 스크롤 / D순위: 쇼핑 최대 페이지">최대 스크롤</label>
-                <input type="number" id="maxScroll" class="delay-num-tight" min="1" value="20" style="grid-column:2/4" title="D모드에서는 쇼핑 검색 최대 페이지 수" />
+                <input type="number" id="maxScroll" class="delay-num-tight" min="1" value="4" style="grid-column:2/4" title="D모드에서는 쇼핑 검색 최대 페이지 수" />
               </div>
               <div class="delay-grid delay-grid--head">
                 <label>워크 모드</label>
@@ -81,30 +96,20 @@
             <h3>User-Agent</h3>
             <div class="body ua-body">
               <label class="ua-label">Desktop (줄당 1개)</label>
-              <textarea class="block compact-textarea" rows="2" id="uaDesktop"></textarea>
+              <textarea class="block compact-textarea" rows="2" id="uaDesktop" placeholder="비워두면 기본 UA 자동 사용 (Chrome/131)"></textarea>
               <label class="ua-label">Mobile</label>
-              <textarea class="block compact-textarea" rows="2" id="uaMobile"></textarea>
+              <textarea class="block compact-textarea" rows="2" id="uaMobile" placeholder="비워두면 기본 UA 자동 사용 (Galaxy S23 Chrome/144)"></textarea>
             </div>
           </div>
           <div class="panel config-panel proxy-panel">
             <div class="panel-title-row">
-              <h3>프록시 · 비행기모드</h3>
-              <button type="button" class="panel-header-save" id="btnSaveProxyAirplane" title="프록시·USB 토글 설정을 engine-config.json에 저장">저장</button>
+              <h3>IP 로테이션</h3>
+              <button type="button" class="panel-header-save" id="btnSaveProxyAirplane" title="USB 토글 설정을 engine-config.json에 저장">저장</button>
             </div>
             <div class="body proxy-body">
               <div class="checkbox-row">
-                <input type="checkbox" id="proxyEnabled" />
-                <label for="proxyEnabled">프록시 사용</label>
-              </div>
-              <textarea
-                class="block compact-textarea proxy-textarea"
-                rows="3"
-                id="proxyList"
-                placeholder="한 줄에 하나 — http://ip:포트"
-              ></textarea>
-              <div class="checkbox-row">
-                <input type="checkbox" id="toggleUsbDataBeforeTask" checked />
-                <label for="toggleUsbDataBeforeTask">작업 전 USB 데이터 OFF→ON 실행</label>
+                <input type="checkbox" id="toggleUsbDataBeforeTask" />
+                <label for="toggleUsbDataBeforeTask">작업 전 USB 데이터 OFF→ON 실행 (USB 폰 연결 시)</label>
               </div>
             </div>
           </div>

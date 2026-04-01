@@ -213,6 +213,10 @@ interface WorkItem {
   keywordName?: string;
   /** JSON에 2차 키워드가 비어 있지 않을 때만 — C모드 단일 검색어 */
   secondKeywordRaw?: string;
+  /** 순위체크로 수집한 Catalog MID (nv_mid= 링크 매칭용) */
+  catalogMid?: string;
+  /** 순위체크로 수집한 상품 풀네임 (2차 검색어로 사용) */
+  productTitle?: string;
 }
 
 interface Profile {
@@ -926,6 +930,8 @@ function tryClaimWorkItemFromEngineFile(): WorkItem | null {
     `[EngineFile] 작업 수락: 1차="${keyword.substring(0, 24)}..." slot_sequence=${slotSequence || 0} mid=${mid}`
   );
 
+  const catalogMid = ((data as any).catalogMid || "").trim() || undefined;
+
   return {
     taskId,
     slotSequence,
@@ -935,6 +941,7 @@ function tryClaimWorkItemFromEngineFile(): WorkItem | null {
     linkUrl,
     keywordName,
     secondKeywordRaw: keywordNameRaw.length > 0 ? keywordNameRaw : undefined,
+    catalogMid,
   };
 }
 
@@ -970,7 +977,8 @@ type FailReason =
   | 'TIMEOUT'
   | 'IP_BLOCKED'
   | 'LOGIN_FAILED'
-  | 'INVALID_TASK';
+  | 'INVALID_TASK'
+  | 'PRODUCT_NOT_FOUND';
 
 interface EngineResult {
   productPageEntered: boolean;
@@ -989,6 +997,7 @@ interface EngineResult {
   starRating?: number | null;
   /** D모드: 목록에서 추출한 상품명 → GUI에서 2차 키워드 비었을 때만 채움 */
   extractedProductTitle?: string | null;
+  catalogMid?: string | null;
 }
 
 /** 스마트스토어/브랜드 상세 미도달이면서, 해당 2차 조합이 실패 원인일 때만 조합 블랙리스트 (캡차/IP/타임아웃 등 제외) */
@@ -1027,6 +1036,7 @@ function writeEngineTaskResult(work: WorkItem, result: EngineResult): void {
     reviewCount: result.reviewCount ?? null,
     starRating: result.starRating ?? null,
     extractedProductTitle: result.extractedProductTitle ?? null,
+    catalogMid: result.catalogMid ?? null,
   };
   try {
     fs.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
@@ -1074,6 +1084,7 @@ async function runShoppingRankCheck(
       result.reviewCount = detail.reviewCount;
       result.starRating = detail.starRating;
       result.extractedProductTitle = detail.productTitle?.trim() || null;
+      result.catalogMid = detail.catalogMid || null;
       result.rankCheckOk = true;
       result.midMatched = true;
       log(
@@ -1151,7 +1162,8 @@ async function runPatchrightEngine(
   workerId: number,
   engine: EngineRuntime,
   keywordName?: string,
-  secondKeywordRaw?: string
+  secondKeywordRaw?: string,
+  catalogMid?: string
 ): Promise<EngineResult> {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log(`[Worker ${workerId}] ${msg}`));
 
@@ -1212,18 +1224,24 @@ async function runPatchrightEngine(
       await sleep(engine.delay("afterFirstSearchLoad"));
 
       if (flow === "A") {
-        const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
-        const secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
-          engine,
-          mid,
-          firstKeyword,
-          nameForSecond,
-          workerId
-        );
+        // productTitle(순위체크 수집 풀네임) 있으면 직접 사용, 없으면 3단 조합 생성
+        let secondSearchKeyword: string;
+        if (catalogMid && productName && productName.length > 10) {
+          // 상품 풀네임이 있으면 그대로 2차 검색어로 사용 (combined-runner 방식)
+          secondSearchKeyword = productName;
+          log(`[Worker ${workerId}] 2차 검색 (풀네임): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+        } else {
+          const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
+          secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
+            engine,
+            mid,
+            firstKeyword,
+            nameForSecond,
+            workerId
+          );
+          log(`[Worker ${workerId}] 2차 검색 (3단조합): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+        }
         result.secondSearchPhraseUsed = secondSearchKeyword;
-        log(
-          `[Worker ${workerId}] 2차 검색 (3단조합): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`
-        );
         const searchInput = page.locator('#query, .sch_input, input[name="query"]').first();
         await searchInput.click({ force: true });
         await sleep(engine.delay("secondSearchField"));
@@ -1290,55 +1308,54 @@ async function runPatchrightEngine(
       }
     }
 
-    // 8. 상품 풀제목으로 검색 결과에서 해당 상품 링크 찾아 클릭 (MID 무관)
-    const nameForMatch = productName.trim().substring(0, 40);
+    // 8. MID로 직접 상품 링크 탐색 (combined-runner 방식)
     const MAX_SCROLL = engine.maxScrollAttempts;
     let linkClicked = false;
 
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
       log(`[Worker ${workerId}] 상품 링크 탐색 ${i + 1}/${MAX_SCROLL}`);
-      const found = await page.evaluate((name) => {
-        const links = document.querySelectorAll<HTMLAnchorElement>(
-          'a[href*="smartstore"], a[href*="brand.naver"], a[href*="shopping.naver"], a[href*="nv_mid="]'
-        );
-        const sub = name.replace(/\s+/g, ' ').trim().substring(0, 40);
-        if (!sub) return false;
-        for (const a of links) {
-          let el: Element | null = a;
-          for (let depth = 0; depth < 6 && el; depth++) {
-            const text = (el as HTMLElement).innerText || el.textContent || '';
-            if (text && text.includes(sub)) {
-              a.setAttribute('data-turafic-click', '1');
-              return true;
-            }
-            el = el.parentElement;
+
+      // MID href로 직접 탐색 (4가지 전략, 가격비교·플러스스토어·쇼핑탭 모두 커버)
+      const searchMid = catalogMid || mid;
+      const link =
+        // 1. 쇼핑탭: data-shp-contents-id (Catalog MID)
+        (catalogMid ? await page.$(`a[data-shp-contents-id="${catalogMid}"]`).catch(() => null) : null) ||
+        // 2. 가격비교: nv_mid= 파라미터
+        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) ||
+        // 3. 플러스스토어: /products/MID 경로
+        await page.$(`a[href*="/products/${searchMid}"]`).catch(() => null) ||
+        // 4. ID 속성 매칭 (nstore_productId_MID)
+        await page.$(`[id="nstore_productId_${mid}"]`).catch(() => null) ||
+        // 5. Channel Product No 폴백 (catalogMid 있을 때)
+        (catalogMid ? await page.$(`a[href*="/products/${mid}"]`).catch(() => null) : null);
+
+      if (link) {
+        const isVisible = await link.isVisible().catch(() => false);
+        if (isVisible) {
+          log(`[Worker ${workerId}] MID(${mid}) 링크 발견 → 클릭`);
+          await link.evaluate((el: HTMLAnchorElement) => el.removeAttribute('target'));
+          await link.click();
+          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+          await sleep(engine.delay("afterProductClick"));
+
+          const currentPageUrl = page.url();
+          log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 80)}...`);
+
+          linkClicked = true;
+          result.midMatched = true;
+
+          const dwellTime = engine.delay("stayOnProduct");
+          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+          await sleep(dwellTime);
+
+          if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
+            result.productPageEntered = true;
+          } else {
+            result.failReason = "DETAIL_NOT_REACHED";
+            result.error = "StoreDetailUrlMismatch";
           }
+          break;
         }
-        return false;
-      }, nameForMatch);
-
-      if (found) {
-        log(`[Worker ${workerId}] 풀제목 매칭 링크 클릭: "${nameForMatch}..."`);
-        await page.locator('a[data-turafic-click="1"]').first().evaluate((el: HTMLAnchorElement) => el.removeAttribute('target'));
-        await page.locator('a[data-turafic-click="1"]').first().click();
-        await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
-        await sleep(engine.delay("afterProductClick"));
-        linkClicked = true;
-        result.midMatched = true;
-
-        const dwellTime = engine.delay("stayOnProduct");
-        log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-        await sleep(dwellTime);
-
-        const currentPageUrl = page.url();
-        log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 60)}...`);
-        if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
-          result.productPageEntered = true;
-        } else {
-          result.failReason = "DETAIL_NOT_REACHED";
-          result.error = "StoreDetailUrlMismatch";
-        }
-        break;
       }
 
       await humanScroll(page, engine.explorationScrollPixels);
@@ -1346,9 +1363,9 @@ async function runPatchrightEngine(
     }
 
     if (!linkClicked) {
-      log(`[Worker ${workerId}] 풀제목 매칭 링크 없음: "${nameForMatch}..."`, "warn");
-      result.error = 'NoTitleMatch';
-      result.failReason = 'NO_MID_MATCH';
+      log(`[Worker ${workerId}] 상품이 존재하지 않음 — MID(${mid}) 검색결과에 미노출 (${MAX_SCROLL}회 스크롤)`, "warn");
+      result.error = '상품이 존재하지 않음';
+      result.failReason = 'PRODUCT_NOT_FOUND';
       result.midMatched = false;
       return result;
     }
@@ -1542,7 +1559,8 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             workerId,
             ENGINE,
             work.keywordName,
-            work.secondKeywordRaw
+            work.secondKeywordRaw,
+            work.catalogMid
           );
 
       // 4. 결과 처리

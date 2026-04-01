@@ -19,4 +19,9 @@ contextBridge.exposeInMainWorld("engineApi", {
   onRunnerExit: (fn) => {
     ipcRenderer.on("runner-exit", (_e, p) => fn(p));
   },
+  // Auth
+  authLogin: (email, password) => ipcRenderer.invoke("auth-login", { email, password }),
+  authLogout: () => ipcRenderer.invoke("auth-logout"),
+  getAuthUser: () => ipcRenderer.invoke("auth-check"),
+  isAuthAvailable: () => ipcRenderer.invoke("auth-available"),
 });

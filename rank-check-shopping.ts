@@ -17,6 +17,8 @@ export interface ShoppingRankDetail {
   starRating: number | null;
   /** 목록 카드에서 추출한 상품명(2차 키워드 자동 채움용) */
   productTitle: string | null;
+  /** 쇼핑 검색용 Catalog MID (data-shp-contents-id) — chnl_prod_no와 다를 수 있음 */
+  catalogMid: string | null;
 }
 
 /** 쇼핑 목록 1페이지당 대략 노출 개수 (링크 스캔 폴백 순위 환산용) */
@@ -121,6 +123,9 @@ async function enterNaverShoppingSearch(
     return false;
   }
 
+  // esbuild/tsx __name polyfill (브라우저 컨텍스트)
+  await page.evaluate(() => { (window as any).__name = (fn: any) => fn; }).catch(() => {});
+
   await sleepMs(SAFE_DELAY_MS);
 
   const inputOk = await tripleClickSearchInput(page, log);
@@ -187,6 +192,7 @@ export async function findNaverShoppingRankByMid(
     reviewCount: null,
     starRating: null,
     productTitle: null,
+    catalogMid: null,
   };
 
   const mid = targetMid.trim();
@@ -201,6 +207,11 @@ export async function findNaverShoppingRankByMid(
     return empty;
   }
 
+  // esbuild/tsx가 page.evaluate 내부 함수에 __name() 래퍼를 주입하므로 브라우저에 polyfill 필요
+  await page.evaluate(() => {
+    (window as any).__name = (fn: any) => fn;
+  }).catch(() => {});
+
   const out: ShoppingRankDetail = { ...empty };
   let currentPage = 1;
 
@@ -211,12 +222,12 @@ export async function findNaverShoppingRankByMid(
 
     const result = await page.evaluate(
       ({ targetId, pageNum, itemsPerPage, titleMax }: { targetId: string; pageNum: number; itemsPerPage: number; titleMax: number }) => {
-        function clip(s: string): string {
+        const clip = (s: string): string => {
           const t = s.replace(/\s+/g, " ").trim();
           return t.length > titleMax ? t.substring(0, titleMax) : t;
-        }
+        };
 
-        function titleFromProductItem(productItem: Element, fromJson: string | null): string | null {
+        const titleFromProductItem = (productItem: Element, fromJson: string | null): string | null => {
           if (fromJson && fromJson.trim()) return clip(fromJson);
           const img = productItem.querySelector<HTMLImageElement>(
             'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
@@ -230,7 +241,7 @@ export async function findNaverShoppingRankByMid(
           return tx ? clip(tx) : null;
         }
 
-        function extractFromProductItem(productItem: Element) {
+        const extractFromProductItem = (productItem: Element) => {
           let reviewCount: number | null = null;
           let starRating: number | null = null;
 
@@ -274,16 +285,21 @@ export async function findNaverShoppingRankByMid(
             const parsed = JSON.parse(normalized);
             if (!Array.isArray(parsed)) continue;
             let chnlProdNo: string | null = null;
+            let catalogNvMid: string | null = null;
             let prodNm: string | null = null;
             for (const item of parsed) {
               if (item.key === "chnl_prod_no" && item.value) {
                 chnlProdNo = String(item.value);
               }
+              if (item.key === "catalog_nv_mid" && item.value) {
+                catalogNvMid = String(item.value);
+              }
               if (item.key === "prod_nm" && item.value) {
                 prodNm = String(item.value);
               }
             }
-            if (!chnlProdNo || chnlProdNo !== targetId) continue;
+            // parallel-rank-checker와 동일: chnl_prod_no 또는 catalog_nv_mid로 매칭
+            if (chnlProdNo !== targetId && catalogNvMid !== targetId) continue;
 
             const pageRank = parseInt(rankStr, 10);
             const rank = (pageNum - 1) * 40 + (Number.isFinite(pageRank) ? pageRank : i + 1);
@@ -299,12 +315,15 @@ export async function findNaverShoppingRankByMid(
                 ? clip(prodNm)
                 : null;
 
+            // catalogNvMid (dtl 내부) 우선, 없으면 data-shp-contents-id
+            const catalogMid = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
             return {
               found: true,
               rank,
               reviewCount: extra.reviewCount,
               starRating: extra.starRating,
               productTitle,
+              catalogMid,
             };
           } catch {
             /* 다음 앵커 */
@@ -331,6 +350,7 @@ export async function findNaverShoppingRankByMid(
             reviewCount: null,
             starRating: null,
             productTitle: null,
+            catalogMid: null,
           };
         }
         const rank = (pageNum - 1) * itemsPerPage + idx + 1;
@@ -348,7 +368,10 @@ export async function findNaverShoppingRankByMid(
           starRating = ex.starRating;
           productTitle = titleFromProductItem(container, null);
         }
-        return { found: true, rank, reviewCount, starRating, productTitle };
+        // fallback: 카드에서 data-shp-contents-id 추출 시도
+        const card = linkEl?.closest('[data-shp-contents-id]') || container?.closest('[data-shp-contents-id]');
+        const catalogMid = card?.getAttribute('data-shp-contents-id') || null;
+        return { found: true, rank, reviewCount, starRating, productTitle, catalogMid };
       },
       { targetId: mid, pageNum: currentPage, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
     );
@@ -360,6 +383,7 @@ export async function findNaverShoppingRankByMid(
       out.reviewCount = result.reviewCount;
       out.starRating = result.starRating;
       out.productTitle = result.productTitle;
+      out.catalogMid = result.catalogMid || null;
       break;
     }
 
@@ -389,7 +413,9 @@ export async function findNaverShoppingRankByMid(
       log(`${currentPage}페이지까지 탐색 종료(다음 페이지 없음)`);
       break;
     }
-    await sleepMs(1000);
+    // 페이지 전환 대기 + __name polyfill 재주입 (PRB 세션 유지)
+    await sleepMs(2000);
+    await page.evaluate(() => { (window as any).__name = (fn: any) => fn; }).catch(() => {});
     currentPage++;
   }
 

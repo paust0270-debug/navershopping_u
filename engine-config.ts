@@ -171,8 +171,8 @@ export function loadEngineConfig(): EngineRuntime {
     keywordBlacklistEnabled: file.search?.keywordBlacklistEnabled !== false,
     keywordBlacklistPath: resolveKeywordBlacklistPath(file),
     searchFlowVersion: parseSearchFlowVersion(file.search?.searchFlowVersion),
-    /** 설정 생략 시 기본 true (기존 “항상 실행” 동작 유지) */
-    airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask !== false,
+    /** 설정 생략 시 기본 false (USB 폰 미연결 환경에서 ADB 오류 방지) */
+    airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask === true,
     airplaneCycles: Math.max(1, file.airplaneMode?.offOnCycles ?? 1),
     logEngineEvents: file.logging?.engineEvents !== false,
     emptyQueueWaitMs: Math.max(1000, file.scheduling?.emptyQueueWaitMs ?? 10000),
