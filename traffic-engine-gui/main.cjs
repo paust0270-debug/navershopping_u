@@ -368,6 +368,15 @@ ipcMain.handle("runner-start", (_e, { once }) => {
     shell = isWin;
   }
 
+  const cfg = safeReadJson(paths().config) || {};
+  const _apiKeys = Array.isArray(cfg.anthropicApiKeys) ? cfg.anthropicApiKeys : [];
+  const _apiIdx = typeof cfg.anthropicApiKeyIndex === "number" ? cfg.anthropicApiKeyIndex : 0;
+  const anthropicKey =
+    _apiKeys[_apiIdx]?.key?.trim() ||
+    cfg.anthropicApiKey ||
+    process.env.ANTHROPIC_API_KEY ||
+    "";
+
   runnerChild = spawn(cmd, args, {
     cwd: DATA_ROOT,
     shell,
@@ -375,6 +384,7 @@ ipcMain.handle("runner-start", (_e, { once }) => {
       ...env,
       ENGINE_TASK_FILE: paths().task,
       ENGINE_RESULT_FILE: paths().result,
+      ...(anthropicKey ? { ANTHROPIC_API_KEY: anthropicKey } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,

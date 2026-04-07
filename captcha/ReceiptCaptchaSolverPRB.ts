@@ -65,7 +65,8 @@ export class ReceiptCaptchaSolverPRB {
     // 0. 보안 확인 페이지 감지 - 질문이 나타날 때까지 대기
     const hasSecurityPage = await page.evaluate(() => {
       const bodyText = document.body.innerText || "";
-      return bodyText.includes("보안 확인") || bodyText.includes("영수증");
+      return bodyText.includes("보안 확인") ||
+             (bodyText.includes("영수증") && (bodyText.includes("[?]") || bodyText.includes("무엇입니까") || bodyText.includes("번째 숫자")));
     });
 
     if (hasSecurityPage) {

@@ -73,6 +73,18 @@ Schema examples: `engine-next-task.example.json`, `engine-last-result.example.js
 
 Per-product (MID) blacklist of 2차 keyword combos stored at `data/keyword-blacklist.json` (configurable). When a combo fails to find the product, it's auto-appended to prevent retries.
 
+### ADB Recovery Daemon
+
+`ipRotation.ts` exports `startRecoveryDaemon()` / `stopRecoveryDaemon()`. When running, it calls `adb shell svc data enable` every 5 seconds silently — so when rotating IP via ADB, the runner only sends the OFF command and waits for the daemon to restore data automatically.
+
+### esbuild `__name` Polyfill
+
+esbuild injects `__name()` wrappers around arrow functions. Any `page.evaluate()` / `context.addInitScript()` call that runs bundled code in the browser context must first inject:
+```js
+(window).__name = (fn) => fn;
+```
+See usages in `rank-check-shopping.ts` and `unified-runner.ts`.
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -83,8 +95,11 @@ Per-product (MID) blacklist of 2차 keyword combos stored at `data/keyword-black
 | `ENGINE_TASK_FILE` / `ENGINE_RESULT_FILE` | Override task/result JSON paths |
 | `IP_ROTATION_METHOD` | `adb` / `adapter` / `auto` / `disabled` (default: auto) |
 | `PW_VERSION_OVERRIDE` | Skip patchright-core version detection (GUI builds) |
+| `SKIP_GIT_UPDATE_CHECK` | `1` to disable auto-restart on remote `main` updates (checked every 3 min) |
 
 Naver login credentials: `naver-account.txt` (line 1: ID, line 2: password)
+
+`.env` load order: `.env.local` → `.env` → `__dirname/.env` → `C:\turafic\.env` (first found wins)
 
 ## Tech Stack
 

@@ -4,7 +4,7 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export type SearchFlowVersion = "A" | "B" | "C" | "D";
+export type SearchFlowVersion = "A" | "B" | "C" | "D" | "E" | "F";
 
 export interface EngineConfigFile {
   delays?: Record<string, number | { min: number; max: number }>;
@@ -20,13 +20,16 @@ export interface EngineConfigFile {
     explorationScrollPixels?: number;
     keywordBlacklistEnabled?: boolean;
     keywordBlacklistFile?: string;
-    /** A=1차+2차 조합(기본), B=메인키워드만, C=2차만, D=쇼핑 순위체크 */
+    /** A=1차+2차 조합(기본), B=메인키워드만, C=2차만, D=쇼핑 순위체크, E=검색→쇼핑탭→MID클릭, F=스토어→쇼핑홈→검색→MID클릭 */
     searchFlowVersion?: SearchFlowVersion;
   };
   airplaneMode?: { toggleBeforeEachTask?: boolean; offOnCycles?: number };
   logging?: { engineEvents?: boolean };
   scheduling?: { emptyQueueWaitMs?: number; workerStartDelayMs?: number };
   taskSource?: { taskFilePath?: string; resultFilePath?: string };
+  naverLoginEnabled?: boolean;
+  anthropicApiKeys?: Array<{ name: string; key: string }>;
+  anthropicApiKeyIndex?: number;
   [key: string]: unknown;
 }
 
@@ -97,7 +100,7 @@ function delayMs(spec: number | { min: number; max: number } | undefined, fallba
 }
 
 function parseSearchFlowVersion(v: unknown): SearchFlowVersion {
-  if (v === "B" || v === "C" || v === "D") return v;
+  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F") return v;
   return "A";
 }
 
@@ -148,6 +151,7 @@ export interface EngineRuntime {
   workerStartDelayMs: number;
   engineTaskFilePath: string;
   engineResultFilePath: string;
+  naverLoginEnabled: boolean;
 }
 
 export function loadEngineConfig(): EngineRuntime {
@@ -179,6 +183,7 @@ export function loadEngineConfig(): EngineRuntime {
     workerStartDelayMs: Math.max(0, file.scheduling?.workerStartDelayMs ?? 3000),
     engineTaskFilePath: resolveEngineTaskFilePath(file),
     engineResultFilePath: resolveEngineResultFilePath(file),
+    naverLoginEnabled: file.naverLoginEnabled === true,
   };
 }
 

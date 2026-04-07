@@ -75,6 +75,8 @@
                   <option value="B">B — 메인키워드만 검색</option>
                   <option value="C">C — 2차키워드만 (제목풀, 필수입력)</option>
                   <option value="D">D — 쇼핑 순위체크만 (트래픽 없음)</option>
+                  <option value="E">E — ackey 위장 URL (자동완성 위장)</option>
+                  <option value="F">F — 제목 풀 검색 (상품명 단어 조합)</option>
                 </select>
               </div>
               <div class="delay-grid" id="delayGrid"></div>
@@ -89,6 +91,12 @@
                   <option value="desktop">Desktop</option>
                   <option value="random">PC+Mobile 랜덤</option>
                 </select>
+              </div>
+              <div class="delay-grid" style="margin-top:6px">
+                <div style="grid-column:1/4" class="checkbox-row">
+                  <input type="checkbox" id="naverLoginEnabled" />
+                  <label for="naverLoginEnabled">네이버 로그인 사용 (naver-account.txt 필요)</label>
+                </div>
               </div>
             </div>
           </div>
@@ -110,6 +118,13 @@
               <div class="checkbox-row">
                 <input type="checkbox" id="toggleUsbDataBeforeTask" />
                 <label for="toggleUsbDataBeforeTask">작업 전 USB 데이터 OFF→ON 실행 (USB 폰 연결 시)</label>
+              </div>
+              <div style="margin-top:10px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                  <label title="CAPTCHA 자동 해결에 사용 (E/F 플로우 등)" style="font-size:12px;color:#ccc">Anthropic API 키</label>
+                  <button type="button" id="btnAddApiKey" style="font-size:11px;padding:2px 8px">+ 키 추가</button>
+                </div>
+                <div id="apiKeyList" style="display:flex;flex-direction:column;gap:4px"></div>
               </div>
             </div>
           </div>

@@ -28,6 +28,8 @@ let taskRows = [
   },
 ];
 let taskRowsStatsDate = "";
+let apiKeys = []; // [{name: string, key: string}]
+let apiKeySelectedIdx = 0;
 let infiniteRunEnabled = false;
 let infiniteRunTimer = null;
 let infiniteTaskIndex = 0;
@@ -217,6 +219,9 @@ async function buildConfigObject() {
       offOnCycles: Math.max(1, Number((existing.airplaneMode && existing.airplaneMode.offOnCycles) || 1)),
     },
     logging: { engineEvents: true },
+    naverLoginEnabled: document.getElementById("naverLoginEnabled")?.checked || false,
+    anthropicApiKeys: apiKeys.length > 0 ? apiKeys.map(k => ({ name: k.name, key: k.key })) : undefined,
+    anthropicApiKeyIndex: apiKeys.length > 0 ? apiKeySelectedIdx : undefined,
   };
 }
 
@@ -226,7 +231,7 @@ async function applyConfigToForm(cfg) {
   document.getElementById("maxScroll").value = cfg.search?.maxScrollAttempts ?? 4;
   const flow = cfg.search?.searchFlowVersion;
   document.getElementById("searchFlowVersion").value =
-    flow === "B" || flow === "C" || flow === "D" ? flow : "A";
+    ["A","B","C","D","E","F"].includes(flow) ? flow : "A";
   const wm = cfg.workMode || "mobile";
   document.getElementById("workMode").value =
     wm === "mobile" || wm === "desktop" || wm === "random" ? wm : "mobile";
@@ -235,7 +240,7 @@ async function applyConfigToForm(cfg) {
   if (thSec) {
     const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
     const activeFlow = document.getElementById("searchFlowVersion").value;
-    thSec.textContent = labels[activeFlow] || "2차 키워드 (선택)";
+    thSec.textContent = labels[activeFlow] || "2차 키워드";
   }
   document.getElementById("uaDesktop").value = (cfg.userAgents?.desktop || []).join("\n");
   document.getElementById("uaMobile").value = (cfg.userAgents?.mobile || []).join("\n");
@@ -243,6 +248,64 @@ async function applyConfigToForm(cfg) {
   if (usbToggle) {
     usbToggle.checked = cfg.airplaneMode?.toggleBeforeEachTask === true;
   }
+  const loginToggle = document.getElementById("naverLoginEnabled");
+  if (loginToggle) loginToggle.checked = cfg.naverLoginEnabled === true;
+  apiKeys = Array.isArray(cfg.anthropicApiKeys) ? cfg.anthropicApiKeys.map(k => ({ name: k.name || "", key: k.key || "" })) : [];
+  apiKeySelectedIdx = typeof cfg.anthropicApiKeyIndex === "number" ? cfg.anthropicApiKeyIndex : 0;
+  renderApiKeyList();
+}
+
+function renderApiKeyList() {
+  const container = document.getElementById("apiKeyList");
+  if (!container) return;
+  container.innerHTML = "";
+  apiKeys.forEach((entry, i) => {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;padding:4px 0;border-bottom:1px solid #444";
+
+    // 윗줄: 이름 + 버튼들
+    const topRow = document.createElement("div");
+    topRow.style.cssText = "display:flex;gap:4px;align-items:center";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = entry.name;
+    nameInput.placeholder = "이름 (예: 계정1)";
+    nameInput.style.cssText = "flex:1;font-size:12px;padding:3px 6px";
+    nameInput.oninput = () => { apiKeys[i].name = nameInput.value; };
+
+    const selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.textContent = i === apiKeySelectedIdx ? "✓ 사용중" : "선택";
+    selectBtn.style.cssText = `font-size:11px;padding:3px 8px;white-space:nowrap;${i === apiKeySelectedIdx ? "font-weight:bold;color:#4fc3f7;border-color:#4fc3f7" : ""}`;
+    selectBtn.onclick = () => { apiKeySelectedIdx = i; renderApiKeyList(); };
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "삭제";
+    delBtn.style.cssText = "font-size:11px;padding:3px 8px;color:#ef9a9a;white-space:nowrap";
+    delBtn.onclick = () => {
+      apiKeys.splice(i, 1);
+      if (apiKeySelectedIdx >= apiKeys.length) apiKeySelectedIdx = Math.max(0, apiKeys.length - 1);
+      renderApiKeyList();
+    };
+
+    topRow.appendChild(nameInput);
+    topRow.appendChild(selectBtn);
+    topRow.appendChild(delBtn);
+
+    // 아랫줄: 키 입력 (전체 너비)
+    const keyInput = document.createElement("input");
+    keyInput.type = "password";
+    keyInput.value = entry.key;
+    keyInput.placeholder = "sk-ant-api03-...";
+    keyInput.style.cssText = "width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;padding:4px 6px";
+    keyInput.oninput = () => { apiKeys[i].key = keyInput.value; };
+
+    wrap.appendChild(topRow);
+    wrap.appendChild(keyInput);
+    container.appendChild(wrap);
+  });
 }
 
 function renderTaskTable() {
@@ -807,10 +870,16 @@ async function initApp() {
     const th = document.getElementById("thSecondKeyword");
     if (!th) return;
     const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
-    th.textContent = labels[flow] || "2차 키워드";
+    th.textContent = labels[flow] || "2차 키워드 (선택)";
   }
   document.getElementById("searchFlowVersion").addEventListener("change", updateSecondKeywordHeader);
   updateSecondKeywordHeader();
+
+  document.getElementById("btnAddApiKey").onclick = () => {
+    apiKeys.push({ name: "", key: "" });
+    if (apiKeys.length === 1) apiKeySelectedIdx = 0;
+    renderApiKeyList();
+  };
 
   window.engineApi.onRunnerLog(({ line, stream }) => {
     logLine(stream === "stderr" ? "[err] " + line : line);
