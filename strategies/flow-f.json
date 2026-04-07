@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "flow-f-template",
+  "description": "F 전략 템플릿. 스토어 광고를 포함한 검색 흐름.",
+  "runtime": {
+    "workMode": "mobile",
+    "search": {
+      "searchFlowVersion": "F",
+      "maxScrollAttempts": 4
+    },
+    "taskSource": {
+      "taskFilePath": "engine-next-task.json",
+      "resultFilePath": "engine-last-result.json"
+    }
+  },
+  "tasks": [
+    {
+      "checked": true,
+      "keyword": "예시 메인 키워드",
+      "linkUrl": "https://smartstore.naver.com/example/products/1234567890",
+      "targetCount": 10
+    }
+  ]
+}

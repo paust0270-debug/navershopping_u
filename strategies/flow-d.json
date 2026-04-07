@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "flow-d-template",
+  "description": "D 전략 템플릿. 순위 체크 전용 흐름이며 targetCount 없이도 동작한다.",
+  "runtime": {
+    "workMode": "desktop",
+    "search": {
+      "searchFlowVersion": "D",
+      "maxScrollAttempts": 4
+    },
+    "taskSource": {
+      "taskFilePath": "engine-next-task.json",
+      "resultFilePath": "engine-last-result.json"
+    }
+  },
+  "tasks": [
+    {
+      "checked": true,
+      "keyword": "예시 메인 키워드",
+      "linkUrl": "https://smartstore.naver.com/example/products/1234567890",
+      "keywordName": "예시 상품명"
+    }
+  ]
+}
