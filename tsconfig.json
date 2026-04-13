@@ -10,11 +10,11 @@
     "declaration": false
   },
   "include": [
-    "unified-runner.ts",
-    "ipRotation.ts",
-    "engine-config.ts",
+    "*.ts",
     "captcha/**/*.ts",
-    "shared/**/*.ts"
+    "shared/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

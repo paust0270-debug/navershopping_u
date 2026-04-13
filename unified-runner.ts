@@ -1154,6 +1154,68 @@ async function pasteFirstSearchKeywordIntoPortal(
   }
 }
 
+// ============ [Flow E/F] 헬퍼 함수 ============
+
+function generateAckey(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let r = "";
+  for (let i = 0; i < 8; i++) r += chars[Math.floor(Math.random() * chars.length)];
+  return r;
+}
+
+function splitCompoundWord(word: string): string[] {
+  if (word.length <= 3) return [word];
+  const syllables: string[] = [];
+  let i = 0;
+  while (i < word.length) {
+    const chunkSize = Math.random() > 0.5 ? 2 : 3;
+    const chunk = word.substring(i, Math.min(i + chunkSize, word.length));
+    if (chunk.length >= 2) {
+      syllables.push(chunk);
+    } else if (chunk.length === 1 && syllables.length > 0) {
+      syllables[syllables.length - 1] += chunk;
+    } else {
+      syllables.push(chunk);
+    }
+    i += chunkSize;
+  }
+  return syllables;
+}
+
+function pickQueryWords(keyword: string, productName: string): string {
+  const tails = ["추천", "할인", "후기", "인기", "베스트", "구매", "쇼핑", "특가", "세일", "가성비", "최저가", "정품"];
+  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, " ").replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, " ");
+  const pool = [...new Set(allText.split(/\s+/).filter(w => w.length >= 2))];
+  for (let j = pool.length - 1; j > 0; j--) {
+    const k = Math.floor(Math.random() * (j + 1));
+    [pool[j], pool[k]] = [pool[k], pool[j]];
+  }
+  const selected: string[] = [];
+  for (const w of pool) {
+    if (selected.length >= 3) break;
+    selected.push(w);
+  }
+  while (selected.length < 3) {
+    const avail = tails.filter(t => !selected.includes(t));
+    if (!avail.length) break;
+    selected.push(avail[Math.floor(Math.random() * avail.length)]);
+  }
+  return selected.slice(0, 3).join(" ");
+}
+
+function buildAckeySearchUrl(query: string): string {
+  const p = new URLSearchParams({
+    sm: "mtp_sug.top",
+    where: "m",
+    query,
+    ackey: generateAckey(),
+    acq: query,
+    acr: String(Math.floor(Math.random() * 9) + 1),
+    qdt: "0",
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+
 async function runPatchrightEngine(
   page: Page,
   mid: string,
@@ -1175,41 +1237,65 @@ async function runPatchrightEngine(
   };
 
   const flow = engine.searchFlowVersion;
+  const flowLabel =
+    flow === "A" ? "A 조합형" :
+    flow === "B" ? "B 메인키워드만" :
+    flow === "C" ? "C 2차키워드만" :
+    flow === "E" ? "E ackey위장URL" :
+    flow === "F" ? "F 제목풀검색" : flow;
 
   try {
     const firstKeyword = (keyword || "").trim() || "상품";
-    log(
-      `[Worker ${workerId}] m.naver.com 접속 (작업 모드: ${flow === "A" ? "A 조합형" : flow === "B" ? "B 메인키워드만" : "C 2차키워드만"})`
-    );
-    await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
-    await sleep(engine.delay("browserLoad"));
+    log(`[Worker ${workerId}] 검색 시작 (작업 모드: ${flowLabel})`);
 
-    await page.evaluate(() => window.scrollTo(0, 0));
-    try {
-      await page.locator("#MM_SEARCH_FAKE").click({ force: true, timeout: 8000 });
-    } catch {
-      log(`[Worker ${workerId}] MM_SEARCH_FAKE 없음, 검색 입력으로 포커스 시도`, "warn");
-      await page.locator("#query, input[name='query'], .sch_input").first().click({ force: true }).catch(() => {});
-    }
-    await sleep(engine.delay("searchFakeClickGap"));
-
-    const portalSearchInput = page.locator("#query.sch_input, #query, input[name='query']").first();
-
-    if (flow === "C") {
-      const onlySecond = (secondKeywordRaw || "").trim();
-      if (!onlySecond) {
-        log(`[Worker ${workerId}] C모드는 2차 키워드 필수 — 작업 스킵`, "warn");
-        result.failReason = "INVALID_TASK";
-        result.error = "C모드_2차키워드없음";
-        return result;
-      }
-      log(`[Worker ${workerId}] C모드 단일 검색 (2차 키워드): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
-      await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, onlySecond, workerId, engine);
-      await page.keyboard.press("Enter");
-      await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
+    if (flow === "E") {
+      // E: ackey 위장 URL 직접 이동 (자동완성 선택 위장)
+      const query = pickQueryWords(firstKeyword, productName);
+      const searchUrl = buildAckeySearchUrl(query);
+      log(`[Worker ${workerId}] E모드 ackey URL: query="${query}"`);
+      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
       await sleep(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = onlySecond;
+      result.secondSearchPhraseUsed = query;
     } else {
+      // A/B/C/F: m.naver.com 포털 진입 후 타이핑
+      await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
+      await sleep(engine.delay("browserLoad"));
+
+      await page.evaluate(() => window.scrollTo(0, 0));
+      try {
+        await page.locator("#MM_SEARCH_FAKE").click({ force: true, timeout: 8000 });
+      } catch {
+        log(`[Worker ${workerId}] MM_SEARCH_FAKE 없음, 검색 입력으로 포커스 시도`, "warn");
+        await page.locator("#query, input[name='query'], .sch_input").first().click({ force: true }).catch(() => {});
+      }
+      await sleep(engine.delay("searchFakeClickGap"));
+
+      const portalSearchInput = page.locator("#query.sch_input, #query, input[name='query']").first();
+
+      if (flow === "C") {
+        const onlySecond = (secondKeywordRaw || "").trim();
+        if (!onlySecond) {
+          log(`[Worker ${workerId}] C모드는 2차 키워드 필수 — 작업 스킵`, "warn");
+          result.failReason = "INVALID_TASK";
+          result.error = "C모드_2차키워드없음";
+          return result;
+        }
+        log(`[Worker ${workerId}] C모드 단일 검색 (2차 키워드): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
+        await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, onlySecond, workerId, engine);
+        await page.keyboard.press("Enter");
+        await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
+        await sleep(engine.delay("afterFirstSearchLoad"));
+        result.secondSearchPhraseUsed = onlySecond;
+      } else if (flow === "F") {
+        // F: 제목 풀 검색 (키워드+상품명 단어 풀 → 3단어 조합)
+        const query = pickQueryWords(firstKeyword, productName);
+        log(`[Worker ${workerId}] F모드 제목 풀 검색: "${query}"`);
+        await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, query, workerId, engine);
+        await page.keyboard.press("Enter");
+        await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
+        await sleep(engine.delay("afterFirstSearchLoad"));
+        result.secondSearchPhraseUsed = query;
+      } else {
       log(`[Worker ${workerId}] 1차 검색 (검색 키워드): ${firstKeyword}`);
       await pasteFirstSearchKeywordIntoPortal(
         page,
@@ -1267,7 +1353,8 @@ async function runPatchrightEngine(
       } else {
         log(`[Worker ${workerId}] B모드 — 2차 검색 생략, 1차 결과에서 상품 탐색`);
       }
-    }
+      } // close: else { A/B } of if C / F / else
+    } // close: else { portal } of if (flow === "E")
 
     // IP 차단 체크
     const isBlocked = await page.evaluate(() => {
@@ -1524,12 +1611,15 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       totalRuns++;
 
       // D순위: rank_1 은 자동 로그인 없음(차단 완화). 필요 시 NAVER_LOGIN_ON_RANK=1 → PRB 전용 로그인
+      // naverLoginEnabled=false(기본)이면 파일 유무 무관하게 로그인 스킵
       const loginOk =
-        isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1"
+        !ENGINE.naverLoginEnabled
           ? true
-          : isRankD
-            ? await ensureNaverLoginPrbPage(page, workerId)
-            : await ensureNaverLoginIfConfigured(page as Page, workerId);
+          : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1"
+            ? true
+            : isRankD
+              ? await ensureNaverLoginPrbPage(page, workerId)
+              : await ensureNaverLoginIfConfigured(page as Page, workerId);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {

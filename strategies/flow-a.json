@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "flow-a-template",
+  "description": "A 전략 템플릿. 1차 검색 후 2차 조합 검색을 사용하는 기본 트래픽 흐름.",
+  "runtime": {
+    "workMode": "mobile",
+    "search": {
+      "searchFlowVersion": "A",
+      "maxScrollAttempts": 4
+    },
+    "taskSource": {
+      "taskFilePath": "engine-next-task.json",
+      "resultFilePath": "engine-last-result.json"
+    },
+    "logging": {
+      "engineEvents": true
+    }
+  },
+  "tasks": [
+    {
+      "checked": true,
+      "keyword": "예시 메인 키워드",
+      "linkUrl": "https://smartstore.naver.com/example/products/1234567890",
+      "keywordName": "예시 2차 키워드",
+      "targetCount": 10
+    }
+  ]
+}

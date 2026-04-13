@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "flow-e-template",
+  "description": "E 전략 템플릿. 검색광고 상품을 직접 여는 흐름.",
+  "runtime": {
+    "workMode": "mobile",
+    "search": {
+      "searchFlowVersion": "E",
+      "maxScrollAttempts": 4
+    },
+    "taskSource": {
+      "taskFilePath": "engine-next-task.json",
+      "resultFilePath": "engine-last-result.json"
+    }
+  },
+  "tasks": [
+    {
+      "checked": true,
+      "keyword": "예시 메인 키워드",
+      "linkUrl": "https://smartstore.naver.com/example/products/1234567890",
+      "targetCount": 10
+    }
+  ]
+}

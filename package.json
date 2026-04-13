@@ -6,6 +6,9 @@
   "scripts": {
     "start": "npx tsx unified-runner.ts",
     "once": "npx tsx unified-runner.ts --once",
+    "strategy:check": "npx tsx scripts/strategy-cli.ts check",
+    "strategy:apply": "npx tsx scripts/strategy-cli.ts apply",
+    "strategy:test": "npx tsx tests/strategy-sync.test.ts",
     "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:patchright --external:@anthropic-ai/sdk --external:puppeteer-real-browser --outfile=worker-runner.js",
     "build:gui-exe": "npm run build:worker && cd traffic-engine-gui && npm install && npm run pack"
   },
