@@ -71,7 +71,7 @@ import {
 import { connect } from "puppeteer-real-browser";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
 import { applyMobileStealth } from "./shared/mobile-stealth";
-import { findNaverShoppingRankByMid, type RankCheckPage } from "./rank-check-shopping";
+import { findNaverShoppingRankByMid, type RankCheckPage, collectVisibleSearchMidDebug } from "./rank-check-shopping";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -995,7 +995,7 @@ interface EngineResult {
   shoppingRank?: number | null;
   reviewCount?: number | null;
   starRating?: number | null;
-  /** D모드: 목록에서 추출한 상품명 → GUI에서 2차 키워드 비었을 때만 채움 */
+  /** D모드: 상세페이지에서 추출한 상품명 → GUI에서 2차 키워드 비었을 때만 채움 */
   extractedProductTitle?: string | null;
   catalogMid?: string | null;
 }
@@ -1046,7 +1046,7 @@ function writeEngineTaskResult(work: WorkItem, result: EngineResult): void {
   }
 }
 
-/** D모드: 네이버 통검 → 쇼핑 탭 MID 순위 (sellermate_naver_rank_1 단일 체크 흐름) */
+/** D모드: 네이버 통합검색 → MID 순위 (통합검색 결과 페이지에서 카드 탐색) */
 async function runShoppingRankCheck(
   page: RankCheckPage,
   work: WorkItem,
@@ -1118,7 +1118,18 @@ async function pasteFirstSearchKeywordIntoPortal(
   workerId: number,
   engine: EngineRuntime
 ): Promise<void> {
-  await portalSearchInput.click({ force: true });
+  try {
+    await portalSearchInput.click({ force: true });
+  } catch {
+    await portalSearchInput.evaluate((el) => {
+      try {
+        (el as HTMLElement).scrollIntoView({ block: "center", inline: "center" });
+        (el as HTMLElement).focus();
+      } catch {
+        /* ignore */
+      }
+    }).catch(() => {});
+  }
   await sleep(engine.delay("beforeFirstKeyword"));
   await page.keyboard.press("Control+a");
   await sleep(40);
@@ -1143,9 +1154,25 @@ async function pasteFirstSearchKeywordIntoPortal(
   let q = (await portalSearchInput.inputValue().catch(() => "")).trim();
   if (!q && firstKeyword.trim()) {
     log(`[Worker ${workerId}] 1차 붙여넣기 후 비어 있음 — fill`, "warn");
+    try {
     await portalSearchInput.click({ force: true });
+  } catch {
+    await portalSearchInput.evaluate((el) => {
+      try {
+        (el as HTMLElement).scrollIntoView({ block: "center", inline: "center" });
+        (el as HTMLElement).focus();
+      } catch {
+        /* ignore */
+      }
+    }).catch(() => {});
+  }
     await sleep(80);
-    await portalSearchInput.fill(firstKeyword);
+    await portalSearchInput.evaluate((el, value) => {
+      const input = el as HTMLInputElement;
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, firstKeyword).catch(() => {});
     await sleep(engine.delay("afterFirstKeywordType"));
     q = (await portalSearchInput.inputValue().catch(() => "")).trim();
   }
@@ -1216,6 +1243,56 @@ function buildAckeySearchUrl(query: string): string {
   return `https://m.search.naver.com/search.naver?${p.toString()}`;
 }
 
+function buildIntegratedSearchUrl(query: string): string {
+  const p = new URLSearchParams({
+    where: "m",
+    query,
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+
+async function collectSearchDomDiagnostics(page: Page, mid: string, catalogMid?: string): Promise<string> {
+  try {
+    const diag = await page.evaluate(({ mid, catalogMid }) => {
+      const bodyText = document.body?.innerText || "";
+      const title = document.title || "";
+      const targetId = `nstore_productId_${mid}`;
+      const targetCatalogId = catalogMid ? `nstore_productId_${catalogMid}` : "";
+      const count = (sel: string) => document.querySelectorAll(sel).length;
+      const has = (sel: string) => !!document.querySelector(sel);
+      const errorHints = ["보안 확인", "자동입력방지", "Too Many Requests", "에러페이지", "시스템오류", "접속이 불가합니다"].filter((t) =>
+        `${title} ${bodyText}`.includes(t)
+      );
+      const targetSelectors = [
+        `#${targetId}`,
+        `a[aria-labelledby=\"${targetId}\"]`,
+        `a[href*=\"/products/${mid}\"]`,
+        `a[href*=\"main/products/${mid}\"]`,
+        `a[href*=\"nv_mid=${mid}\"]`,
+      ];
+      if (catalogMid) {
+        targetSelectors.unshift(`#nstore_productId_${catalogMid}`);
+        targetSelectors.unshift(`a[data-shp-contents-id=\"${catalogMid}\"]`);
+      }
+      return {
+        url: location.href,
+        readyState: document.readyState,
+        title,
+        slogVisibleCount: count("li._slog_visible"),
+        slogContentCount: count("[data-slog-content]"),
+        targetIdVisible: has(`#${targetId}`),
+        targetCatalogVisible: catalogMid ? has(`#nstore_productId_${catalogMid}`) : false,
+        targetSelectors: targetSelectors.filter((sel) => has(sel)),
+        errorHints,
+        bodySnippet: bodyText.slice(0, 220).replace(/\s+/g, " ").trim(),
+      };
+    }, { mid, catalogMid: catalogMid ?? null });
+    return `[DOM] url=${diag.url} readyState=${diag.readyState} title=${JSON.stringify(diag.title)} slogVisible=${diag.slogVisibleCount} dataSlog=${diag.slogContentCount} targetId=${diag.targetIdVisible} catalogId=${diag.targetCatalogVisible} matched=${diag.targetSelectors.join(",") || "-"} errors=${diag.errorHints.join(",") || "-"} body=${JSON.stringify(diag.bodySnippet)}`;
+  } catch (e: any) {
+    return `[DOM] diagnostics unavailable: ${e?.message || String(e)}`;
+  }
+}
+
 async function runPatchrightEngine(
   page: Page,
   mid: string,
@@ -1238,84 +1315,55 @@ async function runPatchrightEngine(
 
   const flow = engine.searchFlowVersion;
   const flowLabel =
-    flow === "A" ? "A 조합형" :
-    flow === "B" ? "B 메인키워드만" :
-    flow === "C" ? "C 2차키워드만" :
+    flow === "A" ? "A 통합1+2차" :
+    flow === "B" ? "B 통합메인" :
+    flow === "C" ? "C 통합2차" :
     flow === "E" ? "E ackey위장URL" :
-    flow === "F" ? "F 제목풀검색" : flow;
+    flow === "F" ? "F 통합상품명" : flow;
 
   try {
     const firstKeyword = (keyword || "").trim() || "상품";
     log(`[Worker ${workerId}] 검색 시작 (작업 모드: ${flowLabel})`);
 
     if (flow === "E") {
-      // E: ackey 위장 URL 직접 이동 (자동완성 선택 위장)
+      // E: ackey 위장 URL 직접 이동 (통합검색 기반)
       const query = pickQueryWords(firstKeyword, productName);
       const searchUrl = buildAckeySearchUrl(query);
       log(`[Worker ${workerId}] E모드 ackey URL: query="${query}"`);
       await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
       await sleep(engine.delay("afterFirstSearchLoad"));
       result.secondSearchPhraseUsed = query;
-    } else {
-      // A/B/C/F: m.naver.com 포털 진입 후 타이핑
-      await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
-      await sleep(engine.delay("browserLoad"));
-
-      await page.evaluate(() => window.scrollTo(0, 0));
-      try {
-        await page.locator("#MM_SEARCH_FAKE").click({ force: true, timeout: 8000 });
-      } catch {
-        log(`[Worker ${workerId}] MM_SEARCH_FAKE 없음, 검색 입력으로 포커스 시도`, "warn");
-        await page.locator("#query, input[name='query'], .sch_input").first().click({ force: true }).catch(() => {});
+    } else if (flow === "C") {
+      const onlySecond = (secondKeywordRaw || "").trim();
+      if (!onlySecond) {
+        log(`[Worker ${workerId}] C모드는 2차 키워드 필수 — 작업 스킵`, "warn");
+        result.failReason = "INVALID_TASK";
+        result.error = "C모드_2차키워드없음";
+        return result;
       }
-      await sleep(engine.delay("searchFakeClickGap"));
-
-      const portalSearchInput = page.locator("#query.sch_input, #query, input[name='query']").first();
-
-      if (flow === "C") {
-        const onlySecond = (secondKeywordRaw || "").trim();
-        if (!onlySecond) {
-          log(`[Worker ${workerId}] C모드는 2차 키워드 필수 — 작업 스킵`, "warn");
-          result.failReason = "INVALID_TASK";
-          result.error = "C모드_2차키워드없음";
-          return result;
-        }
-        log(`[Worker ${workerId}] C모드 단일 검색 (2차 키워드): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
-        await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, onlySecond, workerId, engine);
-        await page.keyboard.press("Enter");
-        await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
-        await sleep(engine.delay("afterFirstSearchLoad"));
-        result.secondSearchPhraseUsed = onlySecond;
-      } else if (flow === "F") {
-        // F: 제목 풀 검색 (키워드+상품명 단어 풀 → 3단어 조합)
-        const query = pickQueryWords(firstKeyword, productName);
-        log(`[Worker ${workerId}] F모드 제목 풀 검색: "${query}"`);
-        await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, query, workerId, engine);
-        await page.keyboard.press("Enter");
-        await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
-        await sleep(engine.delay("afterFirstSearchLoad"));
-        result.secondSearchPhraseUsed = query;
-      } else {
-      log(`[Worker ${workerId}] 1차 검색 (검색 키워드): ${firstKeyword}`);
-      await pasteFirstSearchKeywordIntoPortal(
-        page,
-        page.context(),
-        portalSearchInput,
-        firstKeyword,
-        workerId,
-        engine
-      );
-      await page.keyboard.press("Enter");
-      await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
+      log(`[Worker ${workerId}] C모드 통합검색 (2차 키워드): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
+      await page.goto(buildIntegratedSearchUrl(onlySecond), { waitUntil: "domcontentloaded", timeout: 60000 });
+      await sleep(engine.delay("afterFirstSearchLoad"));
+      result.secondSearchPhraseUsed = onlySecond;
+    } else if (flow === "F") {
+      // F: 상품명 전체를 그대로 통합검색
+      const query = (productName || firstKeyword || "").trim() || pickQueryWords(firstKeyword, productName);
+      log(`[Worker ${workerId}] F모드 상품명 전체 통합검색: "${query}"`);
+      await page.goto(buildIntegratedSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 60000 });
+      await sleep(engine.delay("afterFirstSearchLoad"));
+      result.secondSearchPhraseUsed = query;
+    } else {
+      const firstQuery = firstKeyword;
+      log(`[Worker ${workerId}] 1차 통합검색: ${firstQuery}`);
+      await page.goto(buildIntegratedSearchUrl(firstQuery), { waitUntil: "domcontentloaded", timeout: 60000 });
       await sleep(engine.delay("afterFirstSearchLoad"));
 
       if (flow === "A") {
         // productTitle(순위체크 수집 풀네임) 있으면 직접 사용, 없으면 3단 조합 생성
         let secondSearchKeyword: string;
         if (catalogMid && productName && productName.length > 10) {
-          // 상품 풀네임이 있으면 그대로 2차 검색어로 사용 (combined-runner 방식)
           secondSearchKeyword = productName;
-          log(`[Worker ${workerId}] 2차 검색 (풀네임): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+          log(`[Worker ${workerId}] A모드 2차 통합검색 (풀네임): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
         } else {
           const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
           secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
@@ -1325,36 +1373,15 @@ async function runPatchrightEngine(
             nameForSecond,
             workerId
           );
-          log(`[Worker ${workerId}] 2차 검색 (3단조합): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+          log(`[Worker ${workerId}] A모드 2차 통합검색 (3단조합): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
         }
         result.secondSearchPhraseUsed = secondSearchKeyword;
-        const searchInput = page.locator('#query, .sch_input, input[name="query"]').first();
-        await searchInput.click({ force: true });
-        await sleep(engine.delay("secondSearchField"));
-        await page.keyboard.press("Control+a");
-        await sleep(100);
-        await page.keyboard.press("Backspace");
-        await sleep(200);
-        await searchInput.type(secondSearchKeyword, { delay: engine.delay("secondKeywordTypingDelay") });
-        await sleep(engine.delay("afterSecondKeywordType"));
-        await page.keyboard.press("Enter");
-        log(`[Worker ${workerId}] 2차 검색 결과 로딩 대기...`);
-        try {
-          await page.waitForLoadState("domcontentloaded", { timeout: 1000 });
-        } catch {
-          log(`[Worker ${workerId}] 2차 검색 로딩 없음/지연 — 페이지 새로고침 1회`, "warn");
-          await page
-            .reload({ waitUntil: "domcontentloaded", timeout: 60000 })
-            .catch((e: any) => {
-              log(`[Worker ${workerId}] 2차 검색 새로고침 실패: ${e?.message ?? e}`, "warn");
-            });
-        }
+        await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 60000 });
         await sleep(engine.delay("afterSecondSearchLoad"));
       } else {
-        log(`[Worker ${workerId}] B모드 — 2차 검색 생략, 1차 결과에서 상품 탐색`);
+        log(`[Worker ${workerId}] B모드 — 1차 통합검색 결과에서 상품 탐색`);
       }
-      } // close: else { A/B } of if C / F / else
-    } // close: else { portal } of if (flow === "E")
+    }
 
     // IP 차단 체크
     const isBlocked = await page.evaluate(() => {
@@ -1369,6 +1396,7 @@ async function runPatchrightEngine(
 
     if (isBlocked) {
       log(`[Worker ${workerId}] IP 차단 감지!`, "warn");
+      log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
       result.failReason = 'IP_BLOCKED';
       result.error = 'Blocked';
       return result;
@@ -1390,6 +1418,7 @@ async function runPatchrightEngine(
         result.captchaDetected = false;
       } else {
         log(`[Worker ${workerId}] 검색 CAPTCHA 해결 실패`, "warn");
+        log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
         result.failReason = 'CAPTCHA_UNSOLVED';
         return result;
       }
@@ -1398,22 +1427,25 @@ async function runPatchrightEngine(
     // 8. MID로 직접 상품 링크 탐색 (combined-runner 방식)
     const MAX_SCROLL = engine.maxScrollAttempts;
     let linkClicked = false;
+    const fallbackProductTitle = productName;
 
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
       log(`[Worker ${workerId}] 상품 링크 탐색 ${i + 1}/${MAX_SCROLL}`);
 
-      // MID href로 직접 탐색 (4가지 전략, 가격비교·플러스스토어·쇼핑탭 모두 커버)
+      // 통합검색 grid 영역: 가격비교/플러스스토어/쇼핑 카드 모두 커버
       const searchMid = catalogMid || mid;
       const link =
-        // 1. 쇼핑탭: data-shp-contents-id (Catalog MID)
+        // 1. 쇼핑/통합 카드 공통: 제품 식별자 기반
         (catalogMid ? await page.$(`a[data-shp-contents-id="${catalogMid}"]`).catch(() => null) : null) ||
-        // 2. 가격비교: nv_mid= 파라미터
-        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) ||
-        // 3. 플러스스토어: /products/MID 경로
+        await page.$(`a[aria-labelledby="nstore_productId_${searchMid}"]`).catch(() => null) ||
+        await page.$(`a[href*="smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) ||
+        await page.$(`a[href*="m.smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) ||
         await page.$(`a[href*="/products/${searchMid}"]`).catch(() => null) ||
-        // 4. ID 속성 매칭 (nstore_productId_MID)
+        // 2. 가격비교 / 브릿지 링크
+        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) ||
+        await page.$(`a[href*="searchGate?nv_mid=${searchMid}"]`).catch(() => null) ||
+        // 3. ID 속성 매칭 (카드 컨테이너)
         await page.$(`[id="nstore_productId_${mid}"]`).catch(() => null) ||
-        // 5. Channel Product No 폴백 (catalogMid 있을 때)
         (catalogMid ? await page.$(`a[href*="/products/${mid}"]`).catch(() => null) : null);
 
       if (link) {
@@ -1437,11 +1469,84 @@ async function runPatchrightEngine(
 
           if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
             result.productPageEntered = true;
+            try {
+              const pageTitle = await page.evaluate(() => {
+                const clean = (value: unknown): string => String(value || '').replace(/\s+/g, ' ').replace(/\u00a0/g, ' ').trim();
+                const stripSuffix = (value: string): string => {
+                  let text = clean(value);
+                  text = text.replace(/\s*(?:\||·|:|\-|—)\s*(?:네이버.*|Naver.*|SmartStore.*)$/i, '').trim();
+                  text = text.replace(/\s*\|\s*$/, '').trim();
+                  return text;
+                };
+                const seen = new Set<string>();
+                const candidates: string[] = [];
+                const push = (value: unknown) => {
+                  const text = stripSuffix(String(value || ''));
+                  if (!text || seen.has(text)) return;
+                  seen.add(text);
+                  candidates.push(text);
+                };
+                const bodyText = clean(document.body?.innerText || '');
+                const isErrorPage = /에러페이지|시스템오류|현재 서비스 접속이 불가합니다|Too Many Requests|접속이 불가합니다/i.test(
+                  `${document.title} ${bodyText}`
+                );
+                push(document.querySelector('meta[property="og:title"]')?.getAttribute('content'));
+                push(document.querySelector('meta[name="twitter:title"]')?.getAttribute('content'));
+                push(document.querySelector('meta[name="title"]')?.getAttribute('content'));
+                for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]'))) {
+                  const raw = script.textContent?.trim();
+                  if (!raw) continue;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    const items = Array.isArray(parsed) ? parsed : [parsed];
+                    for (const item of items) {
+                      if (!item || typeof item !== 'object') continue;
+                      const anyItem = item as any;
+                      push(anyItem.name);
+                      push(anyItem.headline);
+                      push(anyItem.title);
+                    }
+                  } catch {}
+                }
+                push(document.title);
+                for (const sel of ['h1', 'h2', 'h3', 'strong', "[itemprop='name']"]) {
+                  document.querySelectorAll(sel).forEach((el) => push(el.textContent));
+                }
+                if (isErrorPage) return null;
+                return candidates.find((t) => t.length >= 4) || null;
+              });
+              if (pageTitle) result.extractedProductTitle = pageTitle;
+              if (!result.extractedProductTitle && fallbackProductTitle) {
+                result.extractedProductTitle = fallbackProductTitle;
+              }
+            } catch {
+              if (!result.extractedProductTitle && fallbackProductTitle) {
+                result.extractedProductTitle = fallbackProductTitle;
+              }
+              /* title extraction is best-effort */
+            }
           } else {
+            log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
             result.failReason = "DETAIL_NOT_REACHED";
             result.error = "StoreDetailUrlMismatch";
           }
           break;
+        }
+      }
+
+      if (!linkClicked && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
+        const debug = await collectVisibleSearchMidDebug(page, 8).catch(() => null);
+        if (debug) {
+          log(
+            `[DEBUG] visible mids attempt ${i + 1}/${MAX_SCROLL}: ${debug.mids.length ? debug.mids.join(", ") : "(none)"}`,
+            "warn"
+          );
+          debug.cards.slice(0, 6).forEach((card, idx) => {
+            log(
+              `[DEBUG] card ${idx + 1}: tag=${card.tag} ids=${card.ids.join("|") || "-"} title=${card.title || "-"}`,
+              "warn"
+            );
+          });
         }
       }
 
@@ -1451,6 +1556,7 @@ async function runPatchrightEngine(
 
     if (!linkClicked) {
       log(`[Worker ${workerId}] 상품이 존재하지 않음 — MID(${mid}) 검색결과에 미노출 (${MAX_SCROLL}회 스크롤)`, "warn");
+      log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
       result.error = '상품이 존재하지 않음';
       result.failReason = 'PRODUCT_NOT_FOUND';
       result.midMatched = false;
@@ -1548,16 +1654,38 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       let page: Page | RankCheckPage;
 
       // 2. D모드 = rank_1 start.bat → ParallelRankChecker (puppeteer-real-browser connect)
-      if (isRankD) {
+      if (isRankD && process.env.HEADLESS === "1") {
+        const browserLaunchOptions: any = {
+          headless: true,
+          args: [
+            `--window-position=${pos.x},${pos.y}`,
+            `--window-size=${winW},${winH}`,
+          ],
+        };
+        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+        if (browserChannel) {
+          browserLaunchOptions.channel = browserChannel;
+        }
+        browser = await chromium.launch(browserLaunchOptions);
+        const ctxOpts = buildBrowserContextOptions(false, ua);
+        context = await browser.newContext({
+          ...ctxOpts,
+          ...(proxy ? { proxy } : {}),
+        });
+        page = context.pages().length > 0 ? context.pages()[0]! : await context.newPage();
+        page.setDefaultTimeout(60000);
+        page.setDefaultNavigationTimeout(60000);
+      } else if (isRankD) {
         const userDataDir = getPrbRankUserDataDir(workerId);
         if (ENGINE.logEngineEvents) {
           log(`[Engine] Worker ${workerId} 순위 PRB 프로필: ${userDataDir}`);
         }
         // rank_1 start.bat(check-batch-worker-pool.ts)와 동일 옵션만 사용
         const connectOpts: any = {
-          headless: false,
+          headless: process.env.HEADLESS === "1",
           turnstile: true,
           fingerprint: true,
+          disableXvfb: process.env.HEADLESS === "1",
           customConfig: { userDataDir },
         };
         const conn = await connect(connectOpts);
@@ -1578,14 +1706,18 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
         browser = null;
         context = null;
       } else {
-        browser = await chromium.launch({
-          headless: false,
-          channel: "chrome",
+        const browserLaunchOptions: any = {
+          headless: process.env.HEADLESS === "1",
           args: [
             `--window-position=${pos.x},${pos.y}`,
             `--window-size=${winW},${winH}`,
           ],
-        });
+        };
+        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+        if (browserChannel) {
+          browserLaunchOptions.channel = browserChannel;
+        }
+        browser = await chromium.launch(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
         context = await browser.newContext({
           ...ctxOpts,

@@ -611,7 +611,7 @@ function delayMs(spec, fallback) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 function parseSearchFlowVersion(v) {
-  if (v === "B" || v === "C" || v === "D")
+  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F")
     return v;
   return "A";
 }
@@ -660,14 +660,15 @@ function loadEngineConfig() {
     keywordBlacklistEnabled: file.search?.keywordBlacklistEnabled !== false,
     keywordBlacklistPath: resolveKeywordBlacklistPath(file),
     searchFlowVersion: parseSearchFlowVersion(file.search?.searchFlowVersion),
-    /** 설정 생략 시 기본 true (기존 “항상 실행” 동작 유지) */
-    airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask !== false,
+    /** 설정 생략 시 기본 false (USB 폰 미연결 환경에서 ADB 오류 방지) */
+    airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask === true,
     airplaneCycles: Math.max(1, file.airplaneMode?.offOnCycles ?? 1),
     logEngineEvents: file.logging?.engineEvents !== false,
     emptyQueueWaitMs: Math.max(1e3, file.scheduling?.emptyQueueWaitMs ?? 1e4),
     workerStartDelayMs: Math.max(0, file.scheduling?.workerStartDelayMs ?? 3e3),
     engineTaskFilePath: resolveEngineTaskFilePath(file),
-    engineResultFilePath: resolveEngineResultFilePath(file)
+    engineResultFilePath: resolveEngineResultFilePath(file),
+    naverLoginEnabled: file.naverLoginEnabled === true
   };
 }
 function resolveMobileForTask(runtime) {
@@ -743,7 +744,7 @@ var ReceiptCaptchaSolverPRB = class {
     }
     const hasSecurityPage = await page.evaluate(() => {
       const bodyText = document.body.innerText || "";
-      return bodyText.includes("\uBCF4\uC548 \uD655\uC778") || bodyText.includes("\uC601\uC218\uC99D");
+      return bodyText.includes("\uBCF4\uC548 \uD655\uC778") || bodyText.includes("\uC601\uC218\uC99D") && (bodyText.includes("[?]") || bodyText.includes("\uBB34\uC5C7\uC785\uB2C8\uAE4C") || bodyText.includes("\uBC88\uC9F8 \uC22B\uC790"));
     });
     if (hasSecurityPage) {
       this.log("\uBCF4\uC548 \uD655\uC778 \uD398\uC774\uC9C0 \uAC10\uC9C0\uB428 - CAPTCHA \uC9C8\uBB38 \uB300\uAE30 \uC911...");
@@ -1262,15 +1263,6 @@ var HYDRATE_SCROLL_TOTAL = 18 * 550;
 function microDelay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-async function humanType(page, text) {
-  for (const char of text) {
-    await page.keyboard.type(char);
-    await microDelay(50 + Math.random() * 100);
-    if (Math.random() < 0.05) {
-      await microDelay(200 + Math.random() * 300);
-    }
-  }
-}
 async function humanScroll(page, totalDistance) {
   let scrolled = 0;
   while (scrolled < totalDistance) {
@@ -1284,83 +1276,136 @@ async function humanScroll(page, totalDistance) {
     }
   }
 }
+async function collectVisibleSearchMidDebug(page, limit = 12) {
+  return page.evaluate(({ limit: limit2 }) => {
+    const cards = Array.from(
+      document.querySelectorAll("li._slog_visible, section._slog_visible, div._slog_visible")
+    );
+    const mids = [];
+    const result = [];
+    const pushMid = (mid) => {
+      if (!mid)
+        return;
+      if (!mids.includes(mid))
+        mids.push(mid);
+    };
+    for (const card of cards) {
+      const anchors = Array.from(card.querySelectorAll("a[href]"));
+      const hrefs = [];
+      const ids = [];
+      for (const a of anchors) {
+        const href = a.getAttribute("href") || "";
+        if (href)
+          hrefs.push(href);
+        for (const m of [
+          href.match(/(?:nv_mid|nvMid)=(\d+)/),
+          href.match(/\/main\/products\/(\d+)/),
+          href.match(/\/products\/(\d+)/),
+          href.match(/searchGate\?[^#]*nv_mid=(\d+)/)
+        ]) {
+          if (m)
+            pushMid(m[1]);
+        }
+        const aria = a.getAttribute("aria-labelledby") || "";
+        const m2 = aria.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
+        if (m2)
+          pushMid(m2[1]);
+      }
+      for (const el of Array.from(card.querySelectorAll("[id]"))) {
+        const id = el.id || "";
+        if (!id)
+          continue;
+        const nm = id.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
+        if (nm)
+          pushMid(nm[1]);
+        if (ids.length < 4)
+          ids.push(id);
+      }
+      if (!hrefs.length && !ids.length)
+        continue;
+      const titleEl = card.querySelector('strong span:last-child, [class*="title"], [class*="name"], img[alt]');
+      const title = titleEl ? (titleEl.getAttribute?.("alt") || titleEl.textContent || "").trim().replace(/\s+/g, " ") : "";
+      result.push({
+        tag: card.tagName,
+        cls: card.className || null,
+        dataSlog: card.getAttribute("data-slog-content"),
+        ids,
+        hrefs: hrefs.slice(0, 3),
+        title: title.slice(0, 140)
+      });
+      if (result.length >= limit2)
+        break;
+    }
+    return { mids, cards: result };
+  }, { limit });
+}
 async function isShoppingBlocked(page) {
   return page.evaluate(() => {
     const body = document.body?.innerText ?? "";
     return body.includes("\uBCF4\uC548 \uD655\uC778") || body.includes("\uC790\uB3D9 \uC785\uB825 \uBC29\uC9C0") || body.includes("\uC77C\uC2DC\uC801\uC73C\uB85C \uC81C\uD55C");
   });
 }
-var SHOPPING_HOST = "search.shopping.naver.com";
-async function tripleClickSearchInput(page, log3) {
-  try {
-    if (typeof page.locator === "function") {
-      const raw = page.locator('input[name="query"]');
-      if (raw && typeof raw.first === "function") {
-        const searchInput = raw.first();
-        await searchInput.waitFor({ state: "visible", timeout: 15e3 });
-        await searchInput.click({ clickCount: 3 });
-        return true;
-      }
-    }
-    if (typeof page.waitForSelector === "function") {
-      const el = await page.waitForSelector('input[name="query"]', { visible: true, timeout: 15e3 });
-      if (!el) {
-        log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C");
-        return false;
-      }
-      await el.click({ clickCount: 3 });
-      return true;
-    }
-  } catch {
-    log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C");
-    return false;
-  }
-  log3("\uAC80\uC0C9 \uC785\uB825\uCC3D API \uBBF8\uC9C0\uC6D0");
-  return false;
+function normalizeDetailTitle(raw) {
+  return String(raw || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
 }
-async function enterNaverShoppingSearch(page, kw, log3, sleepMs) {
-  log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785\u2026");
+async function extractDetailPageTitle(page) {
   try {
-    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded", timeout: 45e3 });
-  } catch {
-    log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785 \uC2E4\uD328");
-    return false;
-  }
-  await sleepMs(SAFE_DELAY_MS);
-  const inputOk = await tripleClickSearchInput(page, log3);
-  if (!inputOk)
-    return false;
-  await humanType(page, kw);
-  await page.keyboard.press("Enter");
-  log3("\uAC80\uC0C9 \uACB0\uACFC \uB300\uAE30 \uC911\u2026");
-  try {
-    await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15e3 });
-  } catch {
-  }
-  await sleepMs(1e3);
-  log3("\uC1FC\uD551\uD0ED\uC73C\uB85C \uC774\uB3D9");
-  let clicked = false;
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    clicked = await page.evaluate(() => {
-      const link = document.querySelector('a[href*="search.shopping.naver.com"]');
-      if (!link)
-        return false;
-      link.removeAttribute("target");
-      link.click();
-      return true;
+    const title = await page.evaluate(() => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
+      const stripSuffix = (value) => {
+        let text = clean(value);
+        text = text.replace(/\s*(?:\||·|:|\-|—)\s*(?:네이버.*|Naver.*|SmartStore.*)$/i, "").trim();
+        text = text.replace(/\s*\|\s*$/, "").trim();
+        return text;
+      };
+      const seen = /* @__PURE__ */ new Set();
+      const candidates = [];
+      const push = (value) => {
+        const text = stripSuffix(String(value || ""));
+        if (!text || seen.has(text))
+          return;
+        seen.add(text);
+        candidates.push(text);
+      };
+      push(document.querySelector('meta[property="og:title"]')?.getAttribute("content"));
+      push(document.querySelector('meta[name="twitter:title"]')?.getAttribute("content"));
+      push(document.querySelector('meta[name="title"]')?.getAttribute("content"));
+      push(document.title);
+      for (const sel of ["h1", "h2", "h3", "strong"]) {
+        document.querySelectorAll(sel).forEach((el) => push(el.textContent));
+      }
+      for (const text of candidates) {
+        if (text.length >= 4) {
+          return text;
+        }
+      }
+      return null;
     });
-    if (clicked)
-      break;
-    log3(`\uC1FC\uD551\uD0ED \uB300\uAE30 \uC911\u2026 (${attempt}/5)`);
-    await sleepMs(2e3);
+    return title ? normalizeDetailTitle(title) : null;
+  } catch {
+    return null;
   }
-  if (!clicked) {
-    log3("\uC1FC\uD551\uD0ED \uB9C1\uD06C \uC5C6\uC74C");
+}
+var SEARCH_HOST = "search.naver.com";
+async function enterNaverShoppingSearch(page, kw, log3, sleepMs) {
+  log3("\uB124\uC774\uBC84 \uD1B5\uD569\uAC80\uC0C9 \uC9C4\uC785\u2026");
+  try {
+    await page.goto(`https://m.search.naver.com/search.naver?where=m&query=${encodeURIComponent(kw)}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 45e3
+    });
+  } catch {
+    log3("\uB124\uC774\uBC84 \uD1B5\uD569\uAC80\uC0C9 \uC9C4\uC785 \uC2E4\uD328");
     return false;
   }
-  await sleepMs(SAFE_DELAY_MS + 800);
-  if (!page.url().includes(SHOPPING_HOST)) {
-    log3("\uC1FC\uD551\uD0ED URL \uBBF8\uD655\uC778");
+  await page.evaluate(() => {
+    window.__name = (fn) => fn;
+  }).catch(() => {
+  });
+  await sleepMs(SAFE_DELAY_MS);
+  log3("\uD1B5\uD569\uAC80\uC0C9 \uACB0\uACFC \uB300\uAE30 \uC911\u2026");
+  if (!page.url().includes(SEARCH_HOST)) {
+    log3("\uD1B5\uD569\uAC80\uC0C9 URL \uBBF8\uD655\uC778");
     return false;
   }
   if (await isShoppingBlocked(page)) {
@@ -1374,7 +1419,9 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
     rank: null,
     reviewCount: null,
     starRating: null,
-    productTitle: null
+    productTitle: null,
+    catalogMid: null,
+    detailUrl: null
   };
   const mid = targetMid.trim();
   const kw = keyword.trim();
@@ -1386,6 +1433,10 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
   if (!entered) {
     return empty;
   }
+  await page.evaluate(() => {
+    window.__name = (fn) => fn;
+  }).catch(() => {
+  });
   const out = { ...empty };
   let currentPage = 1;
   while (currentPage <= maxPages) {
@@ -1394,11 +1445,11 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
     await sleepMs(150);
     const result = await page.evaluate(
       ({ targetId, pageNum, itemsPerPage, titleMax }) => {
-        function clip(s) {
+        const clip = (s) => {
           const t = s.replace(/\s+/g, " ").trim();
           return t.length > titleMax ? t.substring(0, titleMax) : t;
-        }
-        function titleFromProductItem(productItem, fromJson) {
+        };
+        const titleFromProductItem = (productItem, fromJson) => {
           if (fromJson && fromJson.trim())
             return clip(fromJson);
           const img = productItem.querySelector(
@@ -1410,8 +1461,8 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
           const titleEl = productItem.querySelector(".product_title__") || productItem.querySelector('[class*="product_title__"]');
           const tx = titleEl?.textContent?.trim();
           return tx ? clip(tx) : null;
-        }
-        function extractFromProductItem(productItem) {
+        };
+        const extractFromProductItem = (productItem) => {
           let reviewCount2 = null;
           let starRating2 = null;
           const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
@@ -1435,7 +1486,7 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
             }
           }
           return { reviewCount: reviewCount2, starRating: starRating2 };
-        }
+        };
         const anchors = document.querySelectorAll(
           "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
         );
@@ -1451,31 +1502,72 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
             if (!Array.isArray(parsed))
               continue;
             let chnlProdNo = null;
+            let catalogNvMid = null;
             let prodNm = null;
             for (const item of parsed) {
               if (item.key === "chnl_prod_no" && item.value) {
                 chnlProdNo = String(item.value);
               }
+              if (item.key === "catalog_nv_mid" && item.value) {
+                catalogNvMid = String(item.value);
+              }
               if (item.key === "prod_nm" && item.value) {
                 prodNm = String(item.value);
               }
             }
-            if (!chnlProdNo || chnlProdNo !== targetId)
+            if (chnlProdNo !== targetId && catalogNvMid !== targetId)
               continue;
             const pageRank = parseInt(rankStr, 10);
             const rank2 = (pageNum - 1) * 40 + (Number.isFinite(pageRank) ? pageRank : i + 1);
             const productItem = anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
             const extra = productItem ? extractFromProductItem(productItem) : { reviewCount: null, starRating: null };
             const productTitle2 = productItem ? titleFromProductItem(productItem, prodNm) : prodNm ? clip(prodNm) : null;
+            const catalogMid2 = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
             return {
               found: true,
               rank: rank2,
               reviewCount: extra.reviewCount,
               starRating: extra.starRating,
-              productTitle: productTitle2
+              productTitle: productTitle2,
+              catalogMid: catalogMid2,
+              detailUrl: anchor.href || null
             };
           } catch {
           }
+        }
+        const integratedCards = Array.from(
+          document.querySelectorAll("li._slog_visible, li[data-slog-content], div[data-slog-content], article[data-slog-content]")
+        );
+        for (let i = 0; i < integratedCards.length; i++) {
+          const card2 = integratedCards[i];
+          const anchor = card2.querySelector("a[href]");
+          const href = anchor?.href || "";
+          const ids = [
+            href.match(/(?:nv_mid|nvMid)=(\d+)/)?.[1] || null,
+            href.match(/\/products\/(\d+)/)?.[1] || null,
+            card2.id.match(/nstore_productId_(\d+)/)?.[1] || null,
+            card2.id.match(/view_type_guide_(\d+)/)?.[1] || null,
+            card2.querySelector('[id^="nstore_productId_"]')?.id.match(/nstore_productId_(\d+)/)?.[1] || null,
+            card2.querySelector('[id^="view_type_guide_"]')?.id.match(/view_type_guide_(\d+)/)?.[1] || null
+          ].filter((v) => Boolean(v));
+          if (!ids.includes(targetId))
+            continue;
+          const pageRank = i + 1;
+          const rank2 = (pageNum - 1) * itemsPerPage + pageRank;
+          const img = card2.querySelector("img[alt]");
+          const alt = img?.getAttribute("alt")?.trim();
+          const titleEl = card2.querySelector("strong span:last-child") || card2.querySelector('[class*="title"]') || card2.querySelector('[class*="name"]');
+          const productTitle2 = alt || titleEl?.textContent?.trim() || null;
+          const catalogMid2 = ids.find((id) => id !== targetId) || targetId;
+          return {
+            found: true,
+            rank: rank2,
+            reviewCount: null,
+            starRating: null,
+            productTitle: productTitle2 ? clip(productTitle2) : null,
+            catalogMid: catalogMid2,
+            detailUrl: anchor.href || null
+          };
         }
         const mids = [];
         const patterns = [/nv_mid[=:](\d+)/, /nvMid[=:](\d+)/, /products\/(\d+)/, /catalog\/(\d+)/];
@@ -1496,7 +1588,9 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
             rank: null,
             reviewCount: null,
             starRating: null,
-            productTitle: null
+            productTitle: null,
+            catalogMid: null,
+            detailUrl: null
           };
         }
         const rank = (pageNum - 1) * itemsPerPage + idx + 1;
@@ -1513,16 +1607,48 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
           starRating = ex.starRating;
           productTitle = titleFromProductItem(container, null);
         }
-        return { found: true, rank, reviewCount, starRating, productTitle };
+        const card = linkEl?.closest("[data-shp-contents-id]") || container?.closest("[data-shp-contents-id]");
+        const catalogMid = card?.getAttribute("data-shp-contents-id") || null;
+        return { found: true, rank, reviewCount, starRating, productTitle, catalogMid, detailUrl: linkEl?.href || null };
       },
       { targetId: mid, pageNum: currentPage, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
     );
     log3(`${currentPage}\uD398\uC774\uC9C0 \uC218\uC9D1: ${result.found ? "\uBC1C\uACAC" : "\uBBF8\uBC1C\uACAC"}`);
+    if (!result.found && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
+      const debug = await collectVisibleSearchMidDebug(page, 12).catch(() => null);
+      if (debug) {
+        log3(
+          `[DEBUG] visible mids p${currentPage}: ${debug.mids.length ? debug.mids.join(", ") : "(none)"}`,
+          "warn"
+        );
+        debug.cards.slice(0, 8).forEach((card, idx) => {
+          log3(
+            `[DEBUG] card ${idx + 1}: tag=${card.tag} ids=${card.ids.join("|") || "-"} title=${card.title || "-"}`,
+            "warn"
+          );
+        });
+      }
+    }
     if (result.found && result.rank != null) {
       out.rank = result.rank;
       out.reviewCount = result.reviewCount;
       out.starRating = result.starRating;
-      out.productTitle = result.productTitle;
+      out.catalogMid = result.catalogMid || null;
+      if (result.detailUrl) {
+        try {
+          await page.goto(result.detailUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 45e3
+          });
+          await sleepMs(SAFE_DELAY_MS);
+          out.productTitle = await extractDetailPageTitle(page);
+          if (!out.productTitle) {
+            log3("\uC0C1\uC138\uD398\uC774\uC9C0 \uC81C\uBAA9 \uCD94\uCD9C \uC2E4\uD328", "warn");
+          }
+        } catch {
+          out.productTitle = null;
+        }
+      }
       break;
     }
     const nextClicked = await page.evaluate((nextPage) => {
@@ -1550,7 +1676,11 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
       log3(`${currentPage}\uD398\uC774\uC9C0\uAE4C\uC9C0 \uD0D0\uC0C9 \uC885\uB8CC(\uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C)`);
       break;
     }
-    await sleepMs(1e3);
+    await sleepMs(2e3);
+    await page.evaluate(() => {
+      window.__name = (fn) => fn;
+    }).catch(() => {
+    });
     currentPage++;
   }
   return out;
@@ -2081,6 +2211,7 @@ function tryClaimWorkItemFromEngineFile() {
   log2(
     `[EngineFile] \uC791\uC5C5 \uC218\uB77D: 1\uCC28="${keyword.substring(0, 24)}..." slot_sequence=${slotSequence || 0} mid=${mid}`
   );
+  const catalogMid = (data.catalogMid || "").trim() || void 0;
   return {
     taskId,
     slotSequence,
@@ -2089,7 +2220,8 @@ function tryClaimWorkItemFromEngineFile() {
     mid,
     linkUrl,
     keywordName,
-    secondKeywordRaw: keywordNameRaw.length > 0 ? keywordNameRaw : void 0
+    secondKeywordRaw: keywordNameRaw.length > 0 ? keywordNameRaw : void 0,
+    catalogMid
   };
 }
 async function claimWorkItem() {
@@ -2139,7 +2271,8 @@ function writeEngineTaskResult(work, result) {
     shoppingRank: result.shoppingRank ?? null,
     reviewCount: result.reviewCount ?? null,
     starRating: result.starRating ?? null,
-    extractedProductTitle: result.extractedProductTitle ?? null
+    extractedProductTitle: result.extractedProductTitle ?? null,
+    catalogMid: result.catalogMid ?? null
   };
   try {
     fs3.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
@@ -2176,6 +2309,7 @@ async function runShoppingRankCheck(page, work, workerId, engine) {
       result.reviewCount = detail.reviewCount;
       result.starRating = detail.starRating;
       result.extractedProductTitle = detail.productTitle?.trim() || null;
+      result.catalogMid = detail.catalogMid || null;
       result.rankCheckOk = true;
       result.midMatched = true;
       log2(
@@ -2193,42 +2327,55 @@ async function runShoppingRankCheck(page, work, workerId, engine) {
   }
   return result;
 }
-async function pasteFirstSearchKeywordIntoPortal(page, context, portalSearchInput, firstKeyword, workerId, engine) {
-  await portalSearchInput.click({ force: true });
-  await sleep2(engine.delay("beforeFirstKeyword"));
-  await page.keyboard.press("Control+a");
-  await sleep2(40);
-  await page.keyboard.press("Backspace");
-  await sleep2(50);
-  try {
-    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: "https://m.naver.com"
-    });
-  } catch {
-  }
-  try {
-    await page.evaluate(async (t) => {
-      await navigator.clipboard.writeText(t);
-    }, firstKeyword);
-    await page.keyboard.press("Control+v");
-  } catch (e) {
-    log2(`[Worker ${workerId}] 1\uCC28 \uD074\uB9BD\uBCF4\uB4DC \uBD99\uC5EC\uB123\uAE30 \uC2E4\uD328 \u2192 fill \uD3F4\uBC31: ${e?.message ?? e}`, "warn");
-  }
-  await sleep2(engine.delay("afterFirstKeywordType"));
-  let q = (await portalSearchInput.inputValue().catch(() => "")).trim();
-  if (!q && firstKeyword.trim()) {
-    log2(`[Worker ${workerId}] 1\uCC28 \uBD99\uC5EC\uB123\uAE30 \uD6C4 \uBE44\uC5B4 \uC788\uC74C \u2014 fill`, "warn");
-    await portalSearchInput.click({ force: true });
-    await sleep2(80);
-    await portalSearchInput.fill(firstKeyword);
-    await sleep2(engine.delay("afterFirstKeywordType"));
-    q = (await portalSearchInput.inputValue().catch(() => "")).trim();
-  }
-  if (!q && firstKeyword.trim()) {
-    log2(`[Worker ${workerId}] 1\uCC28 \uAC80\uC0C9\uC5B4 \uC785\uB825 \uD6C4\uC5D0\uB3C4 \uBE44\uC5B4 \uC788\uC74C`, "warn");
-  }
+function generateAckey() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let r = "";
+  for (let i = 0; i < 8; i++)
+    r += chars[Math.floor(Math.random() * chars.length)];
+  return r;
 }
-async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw) {
+function pickQueryWords(keyword, productName) {
+  const tails = ["\uCD94\uCC9C", "\uD560\uC778", "\uD6C4\uAE30", "\uC778\uAE30", "\uBCA0\uC2A4\uD2B8", "\uAD6C\uB9E4", "\uC1FC\uD551", "\uD2B9\uAC00", "\uC138\uC77C", "\uAC00\uC131\uBE44", "\uCD5C\uC800\uAC00", "\uC815\uD488"];
+  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, " ").replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, " ");
+  const pool = [...new Set(allText.split(/\s+/).filter((w) => w.length >= 2))];
+  for (let j = pool.length - 1; j > 0; j--) {
+    const k = Math.floor(Math.random() * (j + 1));
+    [pool[j], pool[k]] = [pool[k], pool[j]];
+  }
+  const selected = [];
+  for (const w of pool) {
+    if (selected.length >= 3)
+      break;
+    selected.push(w);
+  }
+  while (selected.length < 3) {
+    const avail = tails.filter((t) => !selected.includes(t));
+    if (!avail.length)
+      break;
+    selected.push(avail[Math.floor(Math.random() * avail.length)]);
+  }
+  return selected.slice(0, 3).join(" ");
+}
+function buildAckeySearchUrl(query) {
+  const p = new URLSearchParams({
+    sm: "mtp_sug.top",
+    where: "m",
+    query,
+    ackey: generateAckey(),
+    acq: query,
+    acr: String(Math.floor(Math.random() * 9) + 1),
+    qdt: "0"
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+function buildIntegratedSearchUrl(query) {
+  const p = new URLSearchParams({
+    where: "m",
+    query
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid) {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log2(`[Worker ${workerId}] ${msg}`));
   const result = {
     productPageEntered: false,
@@ -2237,24 +2384,18 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     midMatched: false
   };
   const flow = engine.searchFlowVersion;
+  const flowLabel = flow === "A" ? "A \uD1B5\uD5691+2\uCC28" : flow === "B" ? "B \uD1B5\uD569\uBA54\uC778" : flow === "C" ? "C \uD1B5\uD5692\uCC28" : flow === "E" ? "E ackey\uC704\uC7A5URL" : flow === "F" ? "F \uD1B5\uD569\uC0C1\uD488\uBA85" : flow;
   try {
     const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
-    log2(
-      `[Worker ${workerId}] m.naver.com \uC811\uC18D (\uC791\uC5C5 \uBAA8\uB4DC: ${flow === "A" ? "A \uC870\uD569\uD615" : flow === "B" ? "B \uBA54\uC778\uD0A4\uC6CC\uB4DC\uB9CC" : "C 2\uCC28\uD0A4\uC6CC\uB4DC\uB9CC"})`
-    );
-    await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 6e4 });
-    await sleep2(engine.delay("browserLoad"));
-    await page.evaluate(() => window.scrollTo(0, 0));
-    try {
-      await page.locator("#MM_SEARCH_FAKE").click({ force: true, timeout: 8e3 });
-    } catch {
-      log2(`[Worker ${workerId}] MM_SEARCH_FAKE \uC5C6\uC74C, \uAC80\uC0C9 \uC785\uB825\uC73C\uB85C \uD3EC\uCEE4\uC2A4 \uC2DC\uB3C4`, "warn");
-      await page.locator("#query, input[name='query'], .sch_input").first().click({ force: true }).catch(() => {
-      });
-    }
-    await sleep2(engine.delay("searchFakeClickGap"));
-    const portalSearchInput = page.locator("#query.sch_input, #query, input[name='query']").first();
-    if (flow === "C") {
+    log2(`[Worker ${workerId}] \uAC80\uC0C9 \uC2DC\uC791 (\uC791\uC5C5 \uBAA8\uB4DC: ${flowLabel})`);
+    if (flow === "E") {
+      const query = pickQueryWords(firstKeyword, productName);
+      const searchUrl = buildAckeySearchUrl(query);
+      log2(`[Worker ${workerId}] E\uBAA8\uB4DC ackey URL: query="${query}"`);
+      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 6e4 });
+      await sleep2(engine.delay("afterFirstSearchLoad"));
+      result.secondSearchPhraseUsed = query;
+    } else if (flow === "C") {
       const onlySecond = (secondKeywordRaw || "").trim();
       if (!onlySecond) {
         log2(`[Worker ${workerId}] C\uBAA8\uB4DC\uB294 2\uCC28 \uD0A4\uC6CC\uB4DC \uD544\uC218 \u2014 \uC791\uC5C5 \uC2A4\uD0B5`, "warn");
@@ -2262,62 +2403,42 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
         result.error = "C\uBAA8\uB4DC_2\uCC28\uD0A4\uC6CC\uB4DC\uC5C6\uC74C";
         return result;
       }
-      log2(`[Worker ${workerId}] C\uBAA8\uB4DC \uB2E8\uC77C \uAC80\uC0C9 (2\uCC28 \uD0A4\uC6CC\uB4DC): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
-      await pasteFirstSearchKeywordIntoPortal(page, page.context(), portalSearchInput, onlySecond, workerId, engine);
-      await page.keyboard.press("Enter");
-      await page.waitForLoadState("domcontentloaded", { timeout: 6e4 }).catch(() => {
-      });
+      log2(`[Worker ${workerId}] C\uBAA8\uB4DC \uD1B5\uD569\uAC80\uC0C9 (2\uCC28 \uD0A4\uC6CC\uB4DC): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
+      await page.goto(buildIntegratedSearchUrl(onlySecond), { waitUntil: "domcontentloaded", timeout: 6e4 });
       await sleep2(engine.delay("afterFirstSearchLoad"));
       result.secondSearchPhraseUsed = onlySecond;
+    } else if (flow === "F") {
+      const query = (productName || firstKeyword || "").trim() || pickQueryWords(firstKeyword, productName);
+      log2(`[Worker ${workerId}] F\uBAA8\uB4DC \uC0C1\uD488\uBA85 \uC804\uCCB4 \uD1B5\uD569\uAC80\uC0C9: "${query}"`);
+      await page.goto(buildIntegratedSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 6e4 });
+      await sleep2(engine.delay("afterFirstSearchLoad"));
+      result.secondSearchPhraseUsed = query;
     } else {
-      log2(`[Worker ${workerId}] 1\uCC28 \uAC80\uC0C9 (\uAC80\uC0C9 \uD0A4\uC6CC\uB4DC): ${firstKeyword}`);
-      await pasteFirstSearchKeywordIntoPortal(
-        page,
-        page.context(),
-        portalSearchInput,
-        firstKeyword,
-        workerId,
-        engine
-      );
-      await page.keyboard.press("Enter");
-      await page.waitForLoadState("domcontentloaded", { timeout: 6e4 }).catch(() => {
-      });
+      const firstQuery = firstKeyword;
+      log2(`[Worker ${workerId}] 1\uCC28 \uD1B5\uD569\uAC80\uC0C9: ${firstQuery}`);
+      await page.goto(buildIntegratedSearchUrl(firstQuery), { waitUntil: "domcontentloaded", timeout: 6e4 });
       await sleep2(engine.delay("afterFirstSearchLoad"));
       if (flow === "A") {
-        const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
-        const secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
-          engine,
-          mid,
-          firstKeyword,
-          nameForSecond,
-          workerId
-        );
-        result.secondSearchPhraseUsed = secondSearchKeyword;
-        log2(
-          `[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`
-        );
-        const searchInput = page.locator('#query, .sch_input, input[name="query"]').first();
-        await searchInput.click({ force: true });
-        await sleep2(engine.delay("secondSearchField"));
-        await page.keyboard.press("Control+a");
-        await sleep2(100);
-        await page.keyboard.press("Backspace");
-        await sleep2(200);
-        await searchInput.type(secondSearchKeyword, { delay: engine.delay("secondKeywordTypingDelay") });
-        await sleep2(engine.delay("afterSecondKeywordType"));
-        await page.keyboard.press("Enter");
-        log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uACB0\uACFC \uB85C\uB529 \uB300\uAE30...`);
-        try {
-          await page.waitForLoadState("domcontentloaded", { timeout: 1e3 });
-        } catch {
-          log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uB85C\uB529 \uC5C6\uC74C/\uC9C0\uC5F0 \u2014 \uD398\uC774\uC9C0 \uC0C8\uB85C\uACE0\uCE68 1\uD68C`, "warn");
-          await page.reload({ waitUntil: "domcontentloaded", timeout: 6e4 }).catch((e) => {
-            log2(`[Worker ${workerId}] 2\uCC28 \uAC80\uC0C9 \uC0C8\uB85C\uACE0\uCE68 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
-          });
+        let secondSearchKeyword;
+        if (catalogMid && productName && productName.length > 10) {
+          secondSearchKeyword = productName;
+          log2(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (\uD480\uB124\uC784): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+        } else {
+          const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
+          secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
+            engine,
+            mid,
+            firstKeyword,
+            nameForSecond,
+            workerId
+          );
+          log2(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
         }
+        result.secondSearchPhraseUsed = secondSearchKeyword;
+        await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
         await sleep2(engine.delay("afterSecondSearchLoad"));
       } else {
-        log2(`[Worker ${workerId}] B\uBAA8\uB4DC \u2014 2\uCC28 \uAC80\uC0C9 \uC0DD\uB7B5, 1\uCC28 \uACB0\uACFC\uC5D0\uC11C \uC0C1\uD488 \uD0D0\uC0C9`);
+        log2(`[Worker ${workerId}] B\uBAA8\uB4DC \u2014 1\uCC28 \uD1B5\uD569\uAC80\uC0C9 \uACB0\uACFC\uC5D0\uC11C \uC0C1\uD488 \uD0D0\uC0C9`);
       }
     }
     const isBlocked = await page.evaluate(() => {
@@ -2348,60 +2469,64 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
         return result;
       }
     }
-    const nameForMatch = productName.trim().substring(0, 40);
     const MAX_SCROLL = engine.maxScrollAttempts;
     let linkClicked = false;
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
       log2(`[Worker ${workerId}] \uC0C1\uD488 \uB9C1\uD06C \uD0D0\uC0C9 ${i + 1}/${MAX_SCROLL}`);
-      const found = await page.evaluate((name) => {
-        const links = document.querySelectorAll(
-          'a[href*="smartstore"], a[href*="brand.naver"], a[href*="shopping.naver"], a[href*="nv_mid="]'
-        );
-        const sub = name.replace(/\s+/g, " ").trim().substring(0, 40);
-        if (!sub)
-          return false;
-        for (const a of links) {
-          let el = a;
-          for (let depth = 0; depth < 6 && el; depth++) {
-            const text = el.innerText || el.textContent || "";
-            if (text && text.includes(sub)) {
-              a.setAttribute("data-turafic-click", "1");
-              return true;
-            }
-            el = el.parentElement;
+      const searchMid = catalogMid || mid;
+      const link = (
+        // 1. 쇼핑/통합 카드 공통: 제품 식별자 기반
+        (catalogMid ? await page.$(`a[data-shp-contents-id="${catalogMid}"]`).catch(() => null) : null) || await page.$(`a[aria-labelledby="nstore_productId_${searchMid}"]`).catch(() => null) || await page.$(`a[href*="smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) || await page.$(`a[href*="m.smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) || await page.$(`a[href*="/products/${searchMid}"]`).catch(() => null) || // 2. 가격비교 / 브릿지 링크
+        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) || await page.$(`a[href*="searchGate?nv_mid=${searchMid}"]`).catch(() => null) || // 3. ID 속성 매칭 (카드 컨테이너)
+        await page.$(`[id="nstore_productId_${mid}"]`).catch(() => null) || (catalogMid ? await page.$(`a[href*="/products/${mid}"]`).catch(() => null) : null)
+      );
+      if (link) {
+        const isVisible = await link.isVisible().catch(() => false);
+        if (isVisible) {
+          log2(`[Worker ${workerId}] MID(${mid}) \uB9C1\uD06C \uBC1C\uACAC \u2192 \uD074\uB9AD`);
+          await link.evaluate((el) => el.removeAttribute("target"));
+          await link.click();
+          await page.waitForLoadState("domcontentloaded", { timeout: 3e4 }).catch(() => {
+          });
+          await sleep2(engine.delay("afterProductClick"));
+          const currentPageUrl = page.url();
+          log2(`[Worker ${workerId}] \uD398\uC774\uC9C0: ${currentPageUrl.substring(0, 80)}...`);
+          linkClicked = true;
+          result.midMatched = true;
+          const dwellTime = engine.delay("stayOnProduct");
+          log2(`[Worker ${workerId}] \uCCB4\uB958 ${(dwellTime / 1e3).toFixed(1)}\uCD08...`);
+          await sleep2(dwellTime);
+          if (currentPageUrl.includes("smartstore.naver.com") || currentPageUrl.includes("brand.naver.com")) {
+            result.productPageEntered = true;
+          } else {
+            result.failReason = "DETAIL_NOT_REACHED";
+            result.error = "StoreDetailUrlMismatch";
           }
+          break;
         }
-        return false;
-      }, nameForMatch);
-      if (found) {
-        log2(`[Worker ${workerId}] \uD480\uC81C\uBAA9 \uB9E4\uCE6D \uB9C1\uD06C \uD074\uB9AD: "${nameForMatch}..."`);
-        await page.locator('a[data-turafic-click="1"]').first().evaluate((el) => el.removeAttribute("target"));
-        await page.locator('a[data-turafic-click="1"]').first().click();
-        await page.waitForLoadState("domcontentloaded", { timeout: 3e4 }).catch(() => {
-        });
-        await sleep2(engine.delay("afterProductClick"));
-        linkClicked = true;
-        result.midMatched = true;
-        const dwellTime = engine.delay("stayOnProduct");
-        log2(`[Worker ${workerId}] \uCCB4\uB958 ${(dwellTime / 1e3).toFixed(1)}\uCD08...`);
-        await sleep2(dwellTime);
-        const currentPageUrl = page.url();
-        log2(`[Worker ${workerId}] \uD398\uC774\uC9C0: ${currentPageUrl.substring(0, 60)}...`);
-        if (currentPageUrl.includes("smartstore.naver.com") || currentPageUrl.includes("brand.naver.com")) {
-          result.productPageEntered = true;
-        } else {
-          result.failReason = "DETAIL_NOT_REACHED";
-          result.error = "StoreDetailUrlMismatch";
+      }
+      if (!linkClicked && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
+        const debug = await collectVisibleSearchMidDebug(page, 8).catch(() => null);
+        if (debug) {
+          log2(
+            `[DEBUG] visible mids attempt ${i + 1}/${MAX_SCROLL}: ${debug.mids.length ? debug.mids.join(", ") : "(none)"}`,
+            "warn"
+          );
+          debug.cards.slice(0, 6).forEach((card, idx) => {
+            log2(
+              `[DEBUG] card ${idx + 1}: tag=${card.tag} ids=${card.ids.join("|") || "-"} title=${card.title || "-"}`,
+              "warn"
+            );
+          });
         }
-        break;
       }
       await humanScroll2(page, engine.explorationScrollPixels);
       await sleep2(engine.delay("explorationBetweenScrolls"));
     }
     if (!linkClicked) {
-      log2(`[Worker ${workerId}] \uD480\uC81C\uBAA9 \uB9E4\uCE6D \uB9C1\uD06C \uC5C6\uC74C: "${nameForMatch}..."`, "warn");
-      result.error = "NoTitleMatch";
-      result.failReason = "NO_MID_MATCH";
+      log2(`[Worker ${workerId}] \uC0C1\uD488\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC74C \u2014 MID(${mid}) \uAC80\uC0C9\uACB0\uACFC\uC5D0 \uBBF8\uB178\uCD9C (${MAX_SCROLL}\uD68C \uC2A4\uD06C\uB864)`, "warn");
+      result.error = "\uC0C1\uD488\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC74C";
+      result.failReason = "PRODUCT_NOT_FOUND";
       result.midMatched = false;
       return result;
     }
@@ -2470,15 +2595,37 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         );
       }
       let page;
-      if (isRankD) {
+      if (isRankD && process.env.HEADLESS === "1") {
+        const browserLaunchOptions = {
+          headless: true,
+          args: [
+            `--window-position=${pos.x},${pos.y}`,
+            `--window-size=${winW},${winH}`
+          ]
+        };
+        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+        if (browserChannel) {
+          browserLaunchOptions.channel = browserChannel;
+        }
+        browser = await import_patchright.chromium.launch(browserLaunchOptions);
+        const ctxOpts = buildBrowserContextOptions(false, ua);
+        context = await browser.newContext({
+          ...ctxOpts,
+          ...proxy ? { proxy } : {}
+        });
+        page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
+        page.setDefaultTimeout(6e4);
+        page.setDefaultNavigationTimeout(6e4);
+      } else if (isRankD) {
         const userDataDir = getPrbRankUserDataDir(workerId);
         if (ENGINE.logEngineEvents) {
           log2(`[Engine] Worker ${workerId} \uC21C\uC704 PRB \uD504\uB85C\uD544: ${userDataDir}`);
         }
         const connectOpts = {
-          headless: false,
+          headless: process.env.HEADLESS === "1",
           turnstile: true,
           fingerprint: true,
+          disableXvfb: process.env.HEADLESS === "1",
           customConfig: { userDataDir }
         };
         const conn = await (0, import_puppeteer_real_browser.connect)(connectOpts);
@@ -2501,14 +2648,18 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         browser = null;
         context = null;
       } else {
-        browser = await import_patchright.chromium.launch({
-          headless: false,
-          channel: "chrome",
+        const browserLaunchOptions = {
+          headless: process.env.HEADLESS === "1",
           args: [
             `--window-position=${pos.x},${pos.y}`,
             `--window-size=${winW},${winH}`
           ]
-        });
+        };
+        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+        if (browserChannel) {
+          browserLaunchOptions.channel = browserChannel;
+        }
+        browser = await import_patchright.chromium.launch(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
         context = await browser.newContext({
           ...ctxOpts,
@@ -2528,7 +2679,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         await sleep2(ENGINE.delay("proxySetup"));
       }
       totalRuns++;
-      const loginOk = isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : await ensureNaverLoginIfConfigured(page, workerId);
+      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : await ensureNaverLoginIfConfigured(page, workerId);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -2555,7 +2706,8 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         workerId,
         ENGINE,
         work.keywordName,
-        work.secondKeywordRaw
+        work.secondKeywordRaw,
+        work.catalogMid
       );
       if (isRankD) {
         if (engineResult.rankCheckOk) {

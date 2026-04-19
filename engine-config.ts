@@ -20,7 +20,7 @@ export interface EngineConfigFile {
     explorationScrollPixels?: number;
     keywordBlacklistEnabled?: boolean;
     keywordBlacklistFile?: string;
-    /** A=1차+2차 조합(기본), B=메인키워드만, C=2차만, D=쇼핑 순위체크, E=검색→쇼핑탭→MID클릭, F=스토어→쇼핑홈→검색→MID클릭 */
+    /** A=통합검색 1차+2차 조합(기본), B=통합검색 메인키워드만, C=통합검색 2차만, D=통합검색 순위체크, E=통합검색 ackey 위장, F=통합검색 상품명 전체 */
     searchFlowVersion?: SearchFlowVersion;
   };
   airplaneMode?: { toggleBeforeEachTask?: boolean; offOnCycles?: number };
