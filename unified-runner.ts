@@ -62,6 +62,7 @@ import { chromium, type Page, type Browser, type BrowserContext, type Locator } 
 import { getCurrentIP, toggleAdbMobileDataOffOn } from "./ipRotation";
 import {
   loadEngineConfig,
+  buildEngineRuntime,
   resolveMobileForTask,
   pickUserAgent,
   pickProxyConfig,
@@ -71,7 +72,16 @@ import {
 import { connect } from "puppeteer-real-browser";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
 import { applyMobileStealth } from "./shared/mobile-stealth";
-import { findNaverShoppingRankByMid, type RankCheckPage, collectVisibleSearchMidDebug } from "./rank-check-shopping";
+import { type RankCheckPage, collectVisibleSearchMidDebug } from "./rank-check-shopping";
+import { runRankCheckFlow } from "./flows/flow-d-rank-check";
+import { prepareTrafficSearchFlow } from "./flows/traffic-search-flow";
+import {
+  loadStrategyFile,
+  normalizeStrategy,
+  validateStrategy,
+  type NormalizedStrategyTask,
+  type NormalizedStrategyFile,
+} from "./strategy-sync";
 
 // ================================================================
 //  탐지 우회 계층 구조 (Detection Bypass Layers)
@@ -106,6 +116,12 @@ import { findNaverShoppingRankByMid, type RankCheckPage, collectVisibleSearchMid
 const PARALLEL_BROWSERS = Math.max(1, parseInt(process.env.PARALLEL_BROWSERS || "1", 10));  // 동시 실행 워커 수 (환경변수로 오버라이드, 기본 1)
 const ONCE_MODE = process.argv.includes("--once");  // 통합 러너에서 1건만 처리 후 종료
 
+// --strategy <path>: 전략 파일 직접 실행 모드
+const STRATEGY_ARG = (() => {
+  const idx = process.argv.indexOf("--strategy");
+  return idx !== -1 ? process.argv[idx + 1] : undefined;
+})();
+
 // 브라우저 창 위치 (4분할 배치 - 모바일 사이트용 좁은 창)
 const BROWSER_POSITIONS: { x: number; y: number }[] = [
   { x: 0, y: 0 },      // Worker 1: 좌상단
@@ -116,8 +132,8 @@ const BROWSER_POSITIONS: { x: number; y: number }[] = [
 const BROWSER_WIDTH = 480;   // 브라우저 너비 (모바일 사이트용)
 const BROWSER_HEIGHT = 540;  // 브라우저 높이
 
-/** 엔진 설정 — engine-config.json */
-const ENGINE = loadEngineConfig();
+/** 엔진 설정 — engine-config.json 또는 --strategy 런타임으로 초기화 */
+let ENGINE = loadEngineConfig();
 
 // ============ 상품(mid)별 2차 검색 "조합 키워드" 블랙리스트 (1차+중간단어+판매/추천 등 3단 조합 전체 문자열) ============
 type BlacklistItem = { mid: string; secondCombo?: string; keyword?: string; addedAt: string };
@@ -259,8 +275,12 @@ function getCurrentCommitHash(): string {
 
 function checkForUpdates(): boolean {
   try {
-    // fetch만 (pull 안 함)
-    execSync("git fetch origin main", { encoding: "utf8", timeout: 30000 });
+    // fetch만 (pull 안 함). Git 진행 메시지는 사용자 로그로 노출하지 않는다.
+    execSync("git fetch --quiet origin main", {
+      encoding: "utf8",
+      timeout: 30000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     const remoteHash = execSync("git rev-parse origin/main", { encoding: "utf8", timeout: 5000 }).trim();
     const localHash = getCurrentCommitHash();
 
@@ -275,7 +295,6 @@ function checkForUpdates(): boolean {
 
 function startGitUpdateChecker(): void {
   if (process.env.SKIP_GIT_UPDATE_CHECK === "1") {
-    log("Git 업데이트 자동 확인 생략 (SKIP_GIT_UPDATE_CHECK=1)", "info");
     return;
   }
   // 현재 커밋 해시 저장
@@ -283,7 +302,6 @@ function startGitUpdateChecker(): void {
 
   setInterval(() => {
     if (checkForUpdates()) {
-      log("Git update detected! Restarting to apply changes...", "warn");
       // 런처가 재시작해줌
       process.exit(0);
     }
@@ -443,6 +461,24 @@ type NaverAccountRead =
   | { status: "invalid" }
   | { status: "ok"; id: string; pw: string };
 
+function getNaverLoginStorageStatePaths(profileName: string): string[] {
+  return [
+    path.join(process.cwd(), "profiles", `${profileName}.storage-state.json`),
+    path.join(__dirname, "profiles", `${profileName}.storage-state.json`),
+  ];
+}
+
+function resolveExistingNaverLoginStorageStatePath(profileName: string): string | null {
+  for (const p of getNaverLoginStorageStatePaths(profileName)) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function resolveWritableNaverLoginStorageStatePath(profileName: string): string {
+  return getNaverLoginStorageStatePaths(profileName)[0];
+}
+
 function readNaverAccountFile(): NaverAccountRead {
   let found: string | null = null;
   for (const p of NAVER_ACCOUNT_PATHS) {
@@ -477,8 +513,61 @@ async function typeNaverLoginField(page: Page, fieldSelector: string, value: str
   }
 }
 
+async function waitForNaverLoginCompletion(
+  page: Page | any,
+  workerId: number,
+  label: string,
+  timeoutMs = 45000
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(500);
+    if (!page.url().includes("nidlogin.login")) {
+      await sleep(randomBetween(1500, 2500));
+      log(`[Worker ${workerId}] 네이버 로그인 완료${label ? ` (${label})` : ""}`);
+      return true;
+    }
+  }
+
+  log(
+    `[Worker ${workerId}] 네이버 로그인 타임아웃${label ? ` (${label})` : ""} (로그인 페이지 이탈 없음)`,
+    "warn"
+  );
+  return false;
+}
+
+async function persistNaverLoginStorageState(
+  context: BrowserContext | null,
+  profileName: string,
+  workerId: number
+): Promise<void> {
+  if (!context) return;
+  const targetPath = resolveWritableNaverLoginStorageStatePath(profileName);
+  const dir = path.dirname(targetPath);
+  try {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    await context.storageState({ path: targetPath });
+    log(`[Worker ${workerId}] 네이버 세션 저장 완료: ${targetPath}`);
+  } catch (e: any) {
+    log(`[Worker ${workerId}] 네이버 세션 저장 실패: ${e?.message ?? e}`, "warn");
+  }
+}
+
 /** naver-account.txt 없으면 true. 있으면 로그인 성공 시 true, 형식 오류·로그인 실패 시 false */
-async function ensureNaverLoginIfConfigured(page: Page, workerId: number): Promise<boolean> {
+async function ensureNaverLoginIfConfigured(
+  page: Page,
+  workerId: number,
+  context: BrowserContext | null,
+  profileName: string
+): Promise<boolean> {
+  const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
+  if (storedPath) {
+    log(`[Worker ${workerId}] 네이버 저장 세션 사용: ${storedPath}`);
+    return true;
+  }
+
   const r = readNaverAccountFile();
   if (r.status === "absent") return true;
   if (r.status === "invalid") return false;
@@ -503,21 +592,35 @@ async function ensureNaverLoginIfConfigured(page: Page, workerId: number): Promi
       .or(page.locator('button[type="submit"]'))
       .first();
     await loginBtn.click();
-
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      await sleep(500);
-      if (!page.url().includes("nidlogin.login")) {
-        await sleep(randomBetween(1500, 2500));
-        log(`[Worker ${workerId}] 네이버 로그인 완료`);
-        return true;
-      }
+    const ok = await waitForNaverLoginCompletion(page, workerId, "자동");
+    if (ok) {
+      await persistNaverLoginStorageState(context, profileName, workerId);
     }
-
-    log(`[Worker ${workerId}] 네이버 로그인 타임아웃 (로그인 페이지 이탈 없음)`, "warn");
-    return false;
+    return ok;
   } catch (e: any) {
     log(`[Worker ${workerId}] 네이버 로그인 예외: ${e.message}`, "warn");
+    return false;
+  }
+}
+
+async function ensureNaverLoginManually(
+  page: Page,
+  workerId: number,
+  context: BrowserContext | null,
+  profileName: string
+): Promise<boolean> {
+  try {
+    await page.goto(NAVER_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(randomBetween(1000, 1800));
+    await page.locator("#id").waitFor({ state: "visible", timeout: 20000 });
+    log(`[Worker ${workerId}] 네이버 수동 로그인 대기 중 - 브라우저에서 직접 로그인하세요.`);
+    const ok = await waitForNaverLoginCompletion(page, workerId, "수동", 5 * 60 * 1000);
+    if (ok) {
+      await persistNaverLoginStorageState(context, profileName, workerId);
+    }
+    return ok;
+  } catch (e: any) {
+    log(`[Worker ${workerId}] 네이버 수동 로그인 예외: ${e.message}`, "warn");
     return false;
   }
 }
@@ -565,19 +668,7 @@ async function ensureNaverLoginPrbPage(page: any, workerId: number): Promise<boo
       log(`[Worker ${workerId}] 로그인 버튼 없음(PRb)`, "warn");
       return false;
     }
-
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      await sleep(500);
-      if (!page.url().includes("nidlogin.login")) {
-        await sleep(randomBetween(1500, 2500));
-        log(`[Worker ${workerId}] 네이버 로그인 완료`);
-        return true;
-      }
-    }
-
-    log(`[Worker ${workerId}] 네이버 로그인 타임아웃(PRb)`, "warn");
-    return false;
+    return await waitForNaverLoginCompletion(page, workerId, "PRb", 45000);
   } catch (e: any) {
     log(`[Worker ${workerId}] 네이버 로그인 예외(PRb): ${e.message}`, "warn");
     return false;
@@ -680,66 +771,6 @@ function shuffleWordsForSearch(fullTitle: string): string {
     [words[i], words[j]] = [words[j], words[i]];
   }
   return words.join(" ");
-}
-
-// 2차 검색어: keyword + (2차 키워드에서 랜덤 1단어) + (판매|최저가|최저|구매|비교|판매처|추천|가격|구매처|가격비교) → 3개 파트 랜덤 순서 띄어쓰기
-// 단, 2차 키워드 단어가 1차 검색어 단어와 같으면 제외 후 랜덤 선택
-// 예: 1차="제주 레몬", 2차="제주 레몬 유기농 못난이" -> "유기농", "못난이" 중 랜덤 1개 사용
-const SECOND_SEARCH_TAIL_WORDS = ["판매", "최저가", "최저", "구매", "비교", "판매처", "추천", "가격", "구매처", "가격비교"];
-function buildSecondSearchPhrase(firstKeyword: string, keywordName: string): string {
-  const part1 = (firstKeyword || "").trim() || "상품";
-  const firstWords = new Set(
-    part1
-      .replace(/\s+/g, " ")
-      .trim()
-      .split(" ")
-      .filter(Boolean)
-  );
-  const nameWords = (keywordName || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .split(" ")
-    .filter(Boolean)
-    .filter((w) => !firstWords.has(w));
-  const part2 = nameWords.length > 0 ? nameWords[Math.floor(Math.random() * nameWords.length)] : part1;
-  const part3 = SECOND_SEARCH_TAIL_WORDS[Math.floor(Math.random() * SECOND_SEARCH_TAIL_WORDS.length)];
-  const parts = [part1, part2, part3];
-  for (let i = parts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [parts[i], parts[j]] = [parts[j], parts[i]];
-  }
-  return parts.join(" ");
-}
-
-/** 블랙에 없는 2차 조합을 랜덤 생성으로 찾음 (동일 mid에서 실패한 조합 문자열은 재사용 안 함) */
-function pickSecondSearchPhraseAvoidingBlacklist(
-  engine: EngineRuntime,
-  mid: string,
-  firstKeyword: string,
-  keywordName: string,
-  workerId: number
-): string {
-  if (!engine.keywordBlacklistEnabled) {
-    return buildSecondSearchPhrase(firstKeyword, keywordName);
-  }
-  const maxTries = 200;
-  for (let t = 0; t < maxTries; t++) {
-    const phrase = buildSecondSearchPhrase(firstKeyword, keywordName);
-    if (!isSecondComboBlacklisted(engine, mid, phrase)) {
-      if (t > 0) {
-        log(
-          `[Worker ${workerId}] [KeywordBlacklist] 2차 조합 ${t + 1}번째 시도로 채택: "${phrase.substring(0, 50)}${phrase.length > 50 ? "..." : ""}"`
-        );
-      }
-      return phrase;
-    }
-  }
-  const fallback = buildSecondSearchPhrase(firstKeyword, keywordName);
-  log(
-    `[Worker ${workerId}] [KeywordBlacklist] 2차 조합 블랙 시도 다수 — 임의 조합 사용: "${fallback.substring(0, 50)}${fallback.length > 50 ? "..." : ""}"`,
-    "warn"
-  );
-  return fallback;
 }
 
 // 1차 검색용 인기 키워드 (사용자가 검색할 만한 키워드만, 뷁 같은 비검색형 제외)
@@ -945,8 +976,64 @@ function tryClaimWorkItemFromEngineFile(): WorkItem | null {
   };
 }
 
-// ============ 작업 1개 — 엔진 JSON 파일 ============
+// ============ 전략 파일 직접 실행 큐 ============
+interface StrategyQueue {
+  tasks: NormalizedStrategyTask[];
+  runCounts: Map<string, number>; // mid -> 실행 시작 횟수
+  cursor: number;
+  done: boolean;
+}
+
+let strategyQueue: StrategyQueue | null = null;
+
+function createStrategyQueue(strategy: NormalizedStrategyFile): StrategyQueue {
+  const tasks = strategy.tasks.filter((t) => t.checked);
+  if (tasks.length === 0) {
+    throw new Error("[Strategy] checked 작업이 없습니다. tasks에 checked:true 항목을 추가하세요.");
+  }
+  return { tasks, runCounts: new Map(), cursor: 0, done: false };
+}
+
+function buildWorkItemFromStrategyTask(task: NormalizedStrategyTask): WorkItem {
+  return {
+    taskId: Date.now(),
+    slotSequence: 0,
+    keyword: task.keyword,
+    productName: task.keywordName || task.keyword,
+    mid: task.mid,
+    linkUrl: task.linkUrl,
+    keywordName: task.keywordName || task.keyword,
+    secondKeywordRaw: task.keywordName || undefined,
+    catalogMid: undefined,
+  };
+}
+
+function claimFromStrategyQueue(): WorkItem | null {
+  const q = strategyQueue!;
+  for (let i = 0; i < q.tasks.length; i++) {
+    const idx = (q.cursor + i) % q.tasks.length;
+    const task = q.tasks[idx];
+    const done = q.runCounts.get(task.mid) ?? 0;
+    if (task.targetCount <= 0 || done < task.targetCount) {
+      const next = done + 1;
+      q.runCounts.set(task.mid, next);
+      if (task.targetCount > 0) {
+        log(`[Strategy] ${task.mid} 실행 ${next}/${task.targetCount}`);
+      }
+      q.cursor = (idx + 1) % q.tasks.length;
+      return buildWorkItemFromStrategyTask(task);
+    }
+  }
+  q.done = true;
+  return null;
+}
+
+// ============ 작업 1개 — 엔진 JSON 파일 또는 전략 큐 ============
 async function claimWorkItem(): Promise<WorkItem | null> {
+  if (strategyQueue) {
+    return claimFromStrategyQueue();
+  }
+
   while (isClaimingTask) {
     await sleep(100);
   }
@@ -1046,69 +1133,6 @@ function writeEngineTaskResult(work: WorkItem, result: EngineResult): void {
   }
 }
 
-/** D모드: 네이버 통합검색 → MID 순위 (통합검색 결과 페이지에서 카드 탐색) */
-async function runShoppingRankCheck(
-  page: RankCheckPage,
-  work: WorkItem,
-  workerId: number,
-  engine: EngineRuntime
-): Promise<EngineResult> {
-  const result: EngineResult = {
-    productPageEntered: false,
-    captchaDetected: false,
-    captchaSolved: false,
-    midMatched: false,
-    rankCheckMode: true,
-    rankCheckOk: false,
-    shoppingRank: null,
-  };
-
-  try {
-    const kw = work.keyword.trim();
-    const mid = work.mid;
-    // start.bat 경로(parallel-rank-checker.ts)는 ProductId 순회를 15페이지 고정
-    const maxPages = 15;
-    log(`[Worker ${workerId}] D모드 순위체크: "${kw.substring(0, 40)}..." mid=${mid} (최대 ${maxPages}페이지)`);
-
-    const detail = await findNaverShoppingRankByMid(
-      page,
-      kw,
-      mid,
-      maxPages,
-      (m) => log(`[Worker ${workerId}] ${m}`),
-      sleep
-    );
-
-    if (detail.rank != null && detail.rank > 0) {
-      result.shoppingRank = detail.rank;
-      result.reviewCount = detail.reviewCount;
-      result.starRating = detail.starRating;
-      result.extractedProductTitle = detail.productTitle?.trim() || null;
-      result.catalogMid = detail.catalogMid || null;
-      result.rankCheckOk = true;
-      result.midMatched = true;
-      log(
-        `[Worker ${workerId}] 순위: ${detail.rank}위` +
-          (detail.reviewCount != null ? ` | 리뷰 ${detail.reviewCount}` : "") +
-          (detail.starRating != null ? ` | 별 ${detail.starRating}` : "") +
-          (result.extractedProductTitle
-            ? ` | 제목 "${result.extractedProductTitle.substring(0, 36)}${result.extractedProductTitle.length > 36 ? "…" : ""}"`
-            : "")
-      );
-    } else {
-      result.failReason = "NO_MID_MATCH";
-      result.error = "순위권_미발견";
-      log(`[Worker ${workerId}] 순위권 내 MID 없음`, "warn");
-    }
-  } catch (e: any) {
-    result.error = e?.message || "Unknown";
-    result.failReason = "TIMEOUT";
-    log(`[Worker ${workerId}] 순위체크 예외: ${result.error}`, "warn");
-  }
-
-  return result;
-}
-
 /** 1차 검색어: 한글 안정적으로 클립보드 + Ctrl+V (실패 시 fill 폴백) */
 async function pasteFirstSearchKeywordIntoPortal(
   page: Page,
@@ -1181,76 +1205,6 @@ async function pasteFirstSearchKeywordIntoPortal(
   }
 }
 
-// ============ [Flow E/F] 헬퍼 함수 ============
-
-function generateAckey(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let r = "";
-  for (let i = 0; i < 8; i++) r += chars[Math.floor(Math.random() * chars.length)];
-  return r;
-}
-
-function splitCompoundWord(word: string): string[] {
-  if (word.length <= 3) return [word];
-  const syllables: string[] = [];
-  let i = 0;
-  while (i < word.length) {
-    const chunkSize = Math.random() > 0.5 ? 2 : 3;
-    const chunk = word.substring(i, Math.min(i + chunkSize, word.length));
-    if (chunk.length >= 2) {
-      syllables.push(chunk);
-    } else if (chunk.length === 1 && syllables.length > 0) {
-      syllables[syllables.length - 1] += chunk;
-    } else {
-      syllables.push(chunk);
-    }
-    i += chunkSize;
-  }
-  return syllables;
-}
-
-function pickQueryWords(keyword: string, productName: string): string {
-  const tails = ["추천", "할인", "후기", "인기", "베스트", "구매", "쇼핑", "특가", "세일", "가성비", "최저가", "정품"];
-  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, " ").replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, " ");
-  const pool = [...new Set(allText.split(/\s+/).filter(w => w.length >= 2))];
-  for (let j = pool.length - 1; j > 0; j--) {
-    const k = Math.floor(Math.random() * (j + 1));
-    [pool[j], pool[k]] = [pool[k], pool[j]];
-  }
-  const selected: string[] = [];
-  for (const w of pool) {
-    if (selected.length >= 3) break;
-    selected.push(w);
-  }
-  while (selected.length < 3) {
-    const avail = tails.filter(t => !selected.includes(t));
-    if (!avail.length) break;
-    selected.push(avail[Math.floor(Math.random() * avail.length)]);
-  }
-  return selected.slice(0, 3).join(" ");
-}
-
-function buildAckeySearchUrl(query: string): string {
-  const p = new URLSearchParams({
-    sm: "mtp_sug.top",
-    where: "m",
-    query,
-    ackey: generateAckey(),
-    acq: query,
-    acr: String(Math.floor(Math.random() * 9) + 1),
-    qdt: "0",
-  });
-  return `https://m.search.naver.com/search.naver?${p.toString()}`;
-}
-
-function buildIntegratedSearchUrl(query: string): string {
-  const p = new URLSearchParams({
-    where: "m",
-    query,
-  });
-  return `https://m.search.naver.com/search.naver?${p.toString()}`;
-}
-
 async function collectSearchDomDiagnostics(page: Page, mid: string, catalogMid?: string): Promise<string> {
   try {
     const diag = await page.evaluate(({ mid, catalogMid }) => {
@@ -1293,6 +1247,374 @@ async function collectSearchDomDiagnostics(page: Page, mid: string, catalogMid?:
   }
 }
 
+async function inspectDetailSystemError(page: Page): Promise<{ detected: boolean; reason: string; title: string; snippet: string }> {
+  try {
+    return await page.evaluate(() => {
+      const clean = (value: unknown): string => String(value || "").replace(/\s+/g, " ").trim();
+      const title = clean(document.title);
+      const body = clean(document.body?.innerText || "");
+      const haystack = `${title} ${body}`;
+      const patterns = [
+        "시스템오류",
+        "시스템 오류",
+        "에러페이지",
+        "현재 서비스 접속이 불가합니다",
+        "일시적인 서비스 장애",
+        "Too Many Requests",
+        "접속이 불가합니다",
+      ];
+      const reason = patterns.find((pattern) => haystack.includes(pattern)) || "";
+      return {
+        detected: Boolean(reason),
+        reason,
+        title,
+        snippet: body.substring(0, 160),
+      };
+    });
+  } catch (e: any) {
+    return {
+      detected: false,
+      reason: "",
+      title: "",
+      snippet: `detail error inspection failed: ${e?.message || e}`,
+    };
+  }
+}
+
+const INTEGRATED_SHOP_PAGE_LIMIT = 5;
+const INTEGRATED_SHOP_PAGE_SETTLE_MS = 900;
+const PAGE_EVALUATE_NAME_POLYFILL = "window.__name = window.__name || ((fn) => fn);";
+
+async function ensurePageEvaluateNamePolyfill(page: Page): Promise<void> {
+  await page.evaluate(PAGE_EVALUATE_NAME_POLYFILL).catch(() => {});
+}
+
+async function clickIntegratedShoppingCarouselNext(page: Page, maxCarouselPage = INTEGRATED_SHOP_PAGE_LIMIT): Promise<{
+  clicked: boolean;
+  current?: number;
+  total?: number;
+  label?: string;
+  reachedEnd?: boolean;
+  reason?: string;
+}> {
+  await ensurePageEvaluateNamePolyfill(page);
+  return page.evaluate((maxCarouselPage: number) => {
+    const isVisible = (el: Element): boolean => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+
+    const readPaging = (text: string): { current: number; total: number } | null => {
+      const slash = text.match(/(\d+)\s*\/\s*(\d+)/);
+      if (slash) {
+        return { current: Number(slash[1]), total: Number(slash[2]) };
+      }
+      const a11y = text.match(/현재\s*(\d+)\s*전체\s*(\d+)/);
+      if (a11y) {
+        return { current: Number(a11y[1]), total: Number(a11y[2]) };
+      }
+      return null;
+    };
+
+    const readPagingFromRoot = (root: Element | null): { current: number; total: number } | null => {
+      if (!root) return null;
+      const currentText =
+        root.querySelector("._current, .cmm_npgs_now")?.textContent ||
+        root.querySelector("[aria-current='page']")?.textContent ||
+        "";
+      const totalText = root.querySelector("._total")?.textContent || "";
+      const current = Number((currentText.match(/\d+/) || [])[0]);
+      const total = Number((totalText.match(/\d+/) || [])[0]);
+      if (Number.isFinite(current) && Number.isFinite(total) && current > 0 && total > 0) {
+        return { current, total };
+      }
+      return readPaging((root.textContent || "").replace(/\s+/g, " ").trim());
+    };
+
+    const shopLike = (text: string): boolean => /(플러스스토어|가격비교|쇼핑|상품|스토어|상품판매)/.test(text);
+    const findShopContainer = (from: HTMLElement): HTMLElement | null => {
+      let cur: HTMLElement | null = from;
+      for (let depth = 0; cur && depth < 16; depth++) {
+        const text = cur.innerText || "";
+        const hasCards =
+          !!cur.querySelector("a.gift_link, a[data-shp-contents-id], [data-shp-contents-id], [class*='product_item'], [class*='product_title']");
+        if (shopLike(text) && (readPaging(text) || hasCards)) return cur;
+        cur = cur.parentElement;
+      }
+      return null;
+    };
+
+    const directCandidates = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        [
+          "a.cmm_pg_next._next.on",
+          "button.cmm_pg_next._next.on",
+          ".pagination_wrap._page_root a.cmm_pg_next._next.on",
+          ".pagination_wrap._page_root button.cmm_pg_next._next.on",
+          "a._next.on",
+          "button._next.on",
+          "a[class*='pg_next'].on",
+          "button[class*='pg_next'].on",
+          "a[class*='btn_next']",
+          "button[class*='btn_next']",
+        ].join(",")
+      )
+    ).filter((el, idx, arr) => arr.indexOf(el) === idx);
+
+    let lastPagingCurrent: number | undefined;
+    let lastPagingTotal: number | undefined;
+
+    for (const next of directCandidates) {
+      if (!isVisible(next)) continue;
+      const cls = `${next.className || ""}`;
+      const aria = `${next.getAttribute("aria-label") || ""} ${next.getAttribute("title") || ""} ${next.textContent || ""}`;
+      if (/이전|prev|previous|left/i.test(`${aria} ${cls}`)) continue;
+      const disabled =
+        next.getAttribute("aria-disabled") === "true" ||
+        next.hasAttribute("disabled") ||
+        /disabled|_off|inactive/i.test(cls);
+      if (disabled) continue;
+
+      const container = findShopContainer(next);
+      const pagingRoot = next.closest(".pagination_wrap._page_root, .pagination_wrap, .cmm_pgs");
+      const pageText = container?.innerText || document.body?.innerText || "";
+      if (!container && !shopLike(pageText)) continue;
+      const paging = readPagingFromRoot(pagingRoot) || readPaging(pageText);
+      if (paging) {
+        lastPagingCurrent = paging.current;
+        lastPagingTotal = paging.total;
+        const pageLimit = Math.min(paging.total, maxCarouselPage);
+        if (!Number.isFinite(paging.current) || !Number.isFinite(paging.total) || paging.current >= pageLimit) {
+          return {
+            clicked: false,
+            current: paging.current,
+            total: paging.total,
+            reachedEnd: true,
+            reason: `pageLimitReached=${paging.current}/${paging.total}`,
+          };
+        }
+      }
+
+      next.scrollIntoView({ block: "center", inline: "center" });
+      next.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      next.click();
+      return {
+        clicked: true,
+        current: paging?.current,
+        total: paging?.total,
+        label: paging ? `${paging.current + 1}/${paging.total}` : undefined,
+      };
+    }
+
+    const sections = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        [
+          "section._root_shp_lis",
+          "section._root_shs_lis",
+          "section._sp_nshop_gift",
+          "section.sp_shop_gift",
+          "section[class*='sp_shop']",
+          "section[class*='shop_gift']",
+          "section[class*='shop_product']",
+          'section[class*="_root_shp"]',
+          'section[class*="_root_shs"]',
+          "section",
+        ].join(",")
+      )
+    ).filter((section, idx, arr) => arr.indexOf(section) === idx);
+
+    for (const section of sections) {
+      const text = section.innerText || "";
+      if (!/(플러스스토어|쇼핑|상품|스토어)/.test(text)) continue;
+      const paging = readPaging(text);
+      if (!paging) continue;
+
+      const { current, total } = paging;
+      const pageLimit = Math.min(total, maxCarouselPage);
+      if (!Number.isFinite(current) || !Number.isFinite(total) || current >= pageLimit) {
+        return {
+          clicked: false,
+          current,
+          total,
+          reachedEnd: true,
+          reason: `pageLimitReached=${current}/${total}`,
+        };
+      }
+
+      const sectionRect = section.getBoundingClientRect();
+      const directNext = section.querySelector<HTMLElement>(
+        "a.cmm_pg_next._next.on, button.cmm_pg_next._next.on, a._next.on, button._next.on, a[class*='pg_next'].on, button[class*='pg_next'].on"
+      );
+      const buttons = [
+        ...(directNext ? [directNext] : []),
+        ...Array.from(section.querySelectorAll<HTMLElement>("button,a,[role='button']")),
+      ]
+        .filter((el) => isVisible(el))
+        .filter((el) => {
+          const aria = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""} ${el.textContent || ""}`;
+          const cls = `${el.className || ""}`;
+          const rect = el.getBoundingClientRect();
+          const disabled =
+            el.getAttribute("aria-disabled") === "true" ||
+            el.hasAttribute("disabled") ||
+            /disabled|_off|inactive/i.test(cls);
+          if (disabled) return false;
+          if (/이전|prev|previous|left/i.test(`${aria} ${cls}`)) return false;
+          if (/다음|next|right|btn_next|pg_next|cmm_pg_next|pagination_next|_next/i.test(`${aria} ${cls}`)) return true;
+          return rect.left > sectionRect.left + sectionRect.width / 2 && rect.width >= 18 && rect.width <= 90 && rect.height >= 18 && rect.height <= 90;
+        })
+        .sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+
+      const next = buttons[0];
+      if (!next) continue;
+      next.scrollIntoView({ block: "center", inline: "center" });
+      next.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      next.click();
+      return { clicked: true, current, total, label: `${current + 1}/${total}` };
+    }
+
+    return {
+      clicked: false,
+      current: lastPagingCurrent,
+      total: lastPagingTotal,
+      reason: `nextCandidates=${directCandidates.length}`,
+    };
+  }, maxCarouselPage).catch((e: any) => ({ clicked: false, reason: e?.message || String(e) }));
+}
+
+async function waitForIntegratedShoppingPageSettle(page: Page, expectedCurrent?: number): Promise<void> {
+  if (expectedCurrent) {
+    await page.waitForFunction(
+      (expected) => {
+        const currentText =
+          document.querySelector(".pagination_wrap._page_root ._current, .pagination_wrap._page_root .cmm_npgs_now")?.textContent ||
+          "";
+        return Number((currentText.match(/\d+/) || [])[0]) === expected;
+      },
+      expectedCurrent,
+      { timeout: 2500 }
+    ).catch(() => {});
+  }
+  await sleep(INTEGRATED_SHOP_PAGE_SETTLE_MS);
+}
+
+async function getIntegratedShoppingPagingState(page: Page): Promise<{ current?: number; total?: number } | null> {
+  await ensurePageEvaluateNamePolyfill(page);
+  return page.evaluate(() => {
+    const root = document.querySelector(".pagination_wrap._page_root, .pagination_wrap, .cmm_pgs");
+    if (!root) return null;
+    const readNumber = (selector: string): number | undefined => {
+      const text = root.querySelector(selector)?.textContent || "";
+      const n = Number((text.match(/\d+/) || [])[0]);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const current = readNumber("._current, .cmm_npgs_now, [aria-current='page']");
+    const total = readNumber("._total");
+    return { current, total };
+  }).catch(() => null);
+}
+
+async function waitForDomReady(page: Page, timeoutMs = 30000): Promise<boolean> {
+  try {
+    await page.waitForLoadState("domcontentloaded", { timeout: timeoutMs });
+    return true;
+  } catch {
+    try {
+      await page.waitForFunction(
+        () => document.readyState === "interactive" || document.readyState === "complete",
+        { timeout: 5000 }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+async function hasCaptchaChallenge(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const bodyText = document.body?.innerText || "";
+    if (
+      bodyText.includes("보안 확인") ||
+      bodyText.includes("자동입력방지") ||
+      bodyText.includes("자동 입력 방지") ||
+      bodyText.includes("보안문자") ||
+      bodyText.includes("영수증") ||
+      bodyText.includes("가상으로 제작") ||
+      bodyText.includes("무엇입니까") ||
+      bodyText.includes("빈 칸을 채워주세요") ||
+      bodyText.includes("번째 숫자") ||
+      bodyText.includes("번째 글자") ||
+      bodyText.includes("CAPTCHA")
+    ) {
+      return true;
+    }
+
+    return !!document.querySelector(
+      [
+        ".captcha_img",
+        ".captcha_img_cover img",
+        ".captcha_area",
+        "[class*='captcha']",
+        "img[src*='captcha']",
+        "#captcha_image",
+        "#captcha_answer",
+      ].join(",")
+    );
+  }).catch(() => false);
+}
+
+async function waitForCaptchaChallenge(page: Page, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await hasCaptchaChallenge(page)) return true;
+    await sleep(500);
+  }
+  return await hasCaptchaChallenge(page);
+}
+
+async function solveCaptchaIfPresent(
+  page: Page,
+  solver: ReceiptCaptchaSolverPRB,
+  result: EngineResult,
+  workerId: number,
+  scopeLabel: string,
+  mid: string,
+  catalogMid?: string,
+  waitForAppearMs = 0
+): Promise<boolean> {
+  const detected = waitForAppearMs > 0
+    ? await waitForCaptchaChallenge(page, waitForAppearMs)
+    : await hasCaptchaChallenge(page);
+  if (!detected) {
+    log(`[Worker ${workerId}] ${scopeLabel} CAPTCHA 미감지`);
+    return true;
+  }
+
+  log(`[Worker ${workerId}] ${scopeLabel} CAPTCHA 감지 - 해결 시도...`);
+  result.captchaDetected = true;
+  const solved = await solver.solve(page).catch(() => false);
+  await waitForDomReady(page, 15000);
+  await sleep(500);
+
+  if (solved && !(await hasCaptchaChallenge(page))) {
+    log(`[Worker ${workerId}] ${scopeLabel} CAPTCHA 해결 성공!`);
+    result.captchaSolved = true;
+    result.captchaDetected = false;
+    return true;
+  }
+
+  log(`[Worker ${workerId}] ${scopeLabel} CAPTCHA 해결 실패`, "warn");
+  log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+  result.failReason = "CAPTCHA_UNSOLVED";
+  return false;
+}
+
 async function runPatchrightEngine(
   page: Page,
   mid: string,
@@ -1313,74 +1635,29 @@ async function runPatchrightEngine(
     midMatched: false
   };
 
-  const flow = engine.searchFlowVersion;
-  const flowLabel =
-    flow === "A" ? "A 통합1+2차" :
-    flow === "B" ? "B 통합메인" :
-    flow === "C" ? "C 통합2차" :
-    flow === "E" ? "E ackey위장URL" :
-    flow === "F" ? "F 통합상품명" : flow;
-
   try {
-    const firstKeyword = (keyword || "").trim() || "상품";
-    log(`[Worker ${workerId}] 검색 시작 (작업 모드: ${flowLabel})`);
-
-    if (flow === "E") {
-      // E: ackey 위장 URL 직접 이동 (통합검색 기반)
-      const query = pickQueryWords(firstKeyword, productName);
-      const searchUrl = buildAckeySearchUrl(query);
-      log(`[Worker ${workerId}] E모드 ackey URL: query="${query}"`);
-      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-      await sleep(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = query;
-    } else if (flow === "C") {
-      const onlySecond = (secondKeywordRaw || "").trim();
-      if (!onlySecond) {
-        log(`[Worker ${workerId}] C모드는 2차 키워드 필수 — 작업 스킵`, "warn");
-        result.failReason = "INVALID_TASK";
-        result.error = "C모드_2차키워드없음";
-        return result;
-      }
-      log(`[Worker ${workerId}] C모드 통합검색 (2차 키워드): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
-      await page.goto(buildIntegratedSearchUrl(onlySecond), { waitUntil: "domcontentloaded", timeout: 60000 });
-      await sleep(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = onlySecond;
-    } else if (flow === "F") {
-      // F: 상품명 전체를 그대로 통합검색
-      const query = (productName || firstKeyword || "").trim() || pickQueryWords(firstKeyword, productName);
-      log(`[Worker ${workerId}] F모드 상품명 전체 통합검색: "${query}"`);
-      await page.goto(buildIntegratedSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 60000 });
-      await sleep(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = query;
-    } else {
-      const firstQuery = firstKeyword;
-      log(`[Worker ${workerId}] 1차 통합검색: ${firstQuery}`);
-      await page.goto(buildIntegratedSearchUrl(firstQuery), { waitUntil: "domcontentloaded", timeout: 60000 });
-      await sleep(engine.delay("afterFirstSearchLoad"));
-
-      if (flow === "A") {
-        // productTitle(순위체크 수집 풀네임) 있으면 직접 사용, 없으면 3단 조합 생성
-        let secondSearchKeyword: string;
-        if (catalogMid && productName && productName.length > 10) {
-          secondSearchKeyword = productName;
-          log(`[Worker ${workerId}] A모드 2차 통합검색 (풀네임): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
-        } else {
-          const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
-          secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
-            engine,
-            mid,
-            firstKeyword,
-            nameForSecond,
-            workerId
-          );
-          log(`[Worker ${workerId}] A모드 2차 통합검색 (3단조합): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
-        }
-        result.secondSearchPhraseUsed = secondSearchKeyword;
-        await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 60000 });
-        await sleep(engine.delay("afterSecondSearchLoad"));
-      } else {
-        log(`[Worker ${workerId}] B모드 — 1차 통합검색 결과에서 상품 탐색`);
-      }
+    const searchSetup = await prepareTrafficSearchFlow({
+      page,
+      mid,
+      productName,
+      keyword,
+      workerId,
+      engine,
+      keywordName,
+      secondKeywordRaw,
+      catalogMid,
+    }, {
+      log,
+      sleep,
+      isSecondComboBlacklisted,
+    });
+    if (!searchSetup.ok) {
+      result.failReason = searchSetup.failReason;
+      result.error = searchSetup.error;
+      return result;
+    }
+    if (searchSetup.secondSearchPhraseUsed) {
+      result.secondSearchPhraseUsed = searchSetup.secondSearchPhraseUsed;
     }
 
     // IP 차단 체크
@@ -1402,35 +1679,21 @@ async function runPatchrightEngine(
       return result;
     }
 
-    // 7. CAPTCHA 체크
-    const searchCaptcha = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || '';
-      return bodyText.includes('보안 확인') || bodyText.includes('자동입력방지');
-    }).catch(() => false);
-
-    if (searchCaptcha) {
-      log(`[Worker ${workerId}] 검색 CAPTCHA 감지 - 해결 시도...`);
-      result.captchaDetected = true;
-      const solved = await captchaSolver.solve(page);
-      if (solved) {
-        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 성공!`);
-        result.captchaSolved = true;
-        result.captchaDetected = false;
-      } else {
-        log(`[Worker ${workerId}] 검색 CAPTCHA 해결 실패`, "warn");
-        log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
-        result.failReason = 'CAPTCHA_UNSOLVED';
-        return result;
-      }
+    if (!(await solveCaptchaIfPresent(page, captchaSolver, result, workerId, "검색", mid, catalogMid))) {
+      return result;
     }
 
-    // 8. MID로 직접 상품 링크 탐색 (combined-runner 방식)
-    const MAX_SCROLL = engine.maxScrollAttempts;
+    // 8. 통합검색 컴포넌트 페이지네이션: 현재 페이지 MID 확인 → 없으면 다음 컴포넌트 페이지
+    const MAX_SCROLL = Math.max(engine.maxScrollAttempts, INTEGRATED_SHOP_PAGE_LIMIT);
     let linkClicked = false;
     const fallbackProductTitle = productName;
 
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
-      log(`[Worker ${workerId}] 상품 링크 탐색 ${i + 1}/${MAX_SCROLL}`);
+      const pagingState = await getIntegratedShoppingPagingState(page);
+      const pagingLabel = pagingState?.current && pagingState?.total
+        ? `컴포넌트 ${pagingState.current}/${pagingState.total}페이지`
+        : `탐색 ${i + 1}/${MAX_SCROLL}`;
+      log(`[Worker ${workerId}] 통합검색 ${pagingLabel} MID(${catalogMid || mid}) 확인`);
 
       // 통합검색 grid 영역: 가격비교/플러스스토어/쇼핑 카드 모두 커버
       const searchMid = catalogMid || mid;
@@ -1454,8 +1717,22 @@ async function runPatchrightEngine(
           log(`[Worker ${workerId}] MID(${mid}) 링크 발견 → 클릭`);
           await link.evaluate((el: HTMLAnchorElement) => el.removeAttribute('target'));
           await link.click();
-          await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+          const detailDomReady = await waitForDomReady(page, 30000);
           await sleep(engine.delay("afterProductClick"));
+
+          if (!detailDomReady) {
+            log(`[Worker ${workerId}] 상세페이지 DOM 로드 확인 실패`, "warn");
+            log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+            result.failReason = "PAGE_NOT_LOADED";
+            result.error = "DetailDomNotLoaded";
+            return result;
+          }
+          log(`[Worker ${workerId}] 상세페이지 DOM 로드 확인 완료`);
+
+          log(`[Worker ${workerId}] 상세페이지 CAPTCHA 표시 대기 중...`);
+          if (!(await solveCaptchaIfPresent(page, captchaSolver, result, workerId, "상세페이지", mid, catalogMid, 12000))) {
+            return result;
+          }
 
           const currentPageUrl = page.url();
           log(`[Worker ${workerId}] 페이지: ${currentPageUrl.substring(0, 80)}...`);
@@ -1463,11 +1740,30 @@ async function runPatchrightEngine(
           linkClicked = true;
           result.midMatched = true;
 
-          const dwellTime = engine.delay("stayOnProduct");
-          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
-          await sleep(dwellTime);
-
           if (currentPageUrl.includes('smartstore.naver.com') || currentPageUrl.includes('brand.naver.com')) {
+            let detailError = await inspectDetailSystemError(page);
+            if (detailError.detected) {
+              log(
+                `[Worker ${workerId}] 상세페이지 시스템 오류 감지(${detailError.reason}) — 1회 새로고침 후 재확인`,
+                "warn"
+              );
+              await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch((e: any) => {
+                log(`[Worker ${workerId}] 상세페이지 새로고침 실패: ${e?.message || e}`, "warn");
+              });
+              await sleep(engine.delay("afterProductClick"));
+              detailError = await inspectDetailSystemError(page);
+            }
+
+            if (detailError.detected) {
+              log(
+                `[Worker ${workerId}] 상세페이지 시스템 오류 유지: title=${JSON.stringify(detailError.title)} body=${JSON.stringify(detailError.snippet)}`,
+                "warn"
+              );
+              result.failReason = "DETAIL_NOT_REACHED";
+              result.error = `DetailSystemError:${detailError.reason || "unknown"}`;
+              return result;
+            }
+
             result.productPageEntered = true;
             try {
               const pageTitle = await page.evaluate(() => {
@@ -1530,6 +1826,10 @@ async function runPatchrightEngine(
             result.failReason = "DETAIL_NOT_REACHED";
             result.error = "StoreDetailUrlMismatch";
           }
+
+          const dwellTime = engine.delay("stayOnProduct");
+          log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
+          await sleep(dwellTime);
           break;
         }
       }
@@ -1550,12 +1850,37 @@ async function runPatchrightEngine(
         }
       }
 
+      const carouselNext = await clickIntegratedShoppingCarouselNext(page, INTEGRATED_SHOP_PAGE_LIMIT);
+      if (carouselNext.clicked) {
+        log(
+          `[Worker ${workerId}] 통합검색 쇼핑 캐러셀 다음 페이지 클릭` +
+            (carouselNext.label ? ` (${carouselNext.label})` : "")
+        );
+        await waitForIntegratedShoppingPageSettle(page, carouselNext.current ? carouselNext.current + 1 : undefined);
+        await sleep(engine.delay("explorationBetweenScrolls"));
+        continue;
+      } else if (carouselNext.reachedEnd) {
+        log(
+          `[Worker ${workerId}] 통합검색 쇼핑 캐러셀 페이지 한도 도달` +
+            (carouselNext.current && carouselNext.total ? ` (${carouselNext.current}/${carouselNext.total})` : "")
+        );
+        break;
+      } else if (carouselNext.reason) {
+        log(`[Worker ${workerId}] 통합검색 쇼핑 캐러셀 다음 버튼 미클릭: ${carouselNext.reason}`, "warn");
+      }
+
+      log(`[Worker ${workerId}] 통합검색 컴포넌트 다음 페이지 없음 — 스크롤로 추가 로딩 확인`);
       await humanScroll(page, engine.explorationScrollPixels);
       await sleep(engine.delay("explorationBetweenScrolls"));
     }
 
     if (!linkClicked) {
-      log(`[Worker ${workerId}] 상품이 존재하지 않음 — MID(${mid}) 검색결과에 미노출 (${MAX_SCROLL}회 스크롤)`, "warn");
+      log(`[Worker ${workerId}] 통합검색 컴포넌트 페이지네이션 내 상품 미발견`, "warn");
+      log(`[Worker ${workerId}] 쇼핑 더보기 폴백 없이 통합검색 컴포넌트 탐색에서 종료`, "warn");
+    }
+
+    if (!linkClicked) {
+      log(`[Worker ${workerId}] 상품이 존재하지 않음 — MID(${mid}) 통합검색 컴포넌트 페이지네이션 내 미노출`, "warn");
       log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
       result.error = '상품이 존재하지 않음';
       result.failReason = 'PRODUCT_NOT_FOUND';
@@ -1620,7 +1945,11 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       const work = await claimWorkItem();
 
       if (!work) {
-        // 작업 없으면 대기 (once 모드면 대기 없이 종료)
+        if (strategyQueue?.done) {
+          log(`[Worker ${workerId}] 전략 완료 - 모든 작업 실행 횟수 달성`);
+          printStats();
+          process.exit(0);
+        }
         if (onceMode) {
           log(`[Worker ${workerId}] 작업 없음 - 종료`);
           process.exit(0);
@@ -1645,6 +1974,13 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       const isMobileTask = isRankD ? false : resolveMobileForTask(ENGINE);
       const ua = pickUserAgent(ENGINE, isMobileTask);
       const proxy = pickProxyConfig(ENGINE);
+      const profileName = profile.name;
+      const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
+      const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState;
+      const manualNaverLogin =
+        (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" ||
+        process.env.NAVER_MANUAL_LOGIN === "1";
       if (ENGINE.logEngineEvents) {
         log(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat·puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -1722,12 +2058,16 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
         context = await browser.newContext({
           ...ctxOpts,
           ...(proxy ? { proxy } : {}),
+          ...(useStoredNaverState ? { storageState: storedNaverStatePath! } : {}),
         });
         if (isMobileTask) {
           await applyMobileStealth(context);
         }
+        // esbuild/tsx가 page.evaluate 함수를 __name(...)으로 감쌀 수 있어 브라우저에 polyfill을 먼저 둔다.
+        await context.addInitScript(PAGE_EVALUATE_NAME_POLYFILL);
         page =
           context.pages().length > 0 ? context.pages()[0]! : await context.newPage();
+        await ensurePageEvaluateNamePolyfill(page);
         page.setDefaultTimeout(60000);
         page.setDefaultNavigationTimeout(60000);
       }
@@ -1744,14 +2084,17 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
 
       // D순위: rank_1 은 자동 로그인 없음(차단 완화). 필요 시 NAVER_LOGIN_ON_RANK=1 → PRB 전용 로그인
       // naverLoginEnabled=false(기본)이면 파일 유무 무관하게 로그인 스킵
-      const loginOk =
-        !ENGINE.naverLoginEnabled
+      const loginOk = !ENGINE.naverLoginEnabled
+        ? true
+        : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1"
           ? true
-          : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1"
-            ? true
-            : isRankD
-              ? await ensureNaverLoginPrbPage(page, workerId)
-              : await ensureNaverLoginIfConfigured(page as Page, workerId);
+          : isRankD
+            ? await ensureNaverLoginPrbPage(page, workerId)
+            : useStoredNaverState
+              ? (log(`[Worker ${workerId}] 네이버 저장 세션 로드 완료: ${storedNaverStatePath}`), true)
+              : manualNaverLogin
+                ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
+                : await ensureNaverLoginIfConfigured(page as Page, workerId, context, profileName);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -1772,7 +2115,10 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
 
       // 3. 엔진 실행 (트래픽 A/B/C vs 순위 D)
       const engineResult = isRankD
-        ? await runShoppingRankCheck(page as RankCheckPage, work, workerId, ENGINE)
+        ? await runRankCheckFlow(
+            { page: page as RankCheckPage, work, workerId },
+            { log, sleep }
+          )
         : await runPatchrightEngine(
             page as Page,
             work.mid,
@@ -1928,6 +2274,31 @@ async function main() {
     }).trim();
   } catch (e) {
     // git 명령 실패 시 무시
+  }
+
+  // --strategy 모드: 전략 파일에서 ENGINE 설정 + 작업 큐 초기화
+  if (STRATEGY_ARG) {
+    const strategyPath = path.isAbsolute(STRATEGY_ARG)
+      ? STRATEGY_ARG
+      : path.resolve(process.cwd(), STRATEGY_ARG);
+    log(`[Strategy] 전략 파일 로드: ${strategyPath}`);
+    const rawStrategy = loadStrategyFile(strategyPath);
+    const validation = validateStrategy(rawStrategy);
+    if (validation.errors.length > 0) {
+      console.error("[Strategy] 유효성 오류:\n" + validation.errors.join("\n"));
+      process.exit(1);
+    }
+    if (validation.warnings.length > 0) {
+      for (const w of validation.warnings) log(`[Strategy] 경고: ${w}`, "warn");
+    }
+    const normalized = normalizeStrategy(rawStrategy);
+    ENGINE = buildEngineRuntime(normalized.runtime);
+    strategyQueue = createStrategyQueue(normalized);
+    const checkedTasks = normalized.tasks.filter((t) => t.checked);
+    log(`[Strategy] "${normalized.name}" | 플로우=${ENGINE.searchFlowVersion} | 작업=${checkedTasks.length}개 (checked)`);
+    for (const t of checkedTasks) {
+      log(`[Strategy]   · ${t.keyword} → mid=${t.mid} | 횟수=${t.targetCount > 0 ? t.targetCount + "회" : "무제한"}`);
+    }
   }
 
   const onceMode = process.argv.includes("--once");

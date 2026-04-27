@@ -154,8 +154,7 @@ export interface EngineRuntime {
   naverLoginEnabled: boolean;
 }
 
-export function loadEngineConfig(): EngineRuntime {
-  const file = readConfigJson();
+export function buildEngineRuntime(file: EngineConfigFile): EngineRuntime {
   const mergedDelays = { ...DEFAULT_DELAY_SPECS, ...(file.delays || {}) };
   const delay = (key: string) => delayMs(file.delays?.[key], mergedDelays[key] ?? 0);
   const mobileUA = file.userAgents?.mobile?.filter(Boolean) || [];
@@ -175,7 +174,6 @@ export function loadEngineConfig(): EngineRuntime {
     keywordBlacklistEnabled: file.search?.keywordBlacklistEnabled !== false,
     keywordBlacklistPath: resolveKeywordBlacklistPath(file),
     searchFlowVersion: parseSearchFlowVersion(file.search?.searchFlowVersion),
-    /** 설정 생략 시 기본 false (USB 폰 미연결 환경에서 ADB 오류 방지) */
     airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask === true,
     airplaneCycles: Math.max(1, file.airplaneMode?.offOnCycles ?? 1),
     logEngineEvents: file.logging?.engineEvents !== false,
@@ -185,6 +183,10 @@ export function loadEngineConfig(): EngineRuntime {
     engineResultFilePath: resolveEngineResultFilePath(file),
     naverLoginEnabled: file.naverLoginEnabled === true,
   };
+}
+
+export function loadEngineConfig(): EngineRuntime {
+  return buildEngineRuntime(readConfigJson());
 }
 
 export function resolveMobileForTask(runtime: EngineRuntime): boolean {

@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+const _debugSkipAuth = process.argv.includes("--debug-skip-auth") || process.env.DEBUG_SKIP_AUTH === "1";
+
 contextBridge.exposeInMainWorld("engineApi", {
+  debugSkipAuth: _debugSkipAuth,
   getPaths: () => ipcRenderer.invoke("get-paths"),
   loadEngineConfig: () => ipcRenderer.invoke("load-engine-config"),
   saveEngineConfig: (data) => ipcRenderer.invoke("save-engine-config", data),

@@ -23,8 +23,8 @@
     <div class="toolbar">
       <button type="button" class="primary" id="btnStart">▶ 시작</button>
       <button type="button" class="danger" id="btnStop">■ 중지</button>
-      <button type="button" class="secondary" id="btnSaveConfig">설정 저장</button>
-      <button type="button" class="secondary" id="btnSaveResults">결과 저장</button>
+      <button type="button" class="secondary" id="btnSaveConfig" title="작업 목록과 설정을 함께 저장">저장</button>
+      <button type="button" class="secondary" id="btnSaveResults" title="현재 표를 보고용 파일로 내보내기">결과 내보내기</button>
       <button type="button" class="secondary" id="btnResetStats">초기화</button>
       <span class="status" id="runnerStatus">대기 중</span>
     </div>
@@ -44,9 +44,10 @@
                   <th id="thSecondKeyword" title="2차 검색 조합에 사용할 추가 키워드">2차 키워드 (선택)</th>
                   <th style="width:80px" title="URL에서 자동 추출">MID</th>
                   <th style="width:160px" title="순위체크 시 자동 수집">상품명</th>
-                  <th style="width:56px" title="일일 목표 횟수 (0=무제한)">목표</th>
-                  <th style="width:64px" title="성공/목표">성공</th>
-                  <th style="width:48px" title="실패 횟수">실패</th>
+                  <th style="width:56px" title="시작 시점에 로드할 실행 횟수 (0=무제한)">횟수</th>
+                  <th style="width:56px" title="시작 시점 기준 남은 실행 횟수">남은</th>
+                  <th style="width:48px" title="오늘 성공 횟수">성공</th>
+                  <th style="width:48px" title="오늘 실패 횟수">실패</th>
                   <th style="width:56px" title="D순위체크 결과">순위</th>
                   <th style="width:56px" title="리뷰 수">리뷰</th>
                   <th style="width:48px" title="별점">별점</th>
@@ -65,7 +66,6 @@
           <div class="panel config-panel delay-panel">
             <div class="panel-title-row">
               <h3>작업 딜레이 (ms)</h3>
-              <button type="button" class="panel-header-save" id="btnSaveDelays" title="딜레이·작업 선택(A/B)·최대 스크롤·워크 모드 등 engine-config.json에 저장">저장</button>
             </div>
             <div class="body delay-body">
               <div class="delay-grid delay-grid--head">
@@ -112,7 +112,6 @@
           <div class="panel config-panel proxy-panel">
             <div class="panel-title-row">
               <h3>IP 로테이션</h3>
-              <button type="button" class="panel-header-save" id="btnSaveProxyAirplane" title="USB 토글 설정을 engine-config.json에 저장">저장</button>
             </div>
             <div class="body proxy-body">
               <div class="checkbox-row">

@@ -34,6 +34,13 @@ let infiniteRunEnabled = false;
 let infiniteRunTimer = null;
 let infiniteTaskIndex = 0;
 let infiniteFeedInProgress = false;
+let dModeBatchEnabled = false;
+let dModeBatchTimer = null;
+let dModeBatchRows = [];
+let dModeBatchIndex = 0;
+let dModeBatchFeedInProgress = false;
+let activeRunTargets = new Map();
+let pendingRunCounts = new Map();
 let lastProcessedFinishedAt = null;
 let resultPollTimer = null;
 let midnightCheckTimer = null;
@@ -58,7 +65,7 @@ function normalizeTaskRow(r) {
     keyword: String(r?.keyword ?? "").trim(),
     linkUrl,
     keywordName: String(r?.keywordName ?? "").trim(),
-    mid: extractMid(linkUrl),
+    mid: (r?.mid && String(r.mid).trim() && String(r.mid).trim() !== extractMid(linkUrl)) ? String(r.mid).trim() : extractMid(linkUrl),
     productTitle: String(r?.productTitle ?? "").trim(),
     currentRank: String(r?.currentRank ?? "").trim(),
     startRank: String(r?.startRank ?? "").trim(),
@@ -72,6 +79,64 @@ function normalizeTaskRow(r) {
     // D순위 미발견(-1) 연속 횟수: 10회 누적 시에만 현재순위를 "-"로 갱신
     rankMissStreak: Math.max(0, Math.floor(Number(r?.rankMissStreak) || 0)),
   };
+}
+
+function rowRunKey(row) {
+  return `${String(row?.keyword || "").trim()}\x1f${String(row?.linkUrl || "").trim()}`;
+}
+
+function snapshotRunTargets(rows) {
+  activeRunTargets = new Map();
+  rows.forEach((row) => {
+    activeRunTargets.set(rowRunKey(row), {
+      targetCount: Math.max(0, Math.floor(Number(row.targetCount) || 0)),
+      startOk: Math.max(0, Math.floor(Number(row.trafficOk) || 0)),
+      startFail: Math.max(0, Math.floor(Number(row.trafficFail) || 0)),
+    });
+  });
+}
+
+function getRunTarget(row) {
+  return activeRunTargets.get(rowRunKey(row)) || null;
+}
+
+function getPendingRunCount(row) {
+  return Math.max(0, Math.floor(Number(pendingRunCounts.get(rowRunKey(row))) || 0));
+}
+
+function reservePendingRun(row) {
+  const key = rowRunKey(row);
+  pendingRunCounts.set(key, getPendingRunCount(row) + 1);
+}
+
+function releasePendingRun(row) {
+  const key = rowRunKey(row);
+  const next = Math.max(0, getPendingRunCount(row) - 1);
+  if (next > 0) pendingRunCounts.set(key, next);
+  else pendingRunCounts.delete(key);
+}
+
+function hasPendingRuns() {
+  for (const count of pendingRunCounts.values()) {
+    if (Number(count) > 0) return true;
+  }
+  return false;
+}
+
+function getRunProgress(row) {
+  const target = getRunTarget(row);
+  const targetCount = target ? target.targetCount : Math.max(0, Math.floor(Number(row.targetCount) || 0));
+  const baseOk = target ? target.startOk : 0;
+  const baseFail = target ? target.startFail : 0;
+  const currentOk = Math.max(0, Math.floor(Number(row.trafficOk) || 0));
+  const currentFail = Math.max(0, Math.floor(Number(row.trafficFail) || 0));
+  const runOk = Math.max(0, currentOk - baseOk);
+  const runFail = Math.max(0, currentFail - baseFail);
+  const pending = getPendingRunCount(row);
+  const completedTotal = runOk + runFail;
+  const runTotal = completedTotal + pending;
+  const remaining = targetCount > 0 ? Math.max(0, targetCount - runTotal) : null;
+  return { targetCount, runOk, runFail, completedTotal, pending, runTotal, remaining };
 }
 
 function rolloverStatsIfNeeded() {
@@ -109,7 +174,8 @@ function syncAllTaskRowsFromDom() {
     }
     tr.querySelectorAll("input[data-f]").forEach((inp) => {
       const f = inp.dataset.f;
-      if (f) taskRows[i][f] = inp.value;
+      if (!f) return;
+      taskRows[i][f] = inp.type === "checkbox" ? inp.checked : inp.value;
     });
   });
 }
@@ -314,17 +380,19 @@ function renderTaskTable() {
   taskRows.forEach((row, i) => {
     const tr = document.createElement("tr");
     if (i === selectedTaskRow) tr.classList.add("selected");
-    const tOk = row.trafficOk ?? 0;
-    const tFail = row.trafficFail ?? 0;
+    const tOk = Math.max(0, Math.floor(Number(row.trafficOk) || 0));
+    const tFail = Math.max(0, Math.floor(Number(row.trafficFail) || 0));
     const yOk = row.yesterdayOk ?? 0;
     const yFail = row.yesterdayFail ?? 0;
     const curR = escapeHtml(row.currentRank ?? "");
     const stR = escapeHtml(row.startRank ?? "");
     const rev = escapeHtml(row.reviewCount ?? "");
     const star = escapeHtml(row.starRating ?? "");
-    const target = row.targetCount || 0;
-    const done = target > 0 && tOk >= target;
-    const progressText = target > 0 ? `${tOk}/${target}` : `${tOk}`;
+    const target = Math.max(0, Math.floor(Number(row.targetCount) || 0));
+    const runProgress = getRunProgress(row);
+    const done = runProgress.targetCount > 0 && runProgress.remaining === 0;
+    const remainingText = runProgress.targetCount > 0 ? String(runProgress.remaining) : "무제한";
+    const pendingText = runProgress.pending > 0 ? ` / 진행중 ${runProgress.pending}` : "";
     const midDisplay = row.mid || "—";
     tr.innerHTML = `
       <td style="text-align:center"><input type="checkbox" data-f="checked" ${row.checked ? 'checked' : ''} /></td>
@@ -334,9 +402,10 @@ function renderTaskTable() {
       <td><input type="text" data-f="keywordName" value="${escapeAttr(row.keywordName)}" placeholder="선택" /></td>
       <td class="stat-cell" title="${midDisplay}" style="font-size:10px;color:#aaa">${midDisplay}</td>
       <td class="stat-cell" title="${escapeAttr(row.productTitle || '')}" style="font-size:10px;color:#ccc;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.productTitle || '—'}</td>
-      <td class="stat-cell"><input type="number" data-f="targetCount" value="${target || ''}" placeholder="0" min="0" style="width:48px;text-align:center" title="일일 목표 (0=무제한)" /></td>
-      <td class="stat-cell ${done ? 'target-done' : ''}" title="성공/목표">${progressText}</td>
-      <td class="stat-cell">${tFail}</td>
+      <td class="stat-cell"><input type="number" data-f="targetCount" value="${target || ''}" placeholder="0" min="0" style="width:48px;text-align:center" title="시작 시점에 로드할 실행 횟수 (0=무제한)" /></td>
+      <td class="stat-cell ${done ? 'target-done' : ''}" title="이번 실행 성공 ${runProgress.runOk} / 실패 ${runProgress.runFail}${pendingText}">${remainingText}</td>
+      <td class="stat-cell" title="오늘 성공 ${tOk} / 이번 실행 성공 ${runProgress.runOk}">${tOk}</td>
+      <td class="stat-cell" title="오늘 실패 ${tFail} / 이번 실행 실패 ${runProgress.runFail}">${tFail}</td>
       <td class="stat-cell rank-display">${curR || "—"}</td>
       <td class="stat-cell rank-display">${rev || "—"}</td>
       <td class="stat-cell rank-display">${star || "—"}</td>
@@ -404,7 +473,7 @@ function validateCheckedRows() {
   const flow = document.getElementById("searchFlowVersion").value;
   if (flow !== "D") {
     const noTarget = checked.filter((r) => !r.targetCount || r.targetCount <= 0);
-    if (noTarget.length) return `"${noTarget[0].keyword}": 목표 횟수를 입력하세요 (0=무제한은 불가)`;
+    if (noTarget.length) return `"${noTarget[0].keyword}": 실행 횟수를 입력하세요 (0=무제한은 불가)`;
   }
   return null;
 }
@@ -431,31 +500,16 @@ async function persistEngineConfigFromForm() {
   return cfg;
 }
 
-/** 딜레이 패널·작업 선택(A/B)·최대 스크롤·워크 모드·UA·프록시까지 engine-config.json만 저장 (tasks.txt는 건드리지 않음) */
-async function saveEngineConfigOnly() {
-  await persistEngineConfigFromForm();
-  logLine("engine-config.json 저장됨 (작업 딜레이·검색 버전·기타 설정)");
-}
-
-/** 프록시·USB 토글만 저장하는 UX (실제로는 폼 전체를 engine-config.json에 반영) */
-async function saveProxyAirplaneSection() {
-  await persistEngineConfigFromForm();
-  logLine("engine-config.json 저장됨 (프록시·비행기모드·USB 토글)");
-}
-
 async function saveConfigToDisk() {
   rolloverStatsIfNeeded();
   await persistEngineConfigFromForm();
   syncAllTaskRowsFromDom();
   if (!taskRowsStatsDate) taskRowsStatsDate = localDateYmd();
-  const saveTaskRes = await window.engineApi.saveTaskRowsText({
+  await window.engineApi.saveTaskRowsText({
     rows: taskRows,
     statsDate: taskRowsStatsDate,
   });
-  logLine("engine-config.json 저장됨");
-  if (saveTaskRes?.path) {
-    logLine(`작업 키워드 저장됨: ${saveTaskRes.path}`);
-  }
+  logLine("저장 완료");
 }
 
 async function processNewResultIfAny() {
@@ -513,6 +567,7 @@ async function processNewResultIfAny() {
         row.rankMissStreak = 0;
       }
     }
+    releasePendingRun(row);
     renderTaskTable();
     await persistTasksFileOnly();
     return;
@@ -523,6 +578,7 @@ async function processNewResultIfAny() {
   } else {
     row.trafficFail = (Number(row.trafficFail) || 0) + 1;
   }
+  releasePendingRun(row);
   renderTaskTable();
   await persistTasksFileOnly();
 }
@@ -549,6 +605,7 @@ async function startRunner(once) {
     return;
   }
 
+  snapshotRunTargets([row]);
   await saveConfigToDisk();
   const task = buildTaskFromRow(row);
   await window.engineApi.writeTaskFile(task);
@@ -574,11 +631,29 @@ function setStopped() {
 
 function stopInfiniteRun(silent = false) {
   infiniteRunEnabled = false;
+  infiniteTaskIndex = 0;
+  infiniteFeedInProgress = false;
+  activeRunTargets = new Map();
+  pendingRunCounts = new Map();
   if (infiniteRunTimer) {
     clearInterval(infiniteRunTimer);
     infiniteRunTimer = null;
   }
   if (!silent) logLine("무제한 실행 루프 중지");
+}
+
+function stopDModeBatchRun(silent = false) {
+  dModeBatchEnabled = false;
+  dModeBatchRows = [];
+  dModeBatchIndex = 0;
+  dModeBatchFeedInProgress = false;
+  activeRunTargets = new Map();
+  pendingRunCounts = new Map();
+  if (dModeBatchTimer) {
+    clearInterval(dModeBatchTimer);
+    dModeBatchTimer = null;
+  }
+  if (!silent) logLine("D모드 배치 실행 중지");
 }
 
 async function feedNextInfiniteTask() {
@@ -598,14 +673,16 @@ async function feedNextInfiniteTask() {
     return;
   }
 
-  // 목표 미달성 행만 필터링
+  // 실행 횟수 미달성 행만 필터링
   const pendingRows = rows.filter((r) => {
-    if (!r.targetCount || r.targetCount <= 0) return true; // 목표 0=무제한
-    return (r.trafficOk || 0) < r.targetCount;
+    const progress = getRunProgress(r);
+    if (!progress.targetCount || progress.targetCount <= 0) return true; // 횟수 0=무제한
+    return progress.runTotal < progress.targetCount;
   });
 
   if (!pendingRows.length) {
-    logLine("모든 작업이 일일 목표를 달성했습니다. 자동 중지합니다.");
+    if (hasPendingRuns()) return;
+    logLine("모든 작업이 실행 횟수를 달성했습니다. 자동 중지합니다.");
     stopInfiniteRun();
     await window.engineApi.runnerStop();
     setStopped();
@@ -616,13 +693,88 @@ async function feedNextInfiniteTask() {
   infiniteTaskIndex += 1;
   const row = pendingRows[idx];
   const task = buildTaskFromRow(row);
-  const target = row.targetCount > 0 ? `(${row.trafficOk || 0}/${row.targetCount})` : "";
+  const progress = getRunProgress(row);
+  const target = progress.targetCount > 0 ? `(남은 ${progress.remaining})` : "";
   await saveConfigToDisk();
   await window.engineApi.writeTaskFile(task);
+  reservePendingRun(row);
+  renderTaskTable();
   logLine(`큐 등록 [${idx + 1}/${pendingRows.length}] ${target}: ${task.keyword.substring(0, 24)}`);
   } finally {
     infiniteFeedInProgress = false;
   }
+}
+
+async function feedNextDModeBatchTask(force = false) {
+  if (dModeBatchFeedInProgress) return;
+  dModeBatchFeedInProgress = true;
+  try {
+    if (!dModeBatchEnabled) return;
+    const st = await window.engineApi.runnerStatus();
+    if (!st.running) return;
+
+    const taskExists = await window.engineApi.taskFileExists();
+    if (!force && taskExists) return;
+
+    if (dModeBatchIndex >= dModeBatchRows.length) {
+      if (hasPendingRuns() || taskExists) return;
+      logLine("D모드 체크 작업을 모두 처리했습니다. 자동 중지합니다.");
+      stopDModeBatchRun(true);
+      await window.engineApi.runnerStop();
+      setStopped();
+      return;
+    }
+
+    const row = dModeBatchRows[dModeBatchIndex];
+    dModeBatchIndex += 1;
+    const task = buildTaskFromRow(row);
+    await saveConfigToDisk();
+    await window.engineApi.writeTaskFile(task);
+    reservePendingRun(row);
+    renderTaskTable();
+    logLine(`D모드 큐 등록 [${dModeBatchIndex}/${dModeBatchRows.length}]: ${task.keyword.substring(0, 24)}`);
+  } finally {
+    dModeBatchFeedInProgress = false;
+  }
+}
+
+async function startDModeBatchRunner() {
+  if (!window.engineApi) {
+    logLine("내부 오류: engineApi 없음(프리로드 실패). 앱을 다시 실행하세요.");
+    return;
+  }
+  const rows = getRunnableRows();
+  if (!rows.length) {
+    logLine("D모드 실행할 작업이 없습니다. (키워드/URL 입력 필요)");
+    return;
+  }
+
+  const st = await window.engineApi.runnerStatus();
+  if (st.running) {
+    logLine("이미 러너가 실행 중입니다.");
+    return;
+  }
+
+  snapshotRunTargets(rows);
+  await saveConfigToDisk();
+
+  const r = await window.engineApi.runnerStart({ once: false });
+  if (!r.ok) {
+    logLine("D모드 실행 시작 실패: " + (r.error || ""));
+    return;
+  }
+
+  dModeBatchEnabled = true;
+  dModeBatchRows = rows;
+  dModeBatchIndex = 0;
+  if (dModeBatchTimer) clearInterval(dModeBatchTimer);
+  dModeBatchTimer = setInterval(() => {
+    feedNextDModeBatchTask().catch((e) => logLine("D모드 큐 오류: " + (e?.message || String(e))));
+  }, 1200);
+
+  document.getElementById("runnerStatus").textContent = "실행 중 (D모드 배치)";
+  logLine(`D모드 배치 실행 활성화 — 체크된 작업을 1회씩 처리 (${rows.length}개)`);
+  await feedNextDModeBatchTask(true);
 }
 
 async function startInfiniteRunner() {
@@ -646,6 +798,7 @@ async function startInfiniteRunner() {
     logLine("러너 무제한 모드 시작");
   }
 
+  snapshotRunTargets(rows);
   infiniteRunEnabled = true;
   infiniteTaskIndex = 0;
   if (infiniteRunTimer) clearInterval(infiniteRunTimer);
@@ -719,7 +872,8 @@ async function init() {
     showLoginOverlay();
     return;
   }
-  // Supabase 미설정 시 인증 없이 진행
+  // Supabase 미설정 또는 디버그 모드: 오버레이 숨기고 앱 진입
+  hideLoginOverlay();
   await initApp();
 }
 
@@ -760,16 +914,18 @@ async function initApp() {
     }
   }, 60_000);
 
-  document.getElementById("btnAddRow").onclick = () => {
+  document.getElementById("btnAddRow").onclick = async () => {
     taskRows.push(normalizeTaskRow({}));
     selectedTaskRow = taskRows.length - 1;
     renderTaskTable();
+    await saveConfigToDisk();
   };
-  document.getElementById("btnDelRow").onclick = () => {
+  document.getElementById("btnDelRow").onclick = async () => {
     if (taskRows.length <= 1) return;
     taskRows.splice(selectedTaskRow, 1);
     selectedTaskRow = Math.max(0, selectedTaskRow - 1);
     renderTaskTable();
+    await saveConfigToDisk();
   };
   document.getElementById("btnClearAllRows").onclick = async () => {
     if (
@@ -784,8 +940,8 @@ async function initApp() {
     selectedTaskRow = 0;
     if (!taskRowsStatsDate) taskRowsStatsDate = localDateYmd();
     renderTaskTable();
-    await persistTasksFileOnly();
-    logLine("전체 삭제: 작업 키워드 표를 초기화하고 tasks.txt 반영함");
+    await saveConfigToDisk();
+    logLine("전체 삭제 완료");
   };
   document.getElementById("btnResetStats").onclick = async () => {
     if (!confirm("모든 행의 트래픽·어제 카운터를 0으로 초기화할까요?")) {
@@ -801,25 +957,11 @@ async function initApp() {
     });
     if (!taskRowsStatsDate) taskRowsStatsDate = localDateYmd();
     renderTaskTable();
-    await persistTasksFileOnly();
-    logLine("초기화: 트래픽·어제 카운터 0/0으로 저장함");
+    await saveConfigToDisk();
+    logLine("초기화 완료");
   };
   document.getElementById("btnSaveConfig").onclick = async () => {
     await saveConfigToDisk();
-  };
-  document.getElementById("btnSaveDelays").onclick = async () => {
-    try {
-      await saveEngineConfigOnly();
-    } catch (e) {
-      logLine("설정 저장 오류: " + (e?.message || String(e)));
-    }
-  };
-  document.getElementById("btnSaveProxyAirplane").onclick = async () => {
-    try {
-      await saveProxyAirplaneSection();
-    } catch (e) {
-      logLine("프록시·비행기모드 저장 오류: " + (e?.message || String(e)));
-    }
   };
   document.getElementById("btnSaveResults").onclick = async () => {
     try {
@@ -827,10 +969,10 @@ async function initApp() {
       syncAllTaskRowsFromDom();
       const rows = taskRows.map(normalizeTaskRow);
       const r = await window.engineApi.saveResultsTable(rows);
-      if (r?.path) logLine(`결과 저장 완료: ${r.path}`);
-      else logLine("결과 저장 실패");
+      if (r?.path) logLine(`결과 내보내기 완료: ${r.path}`);
+      else logLine("결과 내보내기 실패");
     } catch (e) {
-      logLine("결과 저장 오류: " + (e?.message || String(e)));
+      logLine("결과 내보내기 오류: " + (e?.message || String(e)));
     }
   };
   document.getElementById("btnStart").onclick = async () => {
@@ -842,7 +984,7 @@ async function initApp() {
     try {
       const flow = document.getElementById("searchFlowVersion").value;
       if (flow === "D") {
-        await startRunner(true);
+        await startDModeBatchRunner();
       } else {
         await startInfiniteRunner();
       }
@@ -860,6 +1002,7 @@ async function initApp() {
   });
   document.getElementById("btnStop").onclick = async () => {
     stopInfiniteRun(true);
+    stopDModeBatchRun(true);
     await window.engineApi.runnerStop();
     setStopped();
     logLine("중지 요청");
@@ -886,8 +1029,13 @@ async function initApp() {
   });
   window.engineApi.onRunnerExit(({ code, error }) => {
     stopInfiniteRun(true);
+    stopDModeBatchRun(true);
     setStopped();
-    logLine(error ? `종료 오류: ${error}` : `프로세스 종료 코드 ${code}`);
+    if (error) {
+      logLine(`종료 오류: ${error}`);
+    } else if (typeof code === "number" && code !== 0) {
+      logLine(`프로세스 종료 코드 ${code}`);
+    }
   });
 }
 

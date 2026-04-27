@@ -1,15 +1,18 @@
 /**
- * 네이버 통합검색에서 상품 ID(/products/숫자) 기준 순위 + 리뷰·별점 + 상세페이지 제목
- * (sellermate_naver_rank_1 parallel-rank-checker DOM 추출 로직 참고)
- *
- * 페이지: Patchright(Playwright) 또는 start.bat과 동일한 puppeteer-real-browser Page
+ * 네이버 쇼핑탭 순위 체크
+ * - www.naver.com → 검색 → 실제 데스크톱 쇼핑탭 링크 클릭
+ * - data-shp-contents-dtl JSON에서 chnl_prod_no / catalog_nv_mid 매칭
+ * (sellermate_naver_rank_1 parallel-rank-checker 로직 기반)
  */
 export interface RankCheckLog {
-  (msg: string): void;
+  (msg: string, level?: string): void;
 }
 
 /** Patchright Page | puppeteer-real-browser Page (API가 달라 any 유지) */
 export type RankCheckPage = any;
+
+/** CAPTCHA 솔버 콜백 — rank-check-shopping 이 외부 의존성 없이 주입받음 */
+export type CaptchaSolverFn = (page: RankCheckPage) => Promise<boolean>;
 
 export interface ShoppingRankDetail {
   rank: number | null;
@@ -17,7 +20,7 @@ export interface ShoppingRankDetail {
   starRating: number | null;
   /** 상세페이지에서 추출한 상품명(2차 키워드 자동 채움용) */
   productTitle: string | null;
-  /** 쇼핑 검색용 Catalog MID (data-shp-contents-id) — chnl_prod_no와 다를 수 있음 */
+  /** 쇼핑 검색용 Catalog MID (catalog_nv_mid 또는 data-shp-contents-id) */
   catalogMid: string | null;
   /** 순위가 잡힌 결과의 실제 상세페이지 URL */
   detailUrl: string | null;
@@ -37,21 +40,31 @@ export interface VisibleSearchMidDebug {
   cards: VisibleSearchMidCardDebug[];
 }
 
-/** 쇼핑 목록 1페이지당 대략 노출 개수 (링크 스캔 폴백 순위 환산용) */
+/** 쇼핑탭 전환 후 통합검색 카드는 없으므로 stub */
+export async function collectVisibleSearchMidDebug(_page: RankCheckPage, _limit = 12): Promise<VisibleSearchMidDebug> {
+  return { mids: [], cards: [] };
+}
+
+/** 쇼핑탭 1페이지당 노출 개수 */
 const ITEMS_PER_PAGE = 40;
 
 const TITLE_MAX = 300;
 
-/** rank_1 `parallel-rank-checker.ts` SAFE_DELAY_MS 와 동일 */
+/** parallel-rank-checker SAFE_DELAY_MS 와 동일 */
 const SAFE_DELAY_MS = 1500;
-/** `hydrateCurrentPage`: SCROLL_STEPS(18) * 550 */
+/** hydrateCurrentPage: SCROLL_STEPS(18) * 550 */
 const HYDRATE_SCROLL_TOTAL = 18 * 550;
+const PAGE_EVALUATE_NAME_POLYFILL = "window.__name = window.__name || ((fn) => fn);";
 
 function microDelay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** rank_1 `utils/humanBehavior.ts` humanType 과 동일 (봇 탐지 회피) */
+async function ensureEvaluateNamePolyfill(page: RankCheckPage): Promise<void> {
+  await page.evaluate(PAGE_EVALUATE_NAME_POLYFILL).catch(() => {});
+}
+
+/** rank_1 humanType 과 동일 (봇 탐지 회피) */
 async function humanType(page: RankCheckPage, text: string): Promise<void> {
   for (const char of text) {
     await page.keyboard.type(char);
@@ -62,7 +75,7 @@ async function humanType(page: RankCheckPage, text: string): Promise<void> {
   }
 }
 
-/** rank_1 `utils/humanBehavior.ts` humanScroll 과 동일 */
+/** rank_1 humanScroll 과 동일 */
 async function humanScroll(page: RankCheckPage, totalDistance: number): Promise<void> {
   let scrolled = 0;
   while (scrolled < totalDistance) {
@@ -77,69 +90,36 @@ async function humanScroll(page: RankCheckPage, totalDistance: number): Promise<
   }
 }
 
-export async function collectVisibleSearchMidDebug(page: RankCheckPage, limit = 12): Promise<VisibleSearchMidDebug> {
-  return page.evaluate(({ limit }: { limit: number }) => {
-    const cards = Array.from(
-      document.querySelectorAll("li._slog_visible, section._slog_visible, div._slog_visible")
-    ) as HTMLElement[];
-    const mids: string[] = [];
-    const result: VisibleSearchMidCardDebug[] = [];
+const SHOPPING_HOST = "search.shopping.naver.com";
 
-    const pushMid = (mid: string | null | undefined) => {
-      if (!mid) return;
-      if (!mids.includes(mid)) mids.push(mid);
-    };
-
-    for (const card of cards) {
-      const anchors = Array.from(card.querySelectorAll<HTMLAnchorElement>("a[href]"));
-      const hrefs: string[] = [];
-      const ids: string[] = [];
-
-      for (const a of anchors) {
-        const href = a.getAttribute("href") || "";
-        if (href) hrefs.push(href);
-        for (const m of [
-          href.match(/(?:nv_mid|nvMid)=(\d+)/),
-          href.match(/\/main\/products\/(\d+)/),
-          href.match(/\/products\/(\d+)/),
-          href.match(/searchGate\?[^#]*nv_mid=(\d+)/),
-        ]) {
-          if (m) pushMid(m[1]);
-        }
-        const aria = a.getAttribute("aria-labelledby") || "";
-        const m2 = aria.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
-        if (m2) pushMid(m2[1]);
+async function tripleClickSearchInput(page: RankCheckPage, log: RankCheckLog): Promise<boolean> {
+  try {
+    if (typeof page.locator === "function") {
+      const raw = page.locator('input[name="query"]');
+      if (raw && typeof raw.first === "function") {
+        const searchInput = raw.first();
+        await searchInput.waitFor({ state: "visible", timeout: 15000 });
+        await searchInput.click({ clickCount: 3 });
+        return true;
       }
-
-      for (const el of Array.from(card.querySelectorAll<HTMLElement>("[id]"))) {
-        const id = el.id || "";
-        if (!id) continue;
-        const nm = id.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
-        if (nm) pushMid(nm[1]);
-        if (ids.length < 4) ids.push(id);
-      }
-
-      if (!hrefs.length && !ids.length) continue;
-      const titleEl = card.querySelector('strong span:last-child, [class*="title"], [class*="name"], img[alt]');
-      const title = titleEl
-        ? ((titleEl as HTMLImageElement).getAttribute?.("alt") || titleEl.textContent || "").trim().replace(/\s+/g, " ")
-        : "";
-      result.push({
-        tag: card.tagName,
-        cls: card.className || null,
-        dataSlog: card.getAttribute("data-slog-content"),
-        ids,
-        hrefs: hrefs.slice(0, 3),
-        title: title.slice(0, 140),
-      });
-      if (result.length >= limit) break;
     }
-
-    return { mids, cards: result };
-  }, { limit });
+    if (typeof page.waitForSelector === "function") {
+      const el = await page.waitForSelector('input[name="query"]', { visible: true, timeout: 15000 });
+      if (!el) {
+        log("검색 입력창 없음", "warn");
+        return false;
+      }
+      await el.click({ clickCount: 3 });
+      return true;
+    }
+  } catch {
+    log("검색 입력창 없음", "warn");
+    return false;
+  }
+  log("검색 입력창 API 미지원", "warn");
+  return false;
 }
 
-/** sellermate_naver_rank_1 `parallel-rank-checker` enterShoppingTabForProductId 와 동일한 차단 문구 */
 async function isShoppingBlocked(page: RankCheckPage): Promise<boolean> {
   return page.evaluate(() => {
     const body = document.body?.innerText ?? "";
@@ -154,14 +134,14 @@ async function isShoppingBlocked(page: RankCheckPage): Promise<boolean> {
 function normalizeDetailTitle(raw: string): string {
   return String(raw || "")
     .replace(/\s+/g, " ")
-    .replace(/\u00a0/g, " ")
+    .replace(/ /g, " ")
     .trim();
 }
 
 async function extractDetailPageTitle(page: RankCheckPage): Promise<string | null> {
   try {
     const title = await page.evaluate(() => {
-      const clean = (value: unknown): string => String(value || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
+      const clean = (value: unknown): string => String(value || "").replace(/\s+/g, " ").replace(/ /g, " ").trim();
       const stripSuffix = (value: string): string => {
         let text = clean(value);
         text = text.replace(/\s*(?:\||·|:|\-|—)\s*(?:네이버.*|Naver.*|SmartStore.*)$/i, "").trim();
@@ -184,7 +164,6 @@ async function extractDetailPageTitle(page: RankCheckPage): Promise<string | nul
       push(document.querySelector('meta[property="og:title"]')?.getAttribute("content"));
       push(document.querySelector('meta[name="twitter:title"]')?.getAttribute("content"));
       push(document.querySelector('meta[name="title"]')?.getAttribute("content"));
-      push(document.querySelector('meta[property="product:price:amount"]')?.getAttribute("content"));
 
       for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]'))) {
         const raw = script.textContent?.trim();
@@ -199,9 +178,7 @@ async function extractDetailPageTitle(page: RankCheckPage): Promise<string | nul
             push(anyItem.headline);
             push(anyItem.title);
           }
-        } catch {
-          /* ignore bad json-ld */
-        }
+        } catch { /* ignore */ }
       }
 
       push(document.title);
@@ -213,11 +190,8 @@ async function extractDetailPageTitle(page: RankCheckPage): Promise<string | nul
       if (isErrorPage) return null;
 
       for (const text of candidates) {
-        if (text.length >= 4) {
-          return text;
-        }
+        if (text.length >= 4) return text;
       }
-
       return null;
     });
     return title ? normalizeDetailTitle(title) : null;
@@ -226,79 +200,273 @@ async function extractDetailPageTitle(page: RankCheckPage): Promise<string | nul
   }
 }
 
-const SEARCH_HOST = "search.naver.com";
-
-async function tripleClickSearchInput(page: RankCheckPage, log: RankCheckLog): Promise<boolean> {
+/**
+ * 네이버 메인 → 통검 → 데스크톱 쇼핑 탭.
+ * parallel-rank-checker와 동일하게 실제 쇼핑탭 링크만 클릭하고 직접 쇼핑 URL goto 폴백은 사용하지 않는다.
+ */
+async function enterShoppingTab(
+  page: RankCheckPage,
+  kw: string,
+  _shoppingSearchPhrase: string,
+  log: RankCheckLog,
+  sleepMs: (ms: number) => Promise<void>,
+  solveCaptcha?: CaptchaSolverFn
+): Promise<boolean> {
+  log("네이버 메인 진입…");
   try {
-    // Patchright: locator().first() — PRB(puppeteer)는 locator 형태가 달라 waitForSelector 로만 처리
-    if (typeof page.locator === "function") {
-      const raw = page.locator('input[name="query"]');
-      if (raw && typeof raw.first === "function") {
-        const searchInput = raw.first();
-        await searchInput.waitFor({ state: "visible", timeout: 15000 });
-        await searchInput.click({ clickCount: 3 });
-        return true;
-      }
-    }
-    if (typeof page.waitForSelector === "function") {
-      const el = await page.waitForSelector('input[name="query"]', { visible: true, timeout: 15000 });
-      if (!el) {
-        log("검색 입력창 없음");
-        return false;
-      }
-      await el.click({ clickCount: 3 });
-      return true;
-    }
+    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
   } catch {
-    log("검색 입력창 없음");
+    log("네이버 메인 진입 실패", "warn");
     return false;
   }
-  log("검색 입력창 API 미지원");
-  return false;
+
+  await sleepMs(SAFE_DELAY_MS);
+  await ensureEvaluateNamePolyfill(page);
+
+  const inputOk = await tripleClickSearchInput(page, log);
+  if (!inputOk) return false;
+
+  log(`네이버 검색어 입력: ${kw}`);
+  await humanType(page, kw);
+  await page.keyboard.press("Enter");
+
+  log("검색 결과 대기 중…");
+  if (typeof page.waitForNavigation === "function") {
+    try {
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15000 });
+    } catch {
+      /* SPA 등으로 navigation 이벤트 없을 수 있음 */
+    }
+  } else {
+    try {
+      await page.waitForLoadState?.("domcontentloaded", { timeout: 15000 });
+    } catch {
+      /* ignore */
+    }
+  }
+  await sleepMs(1000);
+  await ensureEvaluateNamePolyfill(page);
+
+  log("쇼핑탭으로 이동");
+  let clicked = false;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    clicked = await page.evaluate(() => {
+      const link = document.querySelector<HTMLAnchorElement>('a[href*="search.shopping.naver.com"]');
+      if (link) {
+        link.removeAttribute("target");
+        link.click();
+        return true;
+      }
+      return false;
+    }).catch(() => false);
+    if (clicked) break;
+    log(`쇼핑탭 대기 중… (${attempt}/5)`);
+    await sleepMs(2000);
+  }
+
+  if (!clicked) {
+    log("쇼핑탭 링크 없음", "warn");
+    return false;
+  }
+
+  await sleepMs(SAFE_DELAY_MS + 800);
+  await ensureEvaluateNamePolyfill(page);
+  if (!page.url().includes(SHOPPING_HOST)) {
+    log(`쇼핑탭 URL 미확인: ${page.url().substring(0, 100)}`, "warn");
+    return false;
+  }
+  log(`쇼핑탭 진입 완료: ${page.url().substring(0, 100)}`);
+
+  if (await isShoppingBlocked(page)) {
+    log("보안/차단 페이지 감지", "warn");
+    if (solveCaptcha) {
+      const solved = await solveCaptcha(page).catch(() => false);
+      if (!solved || await isShoppingBlocked(page)) {
+        log("CAPTCHA 해결 실패 또는 차단 상태 유지", "warn");
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+
+  try {
+    await page.waitForSelector("[data-shp-contents-id]", { timeout: 15000 });
+  } catch { /* 없어도 진행 */ }
+  await sleepMs(500);
+
+  return true;
 }
 
 /**
- * 네이버 통합검색 진입 → 통합검색 결과 페이지에서 쇼핑 상품 카드 탐색
- * - 쇼핑탭 클릭 없이 통합검색 결과 페이지에서 바로 카드 셀렉터를 탐색한다.
- * - direct goto 방식을 사용한다.
+ * 현재 쇼핑탭 페이지에서 data-shp-contents-dtl JSON 파싱으로 productId 매칭
+ * parallel-rank-checker findRankByProductIdOnPage 와 동일한 로직
  */
-async function enterNaverShoppingSearch(
+async function findRankOnCurrentPage(
   page: RankCheckPage,
-  kw: string,
-  log: RankCheckLog,
-  sleepMs: (ms: number) => Promise<void>
-): Promise<boolean> {
-  log("네이버 통합검색 진입…");
+  targetMid: string,
+  pageNum: number
+): Promise<{ found: boolean; rank: number | null; reviewCount: number | null; starRating: number | null; productTitle: string | null; catalogMid: string | null; detailUrl: string | null }> {
+  return page.evaluate(
+    ({ targetId, pageNum, itemsPerPage, titleMax }: { targetId: string; pageNum: number; itemsPerPage: number; titleMax: number }) => {
+      const clip = (s: string): string => {
+        const t = s.replace(/\s+/g, " ").trim();
+        return t.length > titleMax ? t.substring(0, titleMax) : t;
+      };
+
+      const extractFromProductItem = (productItem: Element) => {
+        let reviewCount: number | null = null;
+        let starRating: number | null = null;
+
+        const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
+        for (const elem of reviewElements) {
+          const text = elem.textContent || "";
+          if (text.includes("리뷰")) {
+            const reviewMatch = text.match(/리뷰\s*(\d+)|\((\d+(?:,\d+)*)\)/);
+            if (reviewMatch) {
+              const reviewNum = reviewMatch[1] || reviewMatch[2];
+              reviewCount = parseInt(reviewNum.replace(/,/g, ""), 10) || null;
+              break;
+            }
+          }
+        }
+
+        const starEl =
+          productItem.querySelector(".product_grade__O_5f5") ||
+          productItem.querySelector('[class*="product_grade__"]');
+        if (starEl) {
+          const starText = starEl.textContent?.trim() || "";
+          const starMatch = starText.match(/(\d+\.?\d*)/);
+          if (starMatch) starRating = parseFloat(starMatch[1]) || null;
+        }
+
+        return { reviewCount, starRating };
+      };
+
+      const titleFromProductItem = (productItem: Element, fromJson: string | null): string | null => {
+        if (fromJson && fromJson.trim()) return clip(fromJson);
+        const img = productItem.querySelector<HTMLImageElement>(
+          'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
+        );
+        const alt = img?.getAttribute("alt")?.trim();
+        if (alt) return clip(alt);
+        const titleEl =
+          productItem.querySelector('[class*="product_title__"]') ||
+          productItem.querySelector('[class*="product_name__"]');
+        const tx = titleEl?.textContent?.trim();
+        return tx ? clip(tx) : null;
+      };
+
+      const anchors = document.querySelectorAll(
+        "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
+      );
+
+      for (let i = 0; i < anchors.length; i++) {
+        const anchor = anchors[i];
+        const dtl = anchor.getAttribute("data-shp-contents-dtl");
+        const rankStr = anchor.getAttribute("data-shp-contents-rank");
+        if (!dtl || !rankStr) continue;
+
+        try {
+          const normalized = dtl.replace(/&quot;/g, '"');
+          const parsed = JSON.parse(normalized);
+          if (!Array.isArray(parsed)) continue;
+
+          let chnlProdNo: string | null = null;
+          let catalogNvMid: string | null = null;
+          let prodNm: string | null = null;
+
+          for (const item of parsed) {
+            if (item.key === "chnl_prod_no" && item.value) chnlProdNo = String(item.value);
+            if (item.key === "catalog_nv_mid" && item.value) catalogNvMid = String(item.value);
+            if (item.key === "prod_nm" && item.value) prodNm = String(item.value);
+          }
+
+          if (chnlProdNo !== targetId && catalogNvMid !== targetId) continue;
+
+          const pageRank = parseInt(rankStr, 10);
+          const rank = (pageNum - 1) * itemsPerPage + (Number.isFinite(pageRank) ? pageRank : i + 1);
+
+          const productItem =
+            anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
+          const extra = productItem ? extractFromProductItem(productItem) : { reviewCount: null, starRating: null };
+          const productTitle = productItem ? titleFromProductItem(productItem, prodNm) : prodNm ? clip(prodNm) : null;
+          const catalogMid = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
+
+          return {
+            found: true,
+            rank,
+            reviewCount: extra.reviewCount,
+            starRating: extra.starRating,
+            productTitle,
+            catalogMid,
+            detailUrl: (anchor as HTMLAnchorElement).href || null,
+          };
+        } catch { /* 다음 앵커 */ }
+      }
+
+      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null };
+    },
+    { targetId: targetMid, pageNum, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
+  );
+}
+
+async function goToNextPage(page: RankCheckPage, targetPage: number): Promise<boolean> {
+  const paginationSelector = 'a.pagination_btn_page__utqBz, a[class*="pagination_btn"]';
+
   try {
-    await page.goto(`https://m.search.naver.com/search.naver?where=m&query=${encodeURIComponent(kw)}`, {
-      waitUntil: "domcontentloaded",
-      timeout: 45000,
-    });
+    await page.waitForSelector(paginationSelector, { timeout: 10000 });
   } catch {
-    log("네이버 통합검색 진입 실패");
     return false;
   }
 
-  // esbuild/tsx __name polyfill (브라우저 컨텍스트)
-  await page.evaluate(() => { (window as any).__name = (fn: any) => fn; }).catch(() => {});
+  const buttonExists = await page.evaluate((nextPage: number) => {
+    const buttons = document.querySelectorAll('a.pagination_btn_page__utqBz, a[class*="pagination_btn"]');
+    for (const btn of buttons) {
+      if (btn.textContent?.trim() === String(nextPage)) return true;
+    }
+    return false;
+  }, targetPage);
 
-  await sleepMs(SAFE_DELAY_MS);
-  log("통합검색 결과 대기 중…");
+  if (!buttonExists) return false;
 
-  if (!page.url().includes(SEARCH_HOST)) {
-    log("통합검색 URL 미확인");
+  let apiResponsePromise: Promise<any> | null = null;
+  if (typeof page.waitForResponse === "function") {
+    apiResponsePromise = page.waitForResponse(
+      (response: any) => {
+        const url = response.url();
+        return url.includes("/api/search/all") && url.includes(`pagingIndex=${targetPage}`);
+      },
+      { timeout: 30000 }
+    ).catch(() => null);
+  }
+
+  try {
+    const clicked = await page.evaluate((nextPage: number) => {
+      const buttons = document.querySelectorAll('a.pagination_btn_page__utqBz, a[class*="pagination_btn"]');
+      for (const btn of buttons) {
+        if (btn.textContent?.trim() === String(nextPage)) {
+          (btn as HTMLElement).click();
+          return true;
+        }
+      }
+      return false;
+    }, targetPage);
+
+    if (!clicked) return false;
+  } catch {
     return false;
   }
 
-  if (await isShoppingBlocked(page)) {
-    log("보안/차단 페이지 감지");
-    return false;
-  }
+  if (apiResponsePromise) await apiResponsePromise;
+  await microDelay(1500);
+  await ensureEvaluateNamePolyfill(page);
   return true;
 }
 
 /**
  * @param targetMid smartstore URL의 /products/(\d+) 상품 번호
+ * @param solveCaptcha CAPTCHA 발생 시 호출할 솔버 콜백 (optional)
  */
 export async function findNaverShoppingRankByMid(
   page: RankCheckPage,
@@ -306,7 +474,9 @@ export async function findNaverShoppingRankByMid(
   targetMid: string,
   maxPages: number,
   log: RankCheckLog,
-  sleepMs: (ms: number) => Promise<void>
+  sleepMs: (ms: number) => Promise<void>,
+  solveCaptcha?: CaptchaSolverFn,
+  shoppingSearchPhrase?: string
 ): Promise<ShoppingRankDetail> {
   const empty: ShoppingRankDetail = {
     rank: null,
@@ -324,238 +494,50 @@ export async function findNaverShoppingRankByMid(
     return empty;
   }
 
-  const entered = await enterNaverShoppingSearch(page, kw, log, sleepMs);
-  if (!entered) {
-    return empty;
-  }
-
-  // esbuild/tsx가 page.evaluate 내부 함수에 __name() 래퍼를 주입하므로 브라우저에 polyfill 필요
-  await page.evaluate(() => {
-    (window as any).__name = (fn: any) => fn;
-  }).catch(() => {});
+  const entered = await enterShoppingTab(page, kw, shoppingSearchPhrase || kw, log, sleepMs, solveCaptcha);
+  if (!entered) return empty;
 
   const out: ShoppingRankDetail = { ...empty };
-  let currentPage = 1;
 
-  while (currentPage <= maxPages) {
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await humanScroll(page, HYDRATE_SCROLL_TOTAL);
-    await sleepMs(150);
-
-    const result = await page.evaluate(
-      ({ targetId, pageNum, itemsPerPage, titleMax }: { targetId: string; pageNum: number; itemsPerPage: number; titleMax: number }) => {
-        const clip = (s: string): string => {
-          const t = s.replace(/\s+/g, " ").trim();
-          return t.length > titleMax ? t.substring(0, titleMax) : t;
-        };
-
-        const titleFromProductItem = (productItem: Element, fromJson: string | null): string | null => {
-          if (fromJson && fromJson.trim()) return clip(fromJson);
-          const img = productItem.querySelector<HTMLImageElement>(
-            'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
-          );
-          const alt = img?.getAttribute("alt")?.trim();
-          if (alt) return clip(alt);
-          const titleEl =
-            productItem.querySelector(".product_title__") ||
-            productItem.querySelector('[class*="product_title__"]');
-          const tx = titleEl?.textContent?.trim();
-          return tx ? clip(tx) : null;
-        }
-
-        const extractFromProductItem = (productItem: Element) => {
-          let reviewCount: number | null = null;
-          let starRating: number | null = null;
-
-          const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
-          for (const elem of reviewElements) {
-            const text = elem.textContent || "";
-            if (text.includes("리뷰")) {
-              const reviewMatch = text.match(/리뷰\s*(\d+)|\((\d+(?:,\d+)*)\)/);
-              if (reviewMatch) {
-                const reviewNum = reviewMatch[1] || reviewMatch[2];
-                reviewCount = parseInt(reviewNum.replace(/,/g, ""), 10) || null;
-                break;
-              }
-            }
-          }
-
-          const starEl =
-            productItem.querySelector(".product_grade__O_5f5") ||
-            productItem.querySelector('[class*="product_grade__"]');
-          if (starEl) {
-            const starText = starEl.textContent?.trim() || "";
-            const starMatch = starText.match(/(\d+\.?\d*)/);
-            if (starMatch) {
-              starRating = parseFloat(starMatch[1]) || null;
-            }
-          }
-
-          return { reviewCount, starRating };
-        }
-
-        const anchors = document.querySelectorAll(
-          "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
-        );
-        for (let i = 0; i < anchors.length; i++) {
-          const anchor = anchors[i];
-          const dtl = anchor.getAttribute("data-shp-contents-dtl");
-          const rankStr = anchor.getAttribute("data-shp-contents-rank");
-          if (!dtl || !rankStr) continue;
-          try {
-            const normalized = dtl.replace(/&quot;/g, '"');
-            const parsed = JSON.parse(normalized);
-            if (!Array.isArray(parsed)) continue;
-            let chnlProdNo: string | null = null;
-            let catalogNvMid: string | null = null;
-            let prodNm: string | null = null;
-            for (const item of parsed) {
-              if (item.key === "chnl_prod_no" && item.value) {
-                chnlProdNo = String(item.value);
-              }
-              if (item.key === "catalog_nv_mid" && item.value) {
-                catalogNvMid = String(item.value);
-              }
-              if (item.key === "prod_nm" && item.value) {
-                prodNm = String(item.value);
-              }
-            }
-            // parallel-rank-checker와 동일: chnl_prod_no 또는 catalog_nv_mid로 매칭
-            if (chnlProdNo !== targetId && catalogNvMid !== targetId) continue;
-
-            const pageRank = parseInt(rankStr, 10);
-            const rank = (pageNum - 1) * 40 + (Number.isFinite(pageRank) ? pageRank : i + 1);
-
-            const productItem =
-              anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
-            const extra = productItem
-              ? extractFromProductItem(productItem)
-              : { reviewCount: null, starRating: null };
-            const productTitle = productItem
-              ? titleFromProductItem(productItem, prodNm)
-              : prodNm
-                ? clip(prodNm)
-                : null;
-
-            // catalogNvMid (dtl 내부) 우선, 없으면 data-shp-contents-id
-            const catalogMid = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
-            return {
-              found: true,
-              rank,
-              reviewCount: extra.reviewCount,
-              starRating: extra.starRating,
-              productTitle,
-              catalogMid,
-              detailUrl: anchor.href || null,
-            };
-          } catch {
-            /* 다음 앵커 */
-          }
-        }
-
-        // 통합검색 grid 영역(플러스스토어/가격비교/쇼핑 카드) 우선 탐색
-        const integratedCards = Array.from(
-          document.querySelectorAll("li._slog_visible, li[data-slog-content], div[data-slog-content], article[data-slog-content]")
-        );
-        for (let i = 0; i < integratedCards.length; i++) {
-          const card = integratedCards[i] as HTMLElement;
-          const anchor = card.querySelector<HTMLAnchorElement>("a[href]");
-          const href = anchor?.href || "";
-          const ids = [
-            href.match(/(?:nv_mid|nvMid)=(\d+)/)?.[1] || null,
-            href.match(/\/products\/(\d+)/)?.[1] || null,
-            card.id.match(/nstore_productId_(\d+)/)?.[1] || null,
-            card.id.match(/view_type_guide_(\d+)/)?.[1] || null,
-            card.querySelector('[id^="nstore_productId_"]')?.id.match(/nstore_productId_(\d+)/)?.[1] || null,
-            card.querySelector('[id^="view_type_guide_"]')?.id.match(/view_type_guide_(\d+)/)?.[1] || null,
-          ].filter((v): v is string => Boolean(v));
-          if (!ids.includes(targetId)) continue;
-
-          const pageRank = i + 1;
-          const rank = (pageNum - 1) * itemsPerPage + pageRank;
-          const img = card.querySelector<HTMLImageElement>("img[alt]");
-          const alt = img?.getAttribute("alt")?.trim();
-          const titleEl =
-            card.querySelector("strong span:last-child") ||
-            card.querySelector('[class*="title"]') ||
-            card.querySelector('[class*="name"]');
-          const productTitle = alt || titleEl?.textContent?.trim() || null;
-          const catalogMid = ids.find((id) => id !== targetId) || targetId;
-          return {
-            found: true,
-            rank,
-            reviewCount: null,
-            starRating: null,
-            productTitle: productTitle ? clip(productTitle) : null,
-            catalogMid,
-            detailUrl: anchor.href || null,
-          };
-        }
-
-        const mids: string[] = [];
-        const patterns = [/nv_mid[=:](\d+)/, /nvMid[=:](\d+)/, /products\/(\d+)/, /catalog\/(\d+)/];
-        document.querySelectorAll("a").forEach((a) => {
-          const href = (a as HTMLAnchorElement).href || "";
-          for (const p of patterns) {
-            const hit = href.match(p);
-            if (hit && !mids.includes(hit[1])) {
-              mids.push(hit[1]);
-              break;
-            }
-          }
-        });
-        const idx = mids.indexOf(targetId);
-        if (idx === -1) {
-          return {
-            found: false,
-            rank: null,
-            reviewCount: null,
-            starRating: null,
-            productTitle: null,
-            catalogMid: null,
-            detailUrl: null,
-          };
-        }
-        const rank = (pageNum - 1) * itemsPerPage + idx + 1;
-        let reviewCount: number | null = null;
-        let starRating: number | null = null;
-        let productTitle: string | null = null;
-        const linkEl = document.querySelector<HTMLAnchorElement>(
-          `a[href*="/products/${targetId}"], a[href*="products%2F${targetId}"]`
-        );
-        const container =
-          linkEl?.closest(".product_item__KQayS") || linkEl?.closest('[class*="product_item__"]');
-        if (container) {
-          const ex = extractFromProductItem(container);
-          reviewCount = ex.reviewCount;
-          starRating = ex.starRating;
-          productTitle = titleFromProductItem(container, null);
-        }
-        // fallback: 카드에서 data-shp-contents-id 추출 시도
-        const card = linkEl?.closest('[data-shp-contents-id]') || container?.closest('[data-shp-contents-id]');
-        const catalogMid = card?.getAttribute('data-shp-contents-id') || null;
-        return { found: true, rank, reviewCount, starRating, productTitle, catalogMid, detailUrl: linkEl?.href || null };
-      },
-      { targetId: mid, pageNum: currentPage, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
-    );
-
-    log(`${currentPage}페이지 수집: ${result.found ? "발견" : "미발견"}`);
-
-    if (!result.found && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
-      const debug = await collectVisibleSearchMidDebug(page, 12).catch(() => null);
-      if (debug) {
-        log(
-          `[DEBUG] visible mids p${currentPage}: ${debug.mids.length ? debug.mids.join(", ") : "(none)"}`,
-          "warn"
-        );
-        debug.cards.slice(0, 8).forEach((card, idx) => {
-          log(
-            `[DEBUG] card ${idx + 1}: tag=${card.tag} ids=${card.ids.join("|") || "-"} title=${card.title || "-"}`,
-            "warn"
-          );
-        });
+  for (let currentPage = 1; currentPage <= maxPages; currentPage++) {
+    if (currentPage > 1) {
+      await sleepMs(1000 + Math.random() * 1000);
+      const moved = await goToNextPage(page, currentPage);
+      if (!moved) {
+        log(`${currentPage - 1}페이지까지 탐색 종료(다음 페이지 없음)`);
+        break;
+      }
+      if (await isShoppingBlocked(page)) {
+        log("보안/차단 페이지 감지");
+        break;
       }
     }
+
+    // lazy loading 트리거
+    try {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await humanScroll(page, HYDRATE_SCROLL_TOTAL);
+      await sleepMs(150);
+    } catch (e: any) {
+      if (e?.message?.includes("Target closed") || e?.message?.includes("Protocol error") || e?.message?.includes("Session closed")) {
+        log(`페이지 연결 끊김: ${e.message}`, "warn");
+        break;
+      }
+      throw e;
+    }
+
+    let result: Awaited<ReturnType<typeof findRankOnCurrentPage>>;
+    try {
+      result = await findRankOnCurrentPage(page, mid, currentPage);
+    } catch (e: any) {
+      if (e?.message?.includes("Target closed") || e?.message?.includes("Protocol error") || e?.message?.includes("Session closed")) {
+        log(`페이지 연결 끊김: ${e.message}`, "warn");
+        break;
+      }
+      throw e;
+    }
+
+    log(`${currentPage}페이지 수집: ${result.found ? `발견 (${result.rank}위)` : "미발견"}`);
 
     if (result.found && result.rank != null) {
       out.rank = result.rank;
@@ -566,58 +548,22 @@ export async function findNaverShoppingRankByMid(
 
       if (result.detailUrl) {
         try {
-          await page.goto(result.detailUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: 45000,
-          });
+          await page.goto(result.detailUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
           await sleepMs(SAFE_DELAY_MS);
           const detailTitle = await extractDetailPageTitle(page);
           if (detailTitle) {
             out.productTitle = detailTitle;
-          } else if (out.productTitle) {
-            log("상세페이지 제목 추출 실패 — 검색결과 제목 유지", "warn");
-          } else {
+          } else if (!out.productTitle) {
             log("상세페이지 제목 추출 실패", "warn");
           }
         } catch {
-          if (out.productTitle) {
-            log("상세페이지 진입 실패 — 검색결과 제목 유지", "warn");
-          }
+          if (!out.productTitle) log("상세페이지 진입 실패", "warn");
         }
       }
       break;
     }
 
-    const nextClicked = await page.evaluate((nextPage: number) => {
-      const selectors = [".pagination_num__B3C28", 'a[class*="pagination"]', 'a[href*="pagingIndex"]'];
-      for (const sel of selectors) {
-        const buttons = document.querySelectorAll(sel);
-        for (const btn of buttons) {
-          if (btn.textContent?.trim() === String(nextPage)) {
-            (btn as HTMLElement).click();
-            return true;
-          }
-        }
-      }
-      const nextSelectors = [".pagination_next__pZuC6", 'a[class*="next"]'];
-      for (const sel of nextSelectors) {
-        const nextBtn = document.querySelector(sel);
-        if (nextBtn && !(nextBtn as HTMLElement).classList.contains("pagination_disabled__qUdaH")) {
-          (nextBtn as HTMLElement).click();
-          return true;
-        }
-      }
-      return false;
-    }, currentPage + 1);
-
-    if (!nextClicked) {
-      log(`${currentPage}페이지까지 탐색 종료(다음 페이지 없음)`);
-      break;
-    }
-    // 페이지 전환 대기 + __name polyfill 재주입 (PRB 세션 유지)
-    await sleepMs(2000);
-    await page.evaluate(() => { (window as any).__name = (fn: any) => fn; }).catch(() => {});
-    currentPage++;
+    if (currentPage < maxPages) await sleepMs(SAFE_DELAY_MS);
   }
 
   return out;

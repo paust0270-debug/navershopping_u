@@ -10,10 +10,16 @@ Naver Shopping traffic automation runner. Reads task JSON from an external engin
 
 ```bash
 npm install
-npm start              # continuous loop: poll engine-next-task.json, process, repeat
-npm run once           # process exactly 1 task then exit (--once flag)
-npm run build:worker   # esbuild bundle → worker-runner.js (for Electron GUI)
-npm run build:gui-exe  # build:worker + Electron portable .exe
+npm start                    # continuous loop: poll engine-next-task.json, process, repeat
+npm run once                 # process exactly 1 task then exit (--once flag)
+npm run build:worker         # esbuild bundle → worker-runner.js (for Electron GUI)
+npm run build:gui-exe        # build:worker + Electron portable .exe
+
+# Strategy management
+npm run strategy:run strategies/flow-a.json                   # 전략 파일 직접 실행 (apply 없이 작업 순환)
+npm run strategy:check -- --strategy strategies/flow-a.json   # validate a strategy file
+npm run strategy:apply -- --strategy strategies/flow-a.json   # write engine-config.json + tasks.txt + engine-next-task.json
+npm run strategy:test                                          # run strategy-sync unit tests (Node assert, no framework)
 ```
 
 Run directly with tsx: `npx tsx unified-runner.ts [--once]`
@@ -37,8 +43,10 @@ Schema examples: `engine-next-task.example.json`, `engine-last-result.example.js
 
 - **A** (default): 1차 키워드 검색 → 2차 조합 키워드 검색 → 상품 클릭
 - **B**: 메인 키워드만 검색 → 상품 클릭
-- **C**: 2차 키워드만 검색 → 상품 클릭
+- **C**: 2차 키워드만 검색 → 상품 클릭 (requires `keywordName` on every task)
 - **D**: 쇼핑 순위 체크 모드 (rank-check-shopping.ts)
+- **E**: 통합검색 ackey 위장 — 검색광고 상품을 직접 여는 흐름
+- **F**: 통합검색 상품명 전체 — 스토어 광고를 포함한 검색 흐름
 
 ### Detection Bypass Layers
 
@@ -49,12 +57,25 @@ Schema examples: `engine-next-task.example.json`, `engine-last-result.example.js
 4. **Session** — Fresh browser context per task, optional profile loading (`profiles/`)
 5. **Behavior** — Bezier mouse movements, humanized typing delays, natural scrolling
 
+### Strategy System
+
+Strategy files (`strategies/flow-*.json`) are the **source of truth** for runner configuration. They encode the `runtime` block (written to `engine-config.json`) and the task list (written to `tasks.txt` and `engine-next-task.json`) together in one file.
+
+`strategy-sync.ts` provides `loadStrategyFile`, `normalizeStrategy`, `validateStrategy`, and `applyStrategyToDirectory`. The CLI wrapper is `scripts/strategy-cli.ts`.
+
+Key constraints enforced by `validateStrategy`:
+- Flow C requires `keywordName` on every task.
+- Non-D flows warn when `targetCount ≤ 0`.
+- `linkUrl` must contain `/products/<mid>` — MID is extracted from the URL, not stored separately.
+
 ### Key Files
 
 | File | Role |
 |------|------|
-| `unified-runner.ts` | Main loop: task polling, browser lifecycle, all search flows (A/B/C/D), Naver login, product click |
+| `unified-runner.ts` | Main loop: task polling, browser lifecycle, all search flows (A–F), Naver login, product click |
 | `engine-config.ts` | Loads `engine-config.json`, exports `EngineRuntime` with delays, proxy, UA, work mode |
+| `strategy-sync.ts` | Strategy file schema, validation, normalization, and `applyStrategyToDirectory` |
+| `scripts/strategy-cli.ts` | CLI for `check` / `apply` sub-commands against strategy files |
 | `ipRotation.ts` | IP rotation: ADB mobile data toggle (primary), Windows network adapter toggle (fallback) |
 | `rank-check-shopping.ts` | Flow D: Naver integrated search → Shopping tab → find product rank by MID |
 | `captcha/ReceiptCaptchaSolverPRB.ts` | Receipt CAPTCHA solver using Claude Vision API |
@@ -62,6 +83,7 @@ Schema examples: `engine-next-task.example.json`, `engine-last-result.example.js
 | `pw-version-override.ts` | Sets `PW_VERSION_OVERRIDE` env for GUI portable builds where patchright-core package.json is missing |
 | `worker-runner.js` | esbuild bundle of unified-runner.ts (used by Electron GUI) |
 | `traffic-engine-gui/` | Electron app that wraps worker-runner.js as a portable Windows .exe |
+| `tests/strategy-sync.test.ts` | Unit tests for strategy-sync (Node `assert`, run with `npm run strategy:test`) |
 
 ### Work Modes (engine-config.json → workMode)
 
@@ -107,4 +129,4 @@ Naver login credentials: `naver-account.txt` (line 1: ID, line 2: password)
 - **Browser automation**: Patchright (primary), puppeteer-real-browser (connect helper)
 - **CAPTCHA**: @anthropic-ai/sdk (Claude Vision)
 - **GUI**: Electron 28 (traffic-engine-gui/)
-- **No test framework configured**
+- **Tests**: Node built-in `assert` — no test framework; run with `npm run strategy:test`

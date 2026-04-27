@@ -96,7 +96,7 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs4 = require("fs");
+    var fs5 = require("fs");
     var path4 = require("path");
     var os2 = require("os");
     var crypto = require("crypto");
@@ -205,7 +205,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs4.existsSync(filepath)) {
+            if (fs5.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -215,7 +215,7 @@ var require_main = __commonJS({
       } else {
         possibleVaultPath = path4.resolve(process.cwd(), ".env.vault");
       }
-      if (fs4.existsSync(possibleVaultPath)) {
+      if (fs5.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
@@ -264,7 +264,7 @@ var require_main = __commonJS({
       const parsedAll = {};
       for (const path5 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs4.readFileSync(path5, { encoding }));
+          const parsed = DotenvModule.parse(fs5.readFileSync(path5, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
@@ -386,7 +386,7 @@ var require_main = __commonJS({
 // unified-runner.ts
 var dotenv = __toESM(require_main());
 var path3 = __toESM(require("path"));
-var fs3 = __toESM(require("fs"));
+var fs4 = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var import_child_process2 = require("child_process");
 
@@ -424,7 +424,7 @@ var execAsync = (0, import_util.promisify)(import_child_process.exec);
 var ADB_DATA_OFF_DELAY = 5e3;
 var ADB_DATA_ON_DELAY = 5e3;
 function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 function log(msg) {
   console.log(`[IPRotation] ${msg}`);
@@ -640,8 +640,7 @@ function resolveEngineResultFilePath(file) {
     return path2.isAbsolute(p) ? p : path2.join(process.cwd(), p);
   return path2.join(process.cwd(), "engine-last-result.json");
 }
-function loadEngineConfig() {
-  const file = readConfigJson();
+function buildEngineRuntime(file) {
   const mergedDelays = { ...DEFAULT_DELAY_SPECS, ...file.delays || {} };
   const delay = (key) => delayMs(file.delays?.[key], mergedDelays[key] ?? 0);
   const mobileUA = file.userAgents?.mobile?.filter(Boolean) || [];
@@ -660,7 +659,6 @@ function loadEngineConfig() {
     keywordBlacklistEnabled: file.search?.keywordBlacklistEnabled !== false,
     keywordBlacklistPath: resolveKeywordBlacklistPath(file),
     searchFlowVersion: parseSearchFlowVersion(file.search?.searchFlowVersion),
-    /** 설정 생략 시 기본 false (USB 폰 미연결 환경에서 ADB 오류 방지) */
     airplaneBeforeTask: file.airplaneMode?.toggleBeforeEachTask === true,
     airplaneCycles: Math.max(1, file.airplaneMode?.offOnCycles ?? 1),
     logEngineEvents: file.logging?.engineEvents !== false,
@@ -670,6 +668,9 @@ function loadEngineConfig() {
     engineResultFilePath: resolveEngineResultFilePath(file),
     naverLoginEnabled: file.naverLoginEnabled === true
   };
+}
+function loadEngineConfig() {
+  return buildEngineRuntime(readConfigJson());
 }
 function resolveMobileForTask(runtime) {
   if (runtime.workMode === "mobile")
@@ -732,6 +733,19 @@ var ReceiptCaptchaSolverPRB = class {
   }
   log(msg) {
     this.logFn(`[CaptchaSolver] ${msg}`);
+  }
+  screenshotToBase64(data) {
+    if (typeof data === "string") {
+      const commaIdx = data.indexOf(",");
+      return commaIdx >= 0 && data.substring(0, commaIdx).includes("base64") ? data.substring(commaIdx + 1) : data;
+    }
+    if (Buffer.isBuffer(data)) {
+      return data.toString("base64");
+    }
+    if (data instanceof Uint8Array) {
+      return Buffer.from(data).toString("base64");
+    }
+    throw new Error(`Screenshot result is not base64-compatible: ${Object.prototype.toString.call(data)}`);
   }
   /**
    * CAPTCHA 해결 시도
@@ -881,9 +895,10 @@ var ReceiptCaptchaSolverPRB = class {
       const imageElement = await page.$(selector);
       if (imageElement) {
         try {
-          const buffer2 = await imageElement.screenshot({ encoding: "base64" });
-          this.log(`\uC774\uBBF8\uC9C0 \uCEA1\uCC98 \uC131\uACF5: ${selector}`);
-          return buffer2;
+          const screenshot2 = await imageElement.screenshot();
+          const base64 = this.screenshotToBase64(screenshot2);
+          this.log(`\uC774\uBBF8\uC9C0 \uCEA1\uCC98 \uC131\uACF5: ${selector} (${base64.length} bytes base64)`);
+          return base64;
         } catch {
           continue;
         }
@@ -899,17 +914,18 @@ var ReceiptCaptchaSolverPRB = class {
       const area = await page.$(selector);
       if (area) {
         try {
-          const buffer2 = await area.screenshot({ encoding: "base64" });
-          this.log(`\uC601\uC5ED \uCEA1\uCC98 \uC131\uACF5: ${selector}`);
-          return buffer2;
+          const screenshot2 = await area.screenshot();
+          const base64 = this.screenshotToBase64(screenshot2);
+          this.log(`\uC601\uC5ED \uCEA1\uCC98 \uC131\uACF5: ${selector} (${base64.length} bytes base64)`);
+          return base64;
         } catch {
           continue;
         }
       }
     }
     this.log("\uC804\uCCB4 \uD398\uC774\uC9C0 \uCEA1\uCC98");
-    const buffer = await page.screenshot({ encoding: "base64" });
-    return buffer;
+    const screenshot = await page.screenshot();
+    return this.screenshotToBase64(screenshot);
   }
   /**
    * 응답이 유효한 답인지 검증
@@ -1092,7 +1108,7 @@ var ReceiptCaptchaSolverPRB = class {
     return !stillCaptcha;
   }
   delay(ms) {
-    return new Promise((resolve2) => setTimeout(resolve2, ms));
+    return new Promise((resolve3) => setTimeout(resolve3, ms));
   }
 };
 
@@ -1256,12 +1272,29 @@ async function applyMobileStealth(context) {
 }
 
 // rank-check-shopping.ts
+async function collectVisibleSearchMidDebug(_page, _limit = 12) {
+  return { mids: [], cards: [] };
+}
 var ITEMS_PER_PAGE = 40;
 var TITLE_MAX = 300;
 var SAFE_DELAY_MS = 1500;
 var HYDRATE_SCROLL_TOTAL = 18 * 550;
+var PAGE_EVALUATE_NAME_POLYFILL = "window.__name = window.__name || ((fn) => fn);";
 function microDelay(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+async function ensureEvaluateNamePolyfill(page) {
+  await page.evaluate(PAGE_EVALUATE_NAME_POLYFILL).catch(() => {
+  });
+}
+async function humanType(page, text) {
+  for (const char of text) {
+    await page.keyboard.type(char);
+    await microDelay(50 + Math.random() * 100);
+    if (Math.random() < 0.05) {
+      await microDelay(200 + Math.random() * 300);
+    }
+  }
 }
 async function humanScroll(page, totalDistance) {
   let scrolled = 0;
@@ -1276,68 +1309,33 @@ async function humanScroll(page, totalDistance) {
     }
   }
 }
-async function collectVisibleSearchMidDebug(page, limit = 12) {
-  return page.evaluate(({ limit: limit2 }) => {
-    const cards = Array.from(
-      document.querySelectorAll("li._slog_visible, section._slog_visible, div._slog_visible")
-    );
-    const mids = [];
-    const result = [];
-    const pushMid = (mid) => {
-      if (!mid)
-        return;
-      if (!mids.includes(mid))
-        mids.push(mid);
-    };
-    for (const card of cards) {
-      const anchors = Array.from(card.querySelectorAll("a[href]"));
-      const hrefs = [];
-      const ids = [];
-      for (const a of anchors) {
-        const href = a.getAttribute("href") || "";
-        if (href)
-          hrefs.push(href);
-        for (const m of [
-          href.match(/(?:nv_mid|nvMid)=(\d+)/),
-          href.match(/\/main\/products\/(\d+)/),
-          href.match(/\/products\/(\d+)/),
-          href.match(/searchGate\?[^#]*nv_mid=(\d+)/)
-        ]) {
-          if (m)
-            pushMid(m[1]);
-        }
-        const aria = a.getAttribute("aria-labelledby") || "";
-        const m2 = aria.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
-        if (m2)
-          pushMid(m2[1]);
+var SHOPPING_HOST = "search.shopping.naver.com";
+async function tripleClickSearchInput(page, log3) {
+  try {
+    if (typeof page.locator === "function") {
+      const raw = page.locator('input[name="query"]');
+      if (raw && typeof raw.first === "function") {
+        const searchInput = raw.first();
+        await searchInput.waitFor({ state: "visible", timeout: 15e3 });
+        await searchInput.click({ clickCount: 3 });
+        return true;
       }
-      for (const el of Array.from(card.querySelectorAll("[id]"))) {
-        const id = el.id || "";
-        if (!id)
-          continue;
-        const nm = id.match(/(?:nstore_productId|view_type_guide)_(\d+)/);
-        if (nm)
-          pushMid(nm[1]);
-        if (ids.length < 4)
-          ids.push(id);
-      }
-      if (!hrefs.length && !ids.length)
-        continue;
-      const titleEl = card.querySelector('strong span:last-child, [class*="title"], [class*="name"], img[alt]');
-      const title = titleEl ? (titleEl.getAttribute?.("alt") || titleEl.textContent || "").trim().replace(/\s+/g, " ") : "";
-      result.push({
-        tag: card.tagName,
-        cls: card.className || null,
-        dataSlog: card.getAttribute("data-slog-content"),
-        ids,
-        hrefs: hrefs.slice(0, 3),
-        title: title.slice(0, 140)
-      });
-      if (result.length >= limit2)
-        break;
     }
-    return { mids, cards: result };
-  }, { limit });
+    if (typeof page.waitForSelector === "function") {
+      const el = await page.waitForSelector('input[name="query"]', { visible: true, timeout: 15e3 });
+      if (!el) {
+        log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C", "warn");
+        return false;
+      }
+      await el.click({ clickCount: 3 });
+      return true;
+    }
+  } catch {
+    log3("\uAC80\uC0C9 \uC785\uB825\uCC3D \uC5C6\uC74C", "warn");
+    return false;
+  }
+  log3("\uAC80\uC0C9 \uC785\uB825\uCC3D API \uBBF8\uC9C0\uC6D0", "warn");
+  return false;
 }
 async function isShoppingBlocked(page) {
   return page.evaluate(() => {
@@ -1346,12 +1344,12 @@ async function isShoppingBlocked(page) {
   });
 }
 function normalizeDetailTitle(raw) {
-  return String(raw || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
+  return String(raw || "").replace(/\s+/g, " ").replace(/ /g, " ").trim();
 }
 async function extractDetailPageTitle(page) {
   try {
     const title = await page.evaluate(() => {
-      const clean = (value) => String(value || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").replace(/ /g, " ").trim();
       const stripSuffix = (value) => {
         let text = clean(value);
         text = text.replace(/\s*(?:\||·|:|\-|—)\s*(?:네이버.*|Naver.*|SmartStore.*)$/i, "").trim();
@@ -1367,17 +1365,40 @@ async function extractDetailPageTitle(page) {
         seen.add(text);
         candidates.push(text);
       };
+      const bodyText = clean(document.body?.innerText || "");
+      const isErrorPage = /에러페이지|시스템오류|현재 서비스 접속이 불가합니다|Too Many Requests|접속이 불가합니다/i.test(
+        `${document.title} ${bodyText}`
+      );
       push(document.querySelector('meta[property="og:title"]')?.getAttribute("content"));
       push(document.querySelector('meta[name="twitter:title"]')?.getAttribute("content"));
       push(document.querySelector('meta[name="title"]')?.getAttribute("content"));
+      for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]'))) {
+        const raw = script.textContent?.trim();
+        if (!raw)
+          continue;
+        try {
+          const parsed = JSON.parse(raw);
+          const items = Array.isArray(parsed) ? parsed : [parsed];
+          for (const item of items) {
+            if (!item || typeof item !== "object")
+              continue;
+            const anyItem = item;
+            push(anyItem.name);
+            push(anyItem.headline);
+            push(anyItem.title);
+          }
+        } catch {
+        }
+      }
       push(document.title);
-      for (const sel of ["h1", "h2", "h3", "strong"]) {
+      for (const sel of ["h1", "h2", "h3", "strong", "[itemprop='name']"]) {
         document.querySelectorAll(sel).forEach((el) => push(el.textContent));
       }
+      if (isErrorPage)
+        return null;
       for (const text of candidates) {
-        if (text.length >= 4) {
+        if (text.length >= 4)
           return text;
-        }
       }
       return null;
     });
@@ -1386,35 +1407,227 @@ async function extractDetailPageTitle(page) {
     return null;
   }
 }
-var SEARCH_HOST = "search.naver.com";
-async function enterNaverShoppingSearch(page, kw, log3, sleepMs) {
-  log3("\uB124\uC774\uBC84 \uD1B5\uD569\uAC80\uC0C9 \uC9C4\uC785\u2026");
+async function enterShoppingTab(page, kw, _shoppingSearchPhrase, log3, sleepMs, solveCaptcha) {
+  log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785\u2026");
   try {
-    await page.goto(`https://m.search.naver.com/search.naver?where=m&query=${encodeURIComponent(kw)}`, {
-      waitUntil: "domcontentloaded",
-      timeout: 45e3
-    });
+    await page.goto("https://www.naver.com/", { waitUntil: "domcontentloaded", timeout: 45e3 });
   } catch {
-    log3("\uB124\uC774\uBC84 \uD1B5\uD569\uAC80\uC0C9 \uC9C4\uC785 \uC2E4\uD328");
+    log3("\uB124\uC774\uBC84 \uBA54\uC778 \uC9C4\uC785 \uC2E4\uD328", "warn");
     return false;
   }
-  await page.evaluate(() => {
-    window.__name = (fn) => fn;
-  }).catch(() => {
-  });
   await sleepMs(SAFE_DELAY_MS);
-  log3("\uD1B5\uD569\uAC80\uC0C9 \uACB0\uACFC \uB300\uAE30 \uC911\u2026");
-  if (!page.url().includes(SEARCH_HOST)) {
-    log3("\uD1B5\uD569\uAC80\uC0C9 URL \uBBF8\uD655\uC778");
+  await ensureEvaluateNamePolyfill(page);
+  const inputOk = await tripleClickSearchInput(page, log3);
+  if (!inputOk)
+    return false;
+  log3(`\uB124\uC774\uBC84 \uAC80\uC0C9\uC5B4 \uC785\uB825: ${kw}`);
+  await humanType(page, kw);
+  await page.keyboard.press("Enter");
+  log3("\uAC80\uC0C9 \uACB0\uACFC \uB300\uAE30 \uC911\u2026");
+  if (typeof page.waitForNavigation === "function") {
+    try {
+      await page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 15e3 });
+    } catch {
+    }
+  } else {
+    try {
+      await page.waitForLoadState?.("domcontentloaded", { timeout: 15e3 });
+    } catch {
+    }
+  }
+  await sleepMs(1e3);
+  await ensureEvaluateNamePolyfill(page);
+  log3("\uC1FC\uD551\uD0ED\uC73C\uB85C \uC774\uB3D9");
+  let clicked = false;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    clicked = await page.evaluate(() => {
+      const link = document.querySelector('a[href*="search.shopping.naver.com"]');
+      if (link) {
+        link.removeAttribute("target");
+        link.click();
+        return true;
+      }
+      return false;
+    }).catch(() => false);
+    if (clicked)
+      break;
+    log3(`\uC1FC\uD551\uD0ED \uB300\uAE30 \uC911\u2026 (${attempt}/5)`);
+    await sleepMs(2e3);
+  }
+  if (!clicked) {
+    log3("\uC1FC\uD551\uD0ED \uB9C1\uD06C \uC5C6\uC74C", "warn");
     return false;
   }
+  await sleepMs(SAFE_DELAY_MS + 800);
+  await ensureEvaluateNamePolyfill(page);
+  if (!page.url().includes(SHOPPING_HOST)) {
+    log3(`\uC1FC\uD551\uD0ED URL \uBBF8\uD655\uC778: ${page.url().substring(0, 100)}`, "warn");
+    return false;
+  }
+  log3(`\uC1FC\uD551\uD0ED \uC9C4\uC785 \uC644\uB8CC: ${page.url().substring(0, 100)}`);
   if (await isShoppingBlocked(page)) {
-    log3("\uBCF4\uC548/\uCC28\uB2E8 \uD398\uC774\uC9C0 \uAC10\uC9C0");
-    return false;
+    log3("\uBCF4\uC548/\uCC28\uB2E8 \uD398\uC774\uC9C0 \uAC10\uC9C0", "warn");
+    if (solveCaptcha) {
+      const solved = await solveCaptcha(page).catch(() => false);
+      if (!solved || await isShoppingBlocked(page)) {
+        log3("CAPTCHA \uD574\uACB0 \uC2E4\uD328 \uB610\uB294 \uCC28\uB2E8 \uC0C1\uD0DC \uC720\uC9C0", "warn");
+        return false;
+      }
+    } else {
+      return false;
+    }
   }
+  try {
+    await page.waitForSelector("[data-shp-contents-id]", { timeout: 15e3 });
+  } catch {
+  }
+  await sleepMs(500);
   return true;
 }
-async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, log3, sleepMs) {
+async function findRankOnCurrentPage(page, targetMid, pageNum) {
+  return page.evaluate(
+    ({ targetId, pageNum: pageNum2, itemsPerPage, titleMax }) => {
+      const clip = (s) => {
+        const t = s.replace(/\s+/g, " ").trim();
+        return t.length > titleMax ? t.substring(0, titleMax) : t;
+      };
+      const extractFromProductItem = (productItem) => {
+        let reviewCount = null;
+        let starRating = null;
+        const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
+        for (const elem of reviewElements) {
+          const text = elem.textContent || "";
+          if (text.includes("\uB9AC\uBDF0")) {
+            const reviewMatch = text.match(/리뷰\s*(\d+)|\((\d+(?:,\d+)*)\)/);
+            if (reviewMatch) {
+              const reviewNum = reviewMatch[1] || reviewMatch[2];
+              reviewCount = parseInt(reviewNum.replace(/,/g, ""), 10) || null;
+              break;
+            }
+          }
+        }
+        const starEl = productItem.querySelector(".product_grade__O_5f5") || productItem.querySelector('[class*="product_grade__"]');
+        if (starEl) {
+          const starText = starEl.textContent?.trim() || "";
+          const starMatch = starText.match(/(\d+\.?\d*)/);
+          if (starMatch)
+            starRating = parseFloat(starMatch[1]) || null;
+        }
+        return { reviewCount, starRating };
+      };
+      const titleFromProductItem = (productItem, fromJson) => {
+        if (fromJson && fromJson.trim())
+          return clip(fromJson);
+        const img = productItem.querySelector(
+          'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
+        );
+        const alt = img?.getAttribute("alt")?.trim();
+        if (alt)
+          return clip(alt);
+        const titleEl = productItem.querySelector('[class*="product_title__"]') || productItem.querySelector('[class*="product_name__"]');
+        const tx = titleEl?.textContent?.trim();
+        return tx ? clip(tx) : null;
+      };
+      const anchors = document.querySelectorAll(
+        "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
+      );
+      for (let i = 0; i < anchors.length; i++) {
+        const anchor = anchors[i];
+        const dtl = anchor.getAttribute("data-shp-contents-dtl");
+        const rankStr = anchor.getAttribute("data-shp-contents-rank");
+        if (!dtl || !rankStr)
+          continue;
+        try {
+          const normalized = dtl.replace(/&quot;/g, '"');
+          const parsed = JSON.parse(normalized);
+          if (!Array.isArray(parsed))
+            continue;
+          let chnlProdNo = null;
+          let catalogNvMid = null;
+          let prodNm = null;
+          for (const item of parsed) {
+            if (item.key === "chnl_prod_no" && item.value)
+              chnlProdNo = String(item.value);
+            if (item.key === "catalog_nv_mid" && item.value)
+              catalogNvMid = String(item.value);
+            if (item.key === "prod_nm" && item.value)
+              prodNm = String(item.value);
+          }
+          if (chnlProdNo !== targetId && catalogNvMid !== targetId)
+            continue;
+          const pageRank = parseInt(rankStr, 10);
+          const rank = (pageNum2 - 1) * itemsPerPage + (Number.isFinite(pageRank) ? pageRank : i + 1);
+          const productItem = anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
+          const extra = productItem ? extractFromProductItem(productItem) : { reviewCount: null, starRating: null };
+          const productTitle = productItem ? titleFromProductItem(productItem, prodNm) : prodNm ? clip(prodNm) : null;
+          const catalogMid = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
+          return {
+            found: true,
+            rank,
+            reviewCount: extra.reviewCount,
+            starRating: extra.starRating,
+            productTitle,
+            catalogMid,
+            detailUrl: anchor.href || null
+          };
+        } catch {
+        }
+      }
+      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null };
+    },
+    { targetId: targetMid, pageNum, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
+  );
+}
+async function goToNextPage(page, targetPage) {
+  const paginationSelector = 'a.pagination_btn_page__utqBz, a[class*="pagination_btn"]';
+  try {
+    await page.waitForSelector(paginationSelector, { timeout: 1e4 });
+  } catch {
+    return false;
+  }
+  const buttonExists = await page.evaluate((nextPage) => {
+    const buttons = document.querySelectorAll('a.pagination_btn_page__utqBz, a[class*="pagination_btn"]');
+    for (const btn of buttons) {
+      if (btn.textContent?.trim() === String(nextPage))
+        return true;
+    }
+    return false;
+  }, targetPage);
+  if (!buttonExists)
+    return false;
+  let apiResponsePromise = null;
+  if (typeof page.waitForResponse === "function") {
+    apiResponsePromise = page.waitForResponse(
+      (response) => {
+        const url = response.url();
+        return url.includes("/api/search/all") && url.includes(`pagingIndex=${targetPage}`);
+      },
+      { timeout: 3e4 }
+    ).catch(() => null);
+  }
+  try {
+    const clicked = await page.evaluate((nextPage) => {
+      const buttons = document.querySelectorAll('a.pagination_btn_page__utqBz, a[class*="pagination_btn"]');
+      for (const btn of buttons) {
+        if (btn.textContent?.trim() === String(nextPage)) {
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    }, targetPage);
+    if (!clicked)
+      return false;
+  } catch {
+    return false;
+  }
+  if (apiResponsePromise)
+    await apiResponsePromise;
+  await microDelay(1500);
+  await ensureEvaluateNamePolyfill(page);
+  return true;
+}
+async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, log3, sleepMs, solveCaptcha, shoppingSearchPhrase) {
   const empty = {
     rank: null,
     reviewCount: null,
@@ -1429,267 +1642,420 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
     log3("\uD0A4\uC6CC\uB4DC \uB610\uB294 MID \uBE44\uC5B4 \uC788\uC74C");
     return empty;
   }
-  const entered = await enterNaverShoppingSearch(page, kw, log3, sleepMs);
-  if (!entered) {
+  const entered = await enterShoppingTab(page, kw, shoppingSearchPhrase || kw, log3, sleepMs, solveCaptcha);
+  if (!entered)
     return empty;
-  }
-  await page.evaluate(() => {
-    window.__name = (fn) => fn;
-  }).catch(() => {
-  });
   const out = { ...empty };
-  let currentPage = 1;
-  while (currentPage <= maxPages) {
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await humanScroll(page, HYDRATE_SCROLL_TOTAL);
-    await sleepMs(150);
-    const result = await page.evaluate(
-      ({ targetId, pageNum, itemsPerPage, titleMax }) => {
-        const clip = (s) => {
-          const t = s.replace(/\s+/g, " ").trim();
-          return t.length > titleMax ? t.substring(0, titleMax) : t;
-        };
-        const titleFromProductItem = (productItem, fromJson) => {
-          if (fromJson && fromJson.trim())
-            return clip(fromJson);
-          const img = productItem.querySelector(
-            'img[src*="shopping-phinf.pstatic.net"], img[src*="shop-phinf.pstatic.net"], img[alt]'
-          );
-          const alt = img?.getAttribute("alt")?.trim();
-          if (alt)
-            return clip(alt);
-          const titleEl = productItem.querySelector(".product_title__") || productItem.querySelector('[class*="product_title__"]');
-          const tx = titleEl?.textContent?.trim();
-          return tx ? clip(tx) : null;
-        };
-        const extractFromProductItem = (productItem) => {
-          let reviewCount2 = null;
-          let starRating2 = null;
-          const reviewElements = productItem.querySelectorAll('.product_etc__Z7jnS, [class*="product_etc__"]');
-          for (const elem of reviewElements) {
-            const text = elem.textContent || "";
-            if (text.includes("\uB9AC\uBDF0")) {
-              const reviewMatch = text.match(/리뷰\s*(\d+)|\((\d+(?:,\d+)*)\)/);
-              if (reviewMatch) {
-                const reviewNum = reviewMatch[1] || reviewMatch[2];
-                reviewCount2 = parseInt(reviewNum.replace(/,/g, ""), 10) || null;
-                break;
-              }
-            }
-          }
-          const starEl = productItem.querySelector(".product_grade__O_5f5") || productItem.querySelector('[class*="product_grade__"]');
-          if (starEl) {
-            const starText = starEl.textContent?.trim() || "";
-            const starMatch = starText.match(/(\d+\.?\d*)/);
-            if (starMatch) {
-              starRating2 = parseFloat(starMatch[1]) || null;
-            }
-          }
-          return { reviewCount: reviewCount2, starRating: starRating2 };
-        };
-        const anchors = document.querySelectorAll(
-          "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]"
-        );
-        for (let i = 0; i < anchors.length; i++) {
-          const anchor = anchors[i];
-          const dtl = anchor.getAttribute("data-shp-contents-dtl");
-          const rankStr = anchor.getAttribute("data-shp-contents-rank");
-          if (!dtl || !rankStr)
-            continue;
-          try {
-            const normalized = dtl.replace(/&quot;/g, '"');
-            const parsed = JSON.parse(normalized);
-            if (!Array.isArray(parsed))
-              continue;
-            let chnlProdNo = null;
-            let catalogNvMid = null;
-            let prodNm = null;
-            for (const item of parsed) {
-              if (item.key === "chnl_prod_no" && item.value) {
-                chnlProdNo = String(item.value);
-              }
-              if (item.key === "catalog_nv_mid" && item.value) {
-                catalogNvMid = String(item.value);
-              }
-              if (item.key === "prod_nm" && item.value) {
-                prodNm = String(item.value);
-              }
-            }
-            if (chnlProdNo !== targetId && catalogNvMid !== targetId)
-              continue;
-            const pageRank = parseInt(rankStr, 10);
-            const rank2 = (pageNum - 1) * 40 + (Number.isFinite(pageRank) ? pageRank : i + 1);
-            const productItem = anchor.closest(".product_item__KQayS") || anchor.closest('[class*="product_item__"]');
-            const extra = productItem ? extractFromProductItem(productItem) : { reviewCount: null, starRating: null };
-            const productTitle2 = productItem ? titleFromProductItem(productItem, prodNm) : prodNm ? clip(prodNm) : null;
-            const catalogMid2 = catalogNvMid || anchor.getAttribute("data-shp-contents-id") || null;
-            return {
-              found: true,
-              rank: rank2,
-              reviewCount: extra.reviewCount,
-              starRating: extra.starRating,
-              productTitle: productTitle2,
-              catalogMid: catalogMid2,
-              detailUrl: anchor.href || null
-            };
-          } catch {
-          }
-        }
-        const integratedCards = Array.from(
-          document.querySelectorAll("li._slog_visible, li[data-slog-content], div[data-slog-content], article[data-slog-content]")
-        );
-        for (let i = 0; i < integratedCards.length; i++) {
-          const card2 = integratedCards[i];
-          const anchor = card2.querySelector("a[href]");
-          const href = anchor?.href || "";
-          const ids = [
-            href.match(/(?:nv_mid|nvMid)=(\d+)/)?.[1] || null,
-            href.match(/\/products\/(\d+)/)?.[1] || null,
-            card2.id.match(/nstore_productId_(\d+)/)?.[1] || null,
-            card2.id.match(/view_type_guide_(\d+)/)?.[1] || null,
-            card2.querySelector('[id^="nstore_productId_"]')?.id.match(/nstore_productId_(\d+)/)?.[1] || null,
-            card2.querySelector('[id^="view_type_guide_"]')?.id.match(/view_type_guide_(\d+)/)?.[1] || null
-          ].filter((v) => Boolean(v));
-          if (!ids.includes(targetId))
-            continue;
-          const pageRank = i + 1;
-          const rank2 = (pageNum - 1) * itemsPerPage + pageRank;
-          const img = card2.querySelector("img[alt]");
-          const alt = img?.getAttribute("alt")?.trim();
-          const titleEl = card2.querySelector("strong span:last-child") || card2.querySelector('[class*="title"]') || card2.querySelector('[class*="name"]');
-          const productTitle2 = alt || titleEl?.textContent?.trim() || null;
-          const catalogMid2 = ids.find((id) => id !== targetId) || targetId;
-          return {
-            found: true,
-            rank: rank2,
-            reviewCount: null,
-            starRating: null,
-            productTitle: productTitle2 ? clip(productTitle2) : null,
-            catalogMid: catalogMid2,
-            detailUrl: anchor.href || null
-          };
-        }
-        const mids = [];
-        const patterns = [/nv_mid[=:](\d+)/, /nvMid[=:](\d+)/, /products\/(\d+)/, /catalog\/(\d+)/];
-        document.querySelectorAll("a").forEach((a) => {
-          const href = a.href || "";
-          for (const p of patterns) {
-            const hit = href.match(p);
-            if (hit && !mids.includes(hit[1])) {
-              mids.push(hit[1]);
-              break;
-            }
-          }
-        });
-        const idx = mids.indexOf(targetId);
-        if (idx === -1) {
-          return {
-            found: false,
-            rank: null,
-            reviewCount: null,
-            starRating: null,
-            productTitle: null,
-            catalogMid: null,
-            detailUrl: null
-          };
-        }
-        const rank = (pageNum - 1) * itemsPerPage + idx + 1;
-        let reviewCount = null;
-        let starRating = null;
-        let productTitle = null;
-        const linkEl = document.querySelector(
-          `a[href*="/products/${targetId}"], a[href*="products%2F${targetId}"]`
-        );
-        const container = linkEl?.closest(".product_item__KQayS") || linkEl?.closest('[class*="product_item__"]');
-        if (container) {
-          const ex = extractFromProductItem(container);
-          reviewCount = ex.reviewCount;
-          starRating = ex.starRating;
-          productTitle = titleFromProductItem(container, null);
-        }
-        const card = linkEl?.closest("[data-shp-contents-id]") || container?.closest("[data-shp-contents-id]");
-        const catalogMid = card?.getAttribute("data-shp-contents-id") || null;
-        return { found: true, rank, reviewCount, starRating, productTitle, catalogMid, detailUrl: linkEl?.href || null };
-      },
-      { targetId: mid, pageNum: currentPage, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
-    );
-    log3(`${currentPage}\uD398\uC774\uC9C0 \uC218\uC9D1: ${result.found ? "\uBC1C\uACAC" : "\uBBF8\uBC1C\uACAC"}`);
-    if (!result.found && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
-      const debug = await collectVisibleSearchMidDebug(page, 12).catch(() => null);
-      if (debug) {
-        log3(
-          `[DEBUG] visible mids p${currentPage}: ${debug.mids.length ? debug.mids.join(", ") : "(none)"}`,
-          "warn"
-        );
-        debug.cards.slice(0, 8).forEach((card, idx) => {
-          log3(
-            `[DEBUG] card ${idx + 1}: tag=${card.tag} ids=${card.ids.join("|") || "-"} title=${card.title || "-"}`,
-            "warn"
-          );
-        });
+  for (let currentPage = 1; currentPage <= maxPages; currentPage++) {
+    if (currentPage > 1) {
+      await sleepMs(1e3 + Math.random() * 1e3);
+      const moved = await goToNextPage(page, currentPage);
+      if (!moved) {
+        log3(`${currentPage - 1}\uD398\uC774\uC9C0\uAE4C\uC9C0 \uD0D0\uC0C9 \uC885\uB8CC(\uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C)`);
+        break;
+      }
+      if (await isShoppingBlocked(page)) {
+        log3("\uBCF4\uC548/\uCC28\uB2E8 \uD398\uC774\uC9C0 \uAC10\uC9C0");
+        break;
       }
     }
+    try {
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await humanScroll(page, HYDRATE_SCROLL_TOTAL);
+      await sleepMs(150);
+    } catch (e) {
+      if (e?.message?.includes("Target closed") || e?.message?.includes("Protocol error") || e?.message?.includes("Session closed")) {
+        log3(`\uD398\uC774\uC9C0 \uC5F0\uACB0 \uB04A\uAE40: ${e.message}`, "warn");
+        break;
+      }
+      throw e;
+    }
+    let result;
+    try {
+      result = await findRankOnCurrentPage(page, mid, currentPage);
+    } catch (e) {
+      if (e?.message?.includes("Target closed") || e?.message?.includes("Protocol error") || e?.message?.includes("Session closed")) {
+        log3(`\uD398\uC774\uC9C0 \uC5F0\uACB0 \uB04A\uAE40: ${e.message}`, "warn");
+        break;
+      }
+      throw e;
+    }
+    log3(`${currentPage}\uD398\uC774\uC9C0 \uC218\uC9D1: ${result.found ? `\uBC1C\uACAC (${result.rank}\uC704)` : "\uBBF8\uBC1C\uACAC"}`);
     if (result.found && result.rank != null) {
       out.rank = result.rank;
       out.reviewCount = result.reviewCount;
       out.starRating = result.starRating;
+      out.productTitle = result.productTitle || null;
       out.catalogMid = result.catalogMid || null;
       if (result.detailUrl) {
         try {
-          await page.goto(result.detailUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: 45e3
-          });
+          await page.goto(result.detailUrl, { waitUntil: "domcontentloaded", timeout: 45e3 });
           await sleepMs(SAFE_DELAY_MS);
-          out.productTitle = await extractDetailPageTitle(page);
-          if (!out.productTitle) {
+          const detailTitle = await extractDetailPageTitle(page);
+          if (detailTitle) {
+            out.productTitle = detailTitle;
+          } else if (!out.productTitle) {
             log3("\uC0C1\uC138\uD398\uC774\uC9C0 \uC81C\uBAA9 \uCD94\uCD9C \uC2E4\uD328", "warn");
           }
         } catch {
-          out.productTitle = null;
+          if (!out.productTitle)
+            log3("\uC0C1\uC138\uD398\uC774\uC9C0 \uC9C4\uC785 \uC2E4\uD328", "warn");
         }
       }
       break;
     }
-    const nextClicked = await page.evaluate((nextPage) => {
-      const selectors = [".pagination_num__B3C28", 'a[class*="pagination"]', 'a[href*="pagingIndex"]'];
-      for (const sel of selectors) {
-        const buttons = document.querySelectorAll(sel);
-        for (const btn of buttons) {
-          if (btn.textContent?.trim() === String(nextPage)) {
-            btn.click();
-            return true;
-          }
-        }
-      }
-      const nextSelectors = [".pagination_next__pZuC6", 'a[class*="next"]'];
-      for (const sel of nextSelectors) {
-        const nextBtn = document.querySelector(sel);
-        if (nextBtn && !nextBtn.classList.contains("pagination_disabled__qUdaH")) {
-          nextBtn.click();
-          return true;
-        }
-      }
-      return false;
-    }, currentPage + 1);
-    if (!nextClicked) {
-      log3(`${currentPage}\uD398\uC774\uC9C0\uAE4C\uC9C0 \uD0D0\uC0C9 \uC885\uB8CC(\uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C)`);
-      break;
-    }
-    await sleepMs(2e3);
-    await page.evaluate(() => {
-      window.__name = (fn) => fn;
-    }).catch(() => {
-    });
-    currentPage++;
+    if (currentPage < maxPages)
+      await sleepMs(SAFE_DELAY_MS);
   }
   return out;
+}
+
+// flows/flow-d-rank-check.ts
+async function runRankCheckFlow(input, deps) {
+  const { page, work, workerId } = input;
+  const { log: log3, sleep: sleep3 } = deps;
+  const result = {
+    productPageEntered: false,
+    captchaDetected: false,
+    captchaSolved: false,
+    midMatched: false,
+    rankCheckMode: true,
+    rankCheckOk: false,
+    shoppingRank: null
+  };
+  try {
+    const kw = work.keyword.trim();
+    const mid = work.mid;
+    const maxPages = 15;
+    log3(`[Worker ${workerId}] D\uBAA8\uB4DC \uC21C\uC704\uCCB4\uD06C: "${kw.substring(0, 40)}..." mid=${mid} (\uCD5C\uB300 ${maxPages}\uD398\uC774\uC9C0)`);
+    const rankCaptchaSolver = new ReceiptCaptchaSolverPRB((msg) => log3(`[Worker ${workerId}] ${msg}`));
+    const detail = await findNaverShoppingRankByMid(
+      page,
+      kw,
+      mid,
+      maxPages,
+      (m) => log3(`[Worker ${workerId}] ${m}`),
+      sleep3,
+      (p) => rankCaptchaSolver.solve(p),
+      work.productName || kw
+    );
+    if (detail.rank != null && detail.rank > 0) {
+      result.shoppingRank = detail.rank;
+      result.reviewCount = detail.reviewCount;
+      result.starRating = detail.starRating;
+      result.extractedProductTitle = detail.productTitle?.trim() || null;
+      result.catalogMid = detail.catalogMid || null;
+      result.rankCheckOk = true;
+      result.midMatched = true;
+      log3(
+        `[Worker ${workerId}] \uC21C\uC704: ${detail.rank}\uC704` + (detail.reviewCount != null ? ` | \uB9AC\uBDF0 ${detail.reviewCount}` : "") + (detail.starRating != null ? ` | \uBCC4 ${detail.starRating}` : "") + (result.extractedProductTitle ? ` | \uC81C\uBAA9 "${result.extractedProductTitle.substring(0, 36)}${result.extractedProductTitle.length > 36 ? "\u2026" : ""}"` : "")
+      );
+    } else {
+      result.failReason = "NO_MID_MATCH";
+      result.error = "\uC21C\uC704\uAD8C_\uBBF8\uBC1C\uACAC";
+      log3(`[Worker ${workerId}] \uC21C\uC704\uAD8C \uB0B4 MID \uC5C6\uC74C`, "warn");
+    }
+  } catch (e) {
+    result.error = e?.message || "Unknown";
+    result.failReason = "TIMEOUT";
+    log3(`[Worker ${workerId}] \uC21C\uC704\uCCB4\uD06C \uC608\uC678: ${result.error}`, "warn");
+  }
+  return result;
+}
+
+// flows/traffic-keywords.ts
+var SECOND_SEARCH_TAIL_WORDS = ["\uD310\uB9E4", "\uCD5C\uC800\uAC00", "\uCD5C\uC800", "\uAD6C\uB9E4", "\uBE44\uAD50", "\uD310\uB9E4\uCC98", "\uCD94\uCC9C", "\uAC00\uACA9", "\uAD6C\uB9E4\uCC98", "\uAC00\uACA9\uBE44\uAD50"];
+function buildSecondSearchPhrase(firstKeyword, keywordName) {
+  const part1 = (firstKeyword || "").trim() || "\uC0C1\uD488";
+  const firstWords = new Set(
+    part1.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+  );
+  const nameWords = (keywordName || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean).filter((w) => !firstWords.has(w));
+  const part2 = nameWords.length > 0 ? nameWords[Math.floor(Math.random() * nameWords.length)] : part1;
+  const part3 = SECOND_SEARCH_TAIL_WORDS[Math.floor(Math.random() * SECOND_SEARCH_TAIL_WORDS.length)];
+  const parts = [part1, part2, part3];
+  for (let i = parts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [parts[i], parts[j]] = [parts[j], parts[i]];
+  }
+  return parts.join(" ");
+}
+function pickSecondSearchPhraseAvoidingBlacklist(engine, mid, firstKeyword, keywordName, workerId, deps) {
+  if (!engine.keywordBlacklistEnabled) {
+    return buildSecondSearchPhrase(firstKeyword, keywordName);
+  }
+  const maxTries = 200;
+  for (let t = 0; t < maxTries; t++) {
+    const phrase = buildSecondSearchPhrase(firstKeyword, keywordName);
+    if (!deps.isSecondComboBlacklisted(engine, mid, phrase)) {
+      if (t > 0) {
+        deps.log(
+          `[Worker ${workerId}] [KeywordBlacklist] 2\uCC28 \uC870\uD569 ${t + 1}\uBC88\uC9F8 \uC2DC\uB3C4\uB85C \uCC44\uD0DD: "${phrase.substring(0, 50)}${phrase.length > 50 ? "..." : ""}"`
+        );
+      }
+      return phrase;
+    }
+  }
+  const fallback = buildSecondSearchPhrase(firstKeyword, keywordName);
+  deps.log(
+    `[Worker ${workerId}] [KeywordBlacklist] 2\uCC28 \uC870\uD569 \uBE14\uB799 \uC2DC\uB3C4 \uB2E4\uC218 \u2014 \uC784\uC758 \uC870\uD569 \uC0AC\uC6A9: "${fallback.substring(0, 50)}${fallback.length > 50 ? "..." : ""}"`,
+    "warn"
+  );
+  return fallback;
+}
+function generateAckey() {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let r = "";
+  for (let i = 0; i < 8; i++)
+    r += chars[Math.floor(Math.random() * chars.length)];
+  return r;
+}
+function pickQueryWords(keyword, productName) {
+  const tails = ["\uCD94\uCC9C", "\uD560\uC778", "\uD6C4\uAE30", "\uC778\uAE30", "\uBCA0\uC2A4\uD2B8", "\uAD6C\uB9E4", "\uC1FC\uD551", "\uD2B9\uAC00", "\uC138\uC77C", "\uAC00\uC131\uBE44", "\uCD5C\uC800\uAC00", "\uC815\uD488"];
+  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, " ").replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, " ");
+  const pool = [...new Set(allText.split(/\s+/).filter((w) => w.length >= 2))];
+  for (let j = pool.length - 1; j > 0; j--) {
+    const k = Math.floor(Math.random() * (j + 1));
+    [pool[j], pool[k]] = [pool[k], pool[j]];
+  }
+  const selected = [];
+  for (const w of pool) {
+    if (selected.length >= 3)
+      break;
+    selected.push(w);
+  }
+  while (selected.length < 3) {
+    const avail = tails.filter((t) => !selected.includes(t));
+    if (!avail.length)
+      break;
+    selected.push(avail[Math.floor(Math.random() * avail.length)]);
+  }
+  return selected.slice(0, 3).join(" ");
+}
+function buildAckeySearchUrl(query) {
+  const p = new URLSearchParams({
+    sm: "mtp_sug.top",
+    where: "m",
+    query,
+    ackey: generateAckey(),
+    acq: query,
+    acr: String(Math.floor(Math.random() * 9) + 1),
+    qdt: "0"
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+function buildIntegratedSearchUrl(query) {
+  const p = new URLSearchParams({
+    where: "m",
+    query
+  });
+  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+}
+
+// flows/flow-a-traffic.ts
+async function runTrafficFlowA(input, deps, flowLabel) {
+  const { page, mid, productName, keyword, workerId, engine, keywordName, catalogMid } = input;
+  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
+  deps.log(`[Worker ${workerId}] 1\uCC28 \uD1B5\uD569\uAC80\uC0C9: ${firstKeyword}`);
+  await page.goto(buildIntegratedSearchUrl(firstKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  let secondSearchKeyword;
+  if (catalogMid && productName && productName.length > 10) {
+    secondSearchKeyword = productName;
+    deps.log(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (\uD480\uB124\uC784): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+  } else {
+    const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
+    secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
+      engine,
+      mid,
+      firstKeyword,
+      nameForSecond,
+      workerId,
+      deps
+    );
+    deps.log(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
+  }
+  await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterSecondSearchLoad"));
+  return { ok: true, flowLabel, secondSearchPhraseUsed: secondSearchKeyword };
+}
+
+// flows/flow-b-traffic.ts
+async function runTrafficFlowB(input, deps, flowLabel) {
+  const { page, keyword, workerId, engine } = input;
+  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
+  deps.log(`[Worker ${workerId}] 1\uCC28 \uD1B5\uD569\uAC80\uC0C9: ${firstKeyword}`);
+  await page.goto(buildIntegratedSearchUrl(firstKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  deps.log(`[Worker ${workerId}] B\uBAA8\uB4DC \u2014 1\uCC28 \uD1B5\uD569\uAC80\uC0C9 \uACB0\uACFC\uC5D0\uC11C \uC0C1\uD488 \uD0D0\uC0C9`);
+  return { ok: true, flowLabel };
+}
+
+// flows/flow-c-traffic.ts
+async function runTrafficFlowC(input, deps, flowLabel) {
+  const { page, workerId, engine, secondKeywordRaw } = input;
+  const onlySecond = (secondKeywordRaw || "").trim();
+  if (!onlySecond) {
+    deps.log(`[Worker ${workerId}] C\uBAA8\uB4DC\uB294 2\uCC28 \uD0A4\uC6CC\uB4DC \uD544\uC218 \u2014 \uC791\uC5C5 \uC2A4\uD0B5`, "warn");
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "INVALID_TASK",
+      error: "C\uBAA8\uB4DC_2\uCC28\uD0A4\uC6CC\uB4DC\uC5C6\uC74C"
+    };
+  }
+  deps.log(`[Worker ${workerId}] C\uBAA8\uB4DC \uD1B5\uD569\uAC80\uC0C9 (2\uCC28 \uD0A4\uC6CC\uB4DC): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
+  await page.goto(buildIntegratedSearchUrl(onlySecond), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  return { ok: true, flowLabel, secondSearchPhraseUsed: onlySecond };
+}
+
+// flows/flow-e-traffic.ts
+async function runTrafficFlowE(input, deps, flowLabel) {
+  const { page, productName, keyword, workerId, engine } = input;
+  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
+  const query = pickQueryWords(firstKeyword, productName);
+  const searchUrl = buildAckeySearchUrl(query);
+  deps.log(`[Worker ${workerId}] E\uBAA8\uB4DC ackey URL: query="${query}"`);
+  await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  return { ok: true, flowLabel, secondSearchPhraseUsed: query };
+}
+
+// flows/flow-f-traffic.ts
+async function runTrafficFlowF(input, deps, flowLabel) {
+  const { page, productName, keyword, workerId, engine } = input;
+  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
+  const query = (productName || firstKeyword || "").trim() || pickQueryWords(firstKeyword, productName);
+  deps.log(`[Worker ${workerId}] F\uBAA8\uB4DC \uC0C1\uD488\uBA85 \uC804\uCCB4 \uD1B5\uD569\uAC80\uC0C9: "${query}"`);
+  await page.goto(buildIntegratedSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  return { ok: true, flowLabel, secondSearchPhraseUsed: query };
+}
+
+// flows/traffic-search-flow.ts
+function trafficFlowLabel(flow) {
+  return flow === "A" ? "A \uD1B5\uD5691+2\uCC28" : flow === "B" ? "B \uD1B5\uD569\uBA54\uC778" : flow === "C" ? "C \uD1B5\uD5692\uCC28" : flow === "E" ? "E ackey\uC704\uC7A5URL" : flow === "F" ? "F \uD1B5\uD569\uC0C1\uD488\uBA85" : flow;
+}
+async function prepareTrafficSearchFlow(input, deps) {
+  const flow = input.engine.searchFlowVersion;
+  const flowLabel = trafficFlowLabel(flow);
+  deps.log(`[Worker ${input.workerId}] \uAC80\uC0C9 \uC2DC\uC791 (\uC791\uC5C5 \uBAA8\uB4DC: ${flowLabel})`);
+  if (flow === "A")
+    return runTrafficFlowA(input, deps, flowLabel);
+  if (flow === "C")
+    return runTrafficFlowC(input, deps, flowLabel);
+  if (flow === "E")
+    return runTrafficFlowE(input, deps, flowLabel);
+  if (flow === "F")
+    return runTrafficFlowF(input, deps, flowLabel);
+  return runTrafficFlowB(input, deps, flowLabel);
+}
+
+// strategy-sync.ts
+var fs3 = __toESM(require("fs"));
+function toNonNegativeInt(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+function extractMidFromLinkUrl(linkUrl) {
+  const match = String(linkUrl).match(/\/products\/(\d+)/);
+  return match ? match[1] : "";
+}
+function normalizeRuntime(strategy) {
+  const runtime = strategy.runtime || {};
+  const taskSource = runtime.taskSource || {};
+  return {
+    ...runtime,
+    taskSource: {
+      taskFilePath: taskSource.taskFilePath || "engine-next-task.json",
+      resultFilePath: taskSource.resultFilePath || "engine-last-result.json"
+    }
+  };
+}
+function normalizeStrategy(strategy) {
+  const runtime = normalizeRuntime(strategy);
+  const tasks = (strategy.tasks || []).map((task) => {
+    const keyword = String(task.keyword || "").trim();
+    const linkUrl = String(task.linkUrl || "").trim();
+    const keywordName = String(task.keywordName || "").trim();
+    return {
+      checked: task.checked !== false,
+      keyword,
+      linkUrl,
+      mid: extractMidFromLinkUrl(linkUrl),
+      keywordName,
+      targetCount: toNonNegativeInt(task.targetCount),
+      productTitle: String(task.productTitle || "").trim(),
+      currentRank: String(task.currentRank || "").trim(),
+      startRank: String(task.startRank || "").trim(),
+      trafficOk: toNonNegativeInt(task.trafficOk),
+      trafficFail: toNonNegativeInt(task.trafficFail),
+      yesterdayOk: toNonNegativeInt(task.yesterdayOk),
+      yesterdayFail: toNonNegativeInt(task.yesterdayFail),
+      reviewCount: String(task.reviewCount || "").trim(),
+      starRating: String(task.starRating || "").trim()
+    };
+  });
+  return {
+    version: 1,
+    name: String(strategy.name || "").trim(),
+    description: strategy.description?.trim(),
+    runtime,
+    tasks
+  };
+}
+function validateStrategy(strategy) {
+  const normalized = normalizeStrategy(strategy);
+  const errors = [];
+  const warnings = [];
+  const flow = normalized.runtime.search?.searchFlowVersion || "A";
+  if (normalized.version !== 1) {
+    errors.push(`Unsupported strategy version: ${String(strategy.version)}`);
+  }
+  if (!normalized.name) {
+    errors.push("Strategy name is required.");
+  }
+  if (!normalized.tasks.length) {
+    errors.push("At least one task is required.");
+  }
+  if (!isSupportedSearchFlowVersion(flow)) {
+    errors.push(`Unsupported searchFlowVersion: ${String(flow)}`);
+  }
+  normalized.tasks.forEach((task, index) => {
+    const label = `tasks[${index}]`;
+    if (!task.keyword) {
+      errors.push(`${label}: keyword is required.`);
+    }
+    if (!task.linkUrl) {
+      errors.push(`${label}: linkUrl is required.`);
+    }
+    if (!task.mid) {
+      errors.push(`${label}: linkUrl must include /products/<mid>.`);
+    }
+    if (flow === "C" && !task.keywordName) {
+      errors.push(`${label}: flow C requires keywordName.`);
+    }
+    if (flow !== "D" && task.checked && task.targetCount <= 0) {
+      warnings.push(`${label}: non-D flows usually need targetCount > 0 for infinite-run parity.`);
+    }
+  });
+  if (!normalized.tasks.some((task) => task.checked)) {
+    warnings.push("No tasks are checked. tasks.txt will be generated, but next-task selection will fail.");
+  }
+  return { errors, warnings };
+}
+function isSupportedSearchFlowVersion(value) {
+  return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F";
+}
+function loadStrategyFile(strategyPath) {
+  const raw = fs3.readFileSync(strategyPath, "utf-8");
+  return JSON.parse(raw);
 }
 
 // unified-runner.ts
 var getDriveLetter = () => {
   try {
-    if (fs3.existsSync("D:\\")) {
+    if (fs4.existsSync("D:\\")) {
       return "D:\\temp";
     }
   } catch (e) {
@@ -1698,8 +2064,8 @@ var getDriveLetter = () => {
 };
 var TEMP_DIR = getDriveLetter();
 try {
-  if (!fs3.existsSync(TEMP_DIR)) {
-    fs3.mkdirSync(TEMP_DIR, { recursive: true });
+  if (!fs4.existsSync(TEMP_DIR)) {
+    fs4.mkdirSync(TEMP_DIR, { recursive: true });
   }
   process.env.TEMP = TEMP_DIR;
   process.env.TMP = TEMP_DIR;
@@ -1724,6 +2090,10 @@ for (const envPath of envPaths) {
 }
 var PARALLEL_BROWSERS = Math.max(1, parseInt(process.env.PARALLEL_BROWSERS || "1", 10));
 var ONCE_MODE = process.argv.includes("--once");
+var STRATEGY_ARG = (() => {
+  const idx = process.argv.indexOf("--strategy");
+  return idx !== -1 ? process.argv[idx + 1] : void 0;
+})();
 var BROWSER_POSITIONS = [
   { x: 0, y: 0 },
   // Worker 1: 좌상단
@@ -1748,9 +2118,9 @@ function storedComboFromItem(e) {
 }
 function readKeywordBlacklistItems(filePath) {
   try {
-    if (!fs3.existsSync(filePath))
+    if (!fs4.existsSync(filePath))
       return [];
-    const raw = fs3.readFileSync(filePath, "utf-8");
+    const raw = fs4.readFileSync(filePath, "utf-8");
     const j = JSON.parse(raw);
     return Array.isArray(j.items) ? j.items : [];
   } catch {
@@ -1787,10 +2157,10 @@ async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase)
           { mid, secondCombo: norm, addedAt: (/* @__PURE__ */ new Date()).toISOString() }
         ]
       };
-      if (!fs3.existsSync(dir)) {
-        fs3.mkdirSync(dir, { recursive: true });
+      if (!fs4.existsSync(dir)) {
+        fs4.mkdirSync(dir, { recursive: true });
       }
-      fs3.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
+      fs4.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
       log2(
         `[KeywordBlacklist] 2\uCC28 \uC870\uD569 \uB4F1\uB85D: mid=${mid} combo="${norm.substring(0, 48)}${norm.length > 48 ? "..." : ""}" \u2192 ${filePath}`
       );
@@ -1821,7 +2191,11 @@ function getCurrentCommitHash() {
 }
 function checkForUpdates() {
   try {
-    (0, import_child_process2.execSync)("git fetch origin main", { encoding: "utf8", timeout: 3e4 });
+    (0, import_child_process2.execSync)("git fetch --quiet origin main", {
+      encoding: "utf8",
+      timeout: 3e4,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
     const remoteHash = (0, import_child_process2.execSync)("git rev-parse origin/main", { encoding: "utf8", timeout: 5e3 }).trim();
     const localHash = getCurrentCommitHash();
     if (remoteHash && localHash && remoteHash !== localHash) {
@@ -1834,13 +2208,11 @@ function checkForUpdates() {
 }
 function startGitUpdateChecker() {
   if (process.env.SKIP_GIT_UPDATE_CHECK === "1") {
-    log2("Git \uC5C5\uB370\uC774\uD2B8 \uC790\uB3D9 \uD655\uC778 \uC0DD\uB7B5 (SKIP_GIT_UPDATE_CHECK=1)", "info");
     return;
   }
   lastCommitHash = getCurrentCommitHash();
   setInterval(() => {
     if (checkForUpdates()) {
-      log2("Git update detected! Restarting to apply changes...", "warn");
       process.exit(0);
     }
   }, GIT_CHECK_INTERVAL);
@@ -1907,17 +2279,33 @@ var NAVER_ACCOUNT_PATHS = [
   path3.join(process.cwd(), "naver-account.txt"),
   path3.join(__dirname, "naver-account.txt")
 ];
+function getNaverLoginStorageStatePaths(profileName) {
+  return [
+    path3.join(process.cwd(), "profiles", `${profileName}.storage-state.json`),
+    path3.join(__dirname, "profiles", `${profileName}.storage-state.json`)
+  ];
+}
+function resolveExistingNaverLoginStorageStatePath(profileName) {
+  for (const p of getNaverLoginStorageStatePaths(profileName)) {
+    if (fs4.existsSync(p))
+      return p;
+  }
+  return null;
+}
+function resolveWritableNaverLoginStorageStatePath(profileName) {
+  return getNaverLoginStorageStatePaths(profileName)[0];
+}
 function readNaverAccountFile() {
   let found = null;
   for (const p of NAVER_ACCOUNT_PATHS) {
-    if (fs3.existsSync(p)) {
+    if (fs4.existsSync(p)) {
       found = p;
       break;
     }
   }
   if (!found)
     return { status: "absent" };
-  const raw = fs3.readFileSync(found, "utf-8");
+  const raw = fs4.readFileSync(found, "utf-8");
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith("#"));
   if (lines.length < 2) {
     log2("[NaverLogin] naver-account.txt: \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638 2\uC904 \uD544\uC694", "warn");
@@ -1936,7 +2324,43 @@ async function typeNaverLoginField(page, fieldSelector, value) {
     await page.keyboard.type(char, { delay: randomKeyDelay() });
   }
 }
-async function ensureNaverLoginIfConfigured(page, workerId) {
+async function waitForNaverLoginCompletion(page, workerId, label, timeoutMs = 45e3) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep2(500);
+    if (!page.url().includes("nidlogin.login")) {
+      await sleep2(randomBetween(1500, 2500));
+      log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC644\uB8CC${label ? ` (${label})` : ""}`);
+      return true;
+    }
+  }
+  log2(
+    `[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uD0C0\uC784\uC544\uC6C3${label ? ` (${label})` : ""} (\uB85C\uADF8\uC778 \uD398\uC774\uC9C0 \uC774\uD0C8 \uC5C6\uC74C)`,
+    "warn"
+  );
+  return false;
+}
+async function persistNaverLoginStorageState(context, profileName, workerId) {
+  if (!context)
+    return;
+  const targetPath = resolveWritableNaverLoginStorageStatePath(profileName);
+  const dir = path3.dirname(targetPath);
+  try {
+    if (!fs4.existsSync(dir)) {
+      fs4.mkdirSync(dir, { recursive: true });
+    }
+    await context.storageState({ path: targetPath });
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uC800\uC7A5 \uC644\uB8CC: ${targetPath}`);
+  } catch (e) {
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uC800\uC7A5 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
+  }
+}
+async function ensureNaverLoginIfConfigured(page, workerId, context, profileName) {
+  const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
+  if (storedPath) {
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uC0AC\uC6A9: ${storedPath}`);
+    return true;
+  }
   const r = readNaverAccountFile();
   if (r.status === "absent")
     return true;
@@ -1955,19 +2379,29 @@ async function ensureNaverLoginIfConfigured(page, workerId) {
     await sleep2(randomBetween(500, 900));
     const loginBtn = page.locator("#log\\.login").or(page.locator('button[type="submit"]')).first();
     await loginBtn.click();
-    const deadline = Date.now() + 45e3;
-    while (Date.now() < deadline) {
-      await sleep2(500);
-      if (!page.url().includes("nidlogin.login")) {
-        await sleep2(randomBetween(1500, 2500));
-        log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC644\uB8CC`);
-        return true;
-      }
+    const ok = await waitForNaverLoginCompletion(page, workerId, "\uC790\uB3D9");
+    if (ok) {
+      await persistNaverLoginStorageState(context, profileName, workerId);
     }
-    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uD0C0\uC784\uC544\uC6C3 (\uB85C\uADF8\uC778 \uD398\uC774\uC9C0 \uC774\uD0C8 \uC5C6\uC74C)`, "warn");
-    return false;
+    return ok;
   } catch (e) {
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC608\uC678: ${e.message}`, "warn");
+    return false;
+  }
+}
+async function ensureNaverLoginManually(page, workerId, context, profileName) {
+  try {
+    await page.goto(NAVER_LOGIN_URL, { waitUntil: "domcontentloaded", timeout: 6e4 });
+    await sleep2(randomBetween(1e3, 1800));
+    await page.locator("#id").waitFor({ state: "visible", timeout: 2e4 });
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC218\uB3D9 \uB85C\uADF8\uC778 \uB300\uAE30 \uC911 - \uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C \uC9C1\uC811 \uB85C\uADF8\uC778\uD558\uC138\uC694.`);
+    const ok = await waitForNaverLoginCompletion(page, workerId, "\uC218\uB3D9", 5 * 60 * 1e3);
+    if (ok) {
+      await persistNaverLoginStorageState(context, profileName, workerId);
+    }
+    return ok;
+  } catch (e) {
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC218\uB3D9 \uB85C\uADF8\uC778 \uC608\uC678: ${e.message}`, "warn");
     return false;
   }
 }
@@ -2008,17 +2442,7 @@ async function ensureNaverLoginPrbPage(page, workerId) {
       log2(`[Worker ${workerId}] \uB85C\uADF8\uC778 \uBC84\uD2BC \uC5C6\uC74C(PRb)`, "warn");
       return false;
     }
-    const deadline = Date.now() + 45e3;
-    while (Date.now() < deadline) {
-      await sleep2(500);
-      if (!page.url().includes("nidlogin.login")) {
-        await sleep2(randomBetween(1500, 2500));
-        log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC644\uB8CC`);
-        return true;
-      }
-    }
-    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uD0C0\uC784\uC544\uC6C3(PRb)`, "warn");
-    return false;
+    return await waitForNaverLoginCompletion(page, workerId, "PRb", 45e3);
   } catch (e) {
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uC608\uC678(PRb): ${e.message}`, "warn");
     return false;
@@ -2028,15 +2452,15 @@ function cleanupChromeTempFolders() {
   const tempDirs = ["D:\\temp", "D:\\tmp"];
   let totalCleaned = 0;
   for (const tempDir of tempDirs) {
-    if (!fs3.existsSync(tempDir))
+    if (!fs4.existsSync(tempDir))
       continue;
     try {
-      const entries = fs3.readdirSync(tempDir, { withFileTypes: true });
+      const entries = fs4.readdirSync(tempDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && (entry.name.startsWith("puppeteer_") || entry.name.startsWith("lighthouse") || entry.name.startsWith("chrome_") || entry.name.startsWith(".org.chromium.") || entry.name.startsWith("scoped_dir"))) {
           const folderPath = path3.join(tempDir, entry.name);
           try {
-            fs3.rmSync(folderPath, { recursive: true, force: true });
+            fs4.rmSync(folderPath, { recursive: true, force: true });
             totalCleaned++;
           } catch {
           }
@@ -2051,8 +2475,8 @@ function cleanupChromeTempFolders() {
 }
 function loadProfile(profileName) {
   const profilePath = path3.join(__dirname, "profiles", `${profileName}.json`);
-  if (fs3.existsSync(profilePath)) {
-    const content = fs3.readFileSync(profilePath, "utf-8");
+  if (fs4.existsSync(profilePath)) {
+    const content = fs4.readFileSync(profilePath, "utf-8");
     return JSON.parse(content);
   }
   return {
@@ -2063,7 +2487,7 @@ function loadProfile(profileName) {
     }
   };
 }
-function extractMidFromLinkUrl(linkUrl) {
+function extractMidFromLinkUrl2(linkUrl) {
   if (!linkUrl || typeof linkUrl !== "string")
     return null;
   const m = linkUrl.match(/\/products\/(\d+)/);
@@ -2071,45 +2495,6 @@ function extractMidFromLinkUrl(linkUrl) {
 }
 function toCombinedKeyword(fullTitle) {
   return (fullTitle || "").replace(/\s+/g, "").trim() || "\uC0C1\uD488";
-}
-var SECOND_SEARCH_TAIL_WORDS = ["\uD310\uB9E4", "\uCD5C\uC800\uAC00", "\uCD5C\uC800", "\uAD6C\uB9E4", "\uBE44\uAD50", "\uD310\uB9E4\uCC98", "\uCD94\uCC9C", "\uAC00\uACA9", "\uAD6C\uB9E4\uCC98", "\uAC00\uACA9\uBE44\uAD50"];
-function buildSecondSearchPhrase(firstKeyword, keywordName) {
-  const part1 = (firstKeyword || "").trim() || "\uC0C1\uD488";
-  const firstWords = new Set(
-    part1.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
-  );
-  const nameWords = (keywordName || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean).filter((w) => !firstWords.has(w));
-  const part2 = nameWords.length > 0 ? nameWords[Math.floor(Math.random() * nameWords.length)] : part1;
-  const part3 = SECOND_SEARCH_TAIL_WORDS[Math.floor(Math.random() * SECOND_SEARCH_TAIL_WORDS.length)];
-  const parts = [part1, part2, part3];
-  for (let i = parts.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [parts[i], parts[j]] = [parts[j], parts[i]];
-  }
-  return parts.join(" ");
-}
-function pickSecondSearchPhraseAvoidingBlacklist(engine, mid, firstKeyword, keywordName, workerId) {
-  if (!engine.keywordBlacklistEnabled) {
-    return buildSecondSearchPhrase(firstKeyword, keywordName);
-  }
-  const maxTries = 200;
-  for (let t = 0; t < maxTries; t++) {
-    const phrase = buildSecondSearchPhrase(firstKeyword, keywordName);
-    if (!isSecondComboBlacklisted(engine, mid, phrase)) {
-      if (t > 0) {
-        log2(
-          `[Worker ${workerId}] [KeywordBlacklist] 2\uCC28 \uC870\uD569 ${t + 1}\uBC88\uC9F8 \uC2DC\uB3C4\uB85C \uCC44\uD0DD: "${phrase.substring(0, 50)}${phrase.length > 50 ? "..." : ""}"`
-        );
-      }
-      return phrase;
-    }
-  }
-  const fallback = buildSecondSearchPhrase(firstKeyword, keywordName);
-  log2(
-    `[Worker ${workerId}] [KeywordBlacklist] 2\uCC28 \uC870\uD569 \uBE14\uB799 \uC2DC\uB3C4 \uB2E4\uC218 \u2014 \uC784\uC758 \uC870\uD569 \uC0AC\uC6A9: "${fallback.substring(0, 50)}${fallback.length > 50 ? "..." : ""}"`,
-    "warn"
-  );
-  return fallback;
 }
 var usedCombinedKeywordsToday = /* @__PURE__ */ new Set();
 var usedShuffledPhrasesToday = /* @__PURE__ */ new Set();
@@ -2132,16 +2517,16 @@ function tryClaimWorkItemFromEngineFile() {
   const filePath = ENGINE.engineTaskFilePath;
   const processingPath = `${filePath}.processing`;
   try {
-    fs3.renameSync(filePath, processingPath);
+    fs4.renameSync(filePath, processingPath);
   } catch {
     return null;
   }
   let raw;
   try {
-    raw = fs3.readFileSync(processingPath, "utf-8");
+    raw = fs4.readFileSync(processingPath, "utf-8");
   } catch {
     try {
-      fs3.unlinkSync(processingPath);
+      fs4.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -2152,7 +2537,7 @@ function tryClaimWorkItemFromEngineFile() {
   } catch {
     log2(`[EngineFile] JSON \uD30C\uC2F1 \uC2E4\uD328: ${processingPath}`, "warn");
     try {
-      fs3.unlinkSync(processingPath);
+      fs4.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -2164,16 +2549,16 @@ function tryClaimWorkItemFromEngineFile() {
   if (!keyword || !linkUrl) {
     log2(`[EngineFile] keyword\xB7linkUrl \uD544\uC218 \u2014 \uCC98\uB9AC\uBCF8 \uC0AD\uC81C`, "warn");
     try {
-      fs3.unlinkSync(processingPath);
+      fs4.unlinkSync(processingPath);
     } catch {
     }
     return null;
   }
-  const mid = extractMidFromLinkUrl(linkUrl);
+  const mid = extractMidFromLinkUrl2(linkUrl);
   if (!mid) {
     log2(`[EngineFile] linkUrl\uC5D0\uC11C mid \uCD94\uCD9C \uBD88\uAC00 \u2014 ${linkUrl}`, "warn");
     try {
-      fs3.unlinkSync(processingPath);
+      fs4.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -2192,10 +2577,10 @@ function tryClaimWorkItemFromEngineFile() {
         "warn"
       );
       try {
-        fs3.renameSync(processingPath, filePath);
+        fs4.renameSync(processingPath, filePath);
       } catch {
         try {
-          fs3.unlinkSync(processingPath);
+          fs4.unlinkSync(processingPath);
         } catch {
         }
       }
@@ -2204,7 +2589,7 @@ function tryClaimWorkItemFromEngineFile() {
     markCombinedKeywordUsedToday(combined);
   }
   try {
-    fs3.unlinkSync(processingPath);
+    fs4.unlinkSync(processingPath);
   } catch {
   }
   const taskId = Date.now();
@@ -2224,7 +2609,50 @@ function tryClaimWorkItemFromEngineFile() {
     catalogMid
   };
 }
+var strategyQueue = null;
+function createStrategyQueue(strategy) {
+  const tasks = strategy.tasks.filter((t) => t.checked);
+  if (tasks.length === 0) {
+    throw new Error("[Strategy] checked \uC791\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. tasks\uC5D0 checked:true \uD56D\uBAA9\uC744 \uCD94\uAC00\uD558\uC138\uC694.");
+  }
+  return { tasks, runCounts: /* @__PURE__ */ new Map(), cursor: 0, done: false };
+}
+function buildWorkItemFromStrategyTask(task) {
+  return {
+    taskId: Date.now(),
+    slotSequence: 0,
+    keyword: task.keyword,
+    productName: task.keywordName || task.keyword,
+    mid: task.mid,
+    linkUrl: task.linkUrl,
+    keywordName: task.keywordName || task.keyword,
+    secondKeywordRaw: task.keywordName || void 0,
+    catalogMid: void 0
+  };
+}
+function claimFromStrategyQueue() {
+  const q = strategyQueue;
+  for (let i = 0; i < q.tasks.length; i++) {
+    const idx = (q.cursor + i) % q.tasks.length;
+    const task = q.tasks[idx];
+    const done = q.runCounts.get(task.mid) ?? 0;
+    if (task.targetCount <= 0 || done < task.targetCount) {
+      const next = done + 1;
+      q.runCounts.set(task.mid, next);
+      if (task.targetCount > 0) {
+        log2(`[Strategy] ${task.mid} \uC2E4\uD589 ${next}/${task.targetCount}`);
+      }
+      q.cursor = (idx + 1) % q.tasks.length;
+      return buildWorkItemFromStrategyTask(task);
+    }
+  }
+  q.done = true;
+  return null;
+}
 async function claimWorkItem() {
+  if (strategyQueue) {
+    return claimFromStrategyQueue();
+  }
   while (isClaimingTask) {
     await sleep2(100);
   }
@@ -2275,105 +2703,363 @@ function writeEngineTaskResult(work, result) {
     catalogMid: result.catalogMid ?? null
   };
   try {
-    fs3.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
+    fs4.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
     log2(`[EngineFile] \uACB0\uACFC \uC800\uC7A5: ${ENGINE.engineResultFilePath} ok=${payload.ok}`);
   } catch (e) {
     log2(`[EngineFile] \uACB0\uACFC \uD30C\uC77C \uAE30\uB85D \uC2E4\uD328: ${e.message}`, "warn");
   }
 }
-async function runShoppingRankCheck(page, work, workerId, engine) {
-  const result = {
-    productPageEntered: false,
-    captchaDetected: false,
-    captchaSolved: false,
-    midMatched: false,
-    rankCheckMode: true,
-    rankCheckOk: false,
-    shoppingRank: null
-  };
+async function collectSearchDomDiagnostics(page, mid, catalogMid) {
   try {
-    const kw = work.keyword.trim();
-    const mid = work.mid;
-    const maxPages = 15;
-    log2(`[Worker ${workerId}] D\uBAA8\uB4DC \uC21C\uC704\uCCB4\uD06C: "${kw.substring(0, 40)}..." mid=${mid} (\uCD5C\uB300 ${maxPages}\uD398\uC774\uC9C0)`);
-    const detail = await findNaverShoppingRankByMid(
-      page,
-      kw,
-      mid,
-      maxPages,
-      (m) => log2(`[Worker ${workerId}] ${m}`),
-      sleep2
-    );
-    if (detail.rank != null && detail.rank > 0) {
-      result.shoppingRank = detail.rank;
-      result.reviewCount = detail.reviewCount;
-      result.starRating = detail.starRating;
-      result.extractedProductTitle = detail.productTitle?.trim() || null;
-      result.catalogMid = detail.catalogMid || null;
-      result.rankCheckOk = true;
-      result.midMatched = true;
-      log2(
-        `[Worker ${workerId}] \uC21C\uC704: ${detail.rank}\uC704` + (detail.reviewCount != null ? ` | \uB9AC\uBDF0 ${detail.reviewCount}` : "") + (detail.starRating != null ? ` | \uBCC4 ${detail.starRating}` : "") + (result.extractedProductTitle ? ` | \uC81C\uBAA9 "${result.extractedProductTitle.substring(0, 36)}${result.extractedProductTitle.length > 36 ? "\u2026" : ""}"` : "")
+    const diag = await page.evaluate(({ mid: mid2, catalogMid: catalogMid2 }) => {
+      const bodyText = document.body?.innerText || "";
+      const title = document.title || "";
+      const targetId = `nstore_productId_${mid2}`;
+      const targetCatalogId = catalogMid2 ? `nstore_productId_${catalogMid2}` : "";
+      const count = (sel) => document.querySelectorAll(sel).length;
+      const has = (sel) => !!document.querySelector(sel);
+      const errorHints = ["\uBCF4\uC548 \uD655\uC778", "\uC790\uB3D9\uC785\uB825\uBC29\uC9C0", "Too Many Requests", "\uC5D0\uB7EC\uD398\uC774\uC9C0", "\uC2DC\uC2A4\uD15C\uC624\uB958", "\uC811\uC18D\uC774 \uBD88\uAC00\uD569\uB2C8\uB2E4"].filter(
+        (t) => `${title} ${bodyText}`.includes(t)
       );
-    } else {
-      result.failReason = "NO_MID_MATCH";
-      result.error = "\uC21C\uC704\uAD8C_\uBBF8\uBC1C\uACAC";
-      log2(`[Worker ${workerId}] \uC21C\uC704\uAD8C \uB0B4 MID \uC5C6\uC74C`, "warn");
-    }
+      const targetSelectors = [
+        `#${targetId}`,
+        `a[aria-labelledby="${targetId}"]`,
+        `a[href*="/products/${mid2}"]`,
+        `a[href*="main/products/${mid2}"]`,
+        `a[href*="nv_mid=${mid2}"]`
+      ];
+      if (catalogMid2) {
+        targetSelectors.unshift(`#nstore_productId_${catalogMid2}`);
+        targetSelectors.unshift(`a[data-shp-contents-id="${catalogMid2}"]`);
+      }
+      return {
+        url: location.href,
+        readyState: document.readyState,
+        title,
+        slogVisibleCount: count("li._slog_visible"),
+        slogContentCount: count("[data-slog-content]"),
+        targetIdVisible: has(`#${targetId}`),
+        targetCatalogVisible: catalogMid2 ? has(`#nstore_productId_${catalogMid2}`) : false,
+        targetSelectors: targetSelectors.filter((sel) => has(sel)),
+        errorHints,
+        bodySnippet: bodyText.slice(0, 220).replace(/\s+/g, " ").trim()
+      };
+    }, { mid, catalogMid: catalogMid ?? null });
+    return `[DOM] url=${diag.url} readyState=${diag.readyState} title=${JSON.stringify(diag.title)} slogVisible=${diag.slogVisibleCount} dataSlog=${diag.slogContentCount} targetId=${diag.targetIdVisible} catalogId=${diag.targetCatalogVisible} matched=${diag.targetSelectors.join(",") || "-"} errors=${diag.errorHints.join(",") || "-"} body=${JSON.stringify(diag.bodySnippet)}`;
   } catch (e) {
-    result.error = e?.message || "Unknown";
-    result.failReason = "TIMEOUT";
-    log2(`[Worker ${workerId}] \uC21C\uC704\uCCB4\uD06C \uC608\uC678: ${result.error}`, "warn");
+    return `[DOM] diagnostics unavailable: ${e?.message || String(e)}`;
   }
-  return result;
 }
-function generateAckey() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let r = "";
-  for (let i = 0; i < 8; i++)
-    r += chars[Math.floor(Math.random() * chars.length)];
-  return r;
+async function inspectDetailSystemError(page) {
+  try {
+    return await page.evaluate(() => {
+      const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const title = clean(document.title);
+      const body = clean(document.body?.innerText || "");
+      const haystack = `${title} ${body}`;
+      const patterns = [
+        "\uC2DC\uC2A4\uD15C\uC624\uB958",
+        "\uC2DC\uC2A4\uD15C \uC624\uB958",
+        "\uC5D0\uB7EC\uD398\uC774\uC9C0",
+        "\uD604\uC7AC \uC11C\uBE44\uC2A4 \uC811\uC18D\uC774 \uBD88\uAC00\uD569\uB2C8\uB2E4",
+        "\uC77C\uC2DC\uC801\uC778 \uC11C\uBE44\uC2A4 \uC7A5\uC560",
+        "Too Many Requests",
+        "\uC811\uC18D\uC774 \uBD88\uAC00\uD569\uB2C8\uB2E4"
+      ];
+      const reason = patterns.find((pattern) => haystack.includes(pattern)) || "";
+      return {
+        detected: Boolean(reason),
+        reason,
+        title,
+        snippet: body.substring(0, 160)
+      };
+    });
+  } catch (e) {
+    return {
+      detected: false,
+      reason: "",
+      title: "",
+      snippet: `detail error inspection failed: ${e?.message || e}`
+    };
+  }
 }
-function pickQueryWords(keyword, productName) {
-  const tails = ["\uCD94\uCC9C", "\uD560\uC778", "\uD6C4\uAE30", "\uC778\uAE30", "\uBCA0\uC2A4\uD2B8", "\uAD6C\uB9E4", "\uC1FC\uD551", "\uD2B9\uAC00", "\uC138\uC77C", "\uAC00\uC131\uBE44", "\uCD5C\uC800\uAC00", "\uC815\uD488"];
-  const allText = `${keyword} ${productName}`.replace(/[\[\](){}]/g, " ").replace(/[^\w\sㄱ-ㅎㅏ-ㅣ가-힣]/g, " ");
-  const pool = [...new Set(allText.split(/\s+/).filter((w) => w.length >= 2))];
-  for (let j = pool.length - 1; j > 0; j--) {
-    const k = Math.floor(Math.random() * (j + 1));
-    [pool[j], pool[k]] = [pool[k], pool[j]];
-  }
-  const selected = [];
-  for (const w of pool) {
-    if (selected.length >= 3)
-      break;
-    selected.push(w);
-  }
-  while (selected.length < 3) {
-    const avail = tails.filter((t) => !selected.includes(t));
-    if (!avail.length)
-      break;
-    selected.push(avail[Math.floor(Math.random() * avail.length)]);
-  }
-  return selected.slice(0, 3).join(" ");
-}
-function buildAckeySearchUrl(query) {
-  const p = new URLSearchParams({
-    sm: "mtp_sug.top",
-    where: "m",
-    query,
-    ackey: generateAckey(),
-    acq: query,
-    acr: String(Math.floor(Math.random() * 9) + 1),
-    qdt: "0"
+var INTEGRATED_SHOP_PAGE_LIMIT = 5;
+var INTEGRATED_SHOP_PAGE_SETTLE_MS = 900;
+var PAGE_EVALUATE_NAME_POLYFILL2 = "window.__name = window.__name || ((fn) => fn);";
+async function ensurePageEvaluateNamePolyfill(page) {
+  await page.evaluate(PAGE_EVALUATE_NAME_POLYFILL2).catch(() => {
   });
-  return `https://m.search.naver.com/search.naver?${p.toString()}`;
 }
-function buildIntegratedSearchUrl(query) {
-  const p = new URLSearchParams({
-    where: "m",
-    query
-  });
-  return `https://m.search.naver.com/search.naver?${p.toString()}`;
+async function clickIntegratedShoppingCarouselNext(page, maxCarouselPage = INTEGRATED_SHOP_PAGE_LIMIT) {
+  await ensurePageEvaluateNamePolyfill(page);
+  return page.evaluate((maxCarouselPage2) => {
+    const isVisible = (el) => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+    };
+    const readPaging = (text) => {
+      const slash = text.match(/(\d+)\s*\/\s*(\d+)/);
+      if (slash) {
+        return { current: Number(slash[1]), total: Number(slash[2]) };
+      }
+      const a11y = text.match(/현재\s*(\d+)\s*전체\s*(\d+)/);
+      if (a11y) {
+        return { current: Number(a11y[1]), total: Number(a11y[2]) };
+      }
+      return null;
+    };
+    const readPagingFromRoot = (root) => {
+      if (!root)
+        return null;
+      const currentText = root.querySelector("._current, .cmm_npgs_now")?.textContent || root.querySelector("[aria-current='page']")?.textContent || "";
+      const totalText = root.querySelector("._total")?.textContent || "";
+      const current = Number((currentText.match(/\d+/) || [])[0]);
+      const total = Number((totalText.match(/\d+/) || [])[0]);
+      if (Number.isFinite(current) && Number.isFinite(total) && current > 0 && total > 0) {
+        return { current, total };
+      }
+      return readPaging((root.textContent || "").replace(/\s+/g, " ").trim());
+    };
+    const shopLike = (text) => /(플러스스토어|가격비교|쇼핑|상품|스토어|상품판매)/.test(text);
+    const findShopContainer = (from) => {
+      let cur = from;
+      for (let depth = 0; cur && depth < 16; depth++) {
+        const text = cur.innerText || "";
+        const hasCards = !!cur.querySelector("a.gift_link, a[data-shp-contents-id], [data-shp-contents-id], [class*='product_item'], [class*='product_title']");
+        if (shopLike(text) && (readPaging(text) || hasCards))
+          return cur;
+        cur = cur.parentElement;
+      }
+      return null;
+    };
+    const directCandidates = Array.from(
+      document.querySelectorAll(
+        [
+          "a.cmm_pg_next._next.on",
+          "button.cmm_pg_next._next.on",
+          ".pagination_wrap._page_root a.cmm_pg_next._next.on",
+          ".pagination_wrap._page_root button.cmm_pg_next._next.on",
+          "a._next.on",
+          "button._next.on",
+          "a[class*='pg_next'].on",
+          "button[class*='pg_next'].on",
+          "a[class*='btn_next']",
+          "button[class*='btn_next']"
+        ].join(",")
+      )
+    ).filter((el, idx, arr) => arr.indexOf(el) === idx);
+    let lastPagingCurrent;
+    let lastPagingTotal;
+    for (const next of directCandidates) {
+      if (!isVisible(next))
+        continue;
+      const cls = `${next.className || ""}`;
+      const aria = `${next.getAttribute("aria-label") || ""} ${next.getAttribute("title") || ""} ${next.textContent || ""}`;
+      if (/이전|prev|previous|left/i.test(`${aria} ${cls}`))
+        continue;
+      const disabled = next.getAttribute("aria-disabled") === "true" || next.hasAttribute("disabled") || /disabled|_off|inactive/i.test(cls);
+      if (disabled)
+        continue;
+      const container = findShopContainer(next);
+      const pagingRoot = next.closest(".pagination_wrap._page_root, .pagination_wrap, .cmm_pgs");
+      const pageText = container?.innerText || document.body?.innerText || "";
+      if (!container && !shopLike(pageText))
+        continue;
+      const paging = readPagingFromRoot(pagingRoot) || readPaging(pageText);
+      if (paging) {
+        lastPagingCurrent = paging.current;
+        lastPagingTotal = paging.total;
+        const pageLimit = Math.min(paging.total, maxCarouselPage2);
+        if (!Number.isFinite(paging.current) || !Number.isFinite(paging.total) || paging.current >= pageLimit) {
+          return {
+            clicked: false,
+            current: paging.current,
+            total: paging.total,
+            reachedEnd: true,
+            reason: `pageLimitReached=${paging.current}/${paging.total}`
+          };
+        }
+      }
+      next.scrollIntoView({ block: "center", inline: "center" });
+      next.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      next.click();
+      return {
+        clicked: true,
+        current: paging?.current,
+        total: paging?.total,
+        label: paging ? `${paging.current + 1}/${paging.total}` : void 0
+      };
+    }
+    const sections = Array.from(
+      document.querySelectorAll(
+        [
+          "section._root_shp_lis",
+          "section._root_shs_lis",
+          "section._sp_nshop_gift",
+          "section.sp_shop_gift",
+          "section[class*='sp_shop']",
+          "section[class*='shop_gift']",
+          "section[class*='shop_product']",
+          'section[class*="_root_shp"]',
+          'section[class*="_root_shs"]',
+          "section"
+        ].join(",")
+      )
+    ).filter((section, idx, arr) => arr.indexOf(section) === idx);
+    for (const section of sections) {
+      const text = section.innerText || "";
+      if (!/(플러스스토어|쇼핑|상품|스토어)/.test(text))
+        continue;
+      const paging = readPaging(text);
+      if (!paging)
+        continue;
+      const { current, total } = paging;
+      const pageLimit = Math.min(total, maxCarouselPage2);
+      if (!Number.isFinite(current) || !Number.isFinite(total) || current >= pageLimit) {
+        return {
+          clicked: false,
+          current,
+          total,
+          reachedEnd: true,
+          reason: `pageLimitReached=${current}/${total}`
+        };
+      }
+      const sectionRect = section.getBoundingClientRect();
+      const directNext = section.querySelector(
+        "a.cmm_pg_next._next.on, button.cmm_pg_next._next.on, a._next.on, button._next.on, a[class*='pg_next'].on, button[class*='pg_next'].on"
+      );
+      const buttons = [
+        ...directNext ? [directNext] : [],
+        ...Array.from(section.querySelectorAll("button,a,[role='button']"))
+      ].filter((el) => isVisible(el)).filter((el) => {
+        const aria = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""} ${el.textContent || ""}`;
+        const cls = `${el.className || ""}`;
+        const rect = el.getBoundingClientRect();
+        const disabled = el.getAttribute("aria-disabled") === "true" || el.hasAttribute("disabled") || /disabled|_off|inactive/i.test(cls);
+        if (disabled)
+          return false;
+        if (/이전|prev|previous|left/i.test(`${aria} ${cls}`))
+          return false;
+        if (/다음|next|right|btn_next|pg_next|cmm_pg_next|pagination_next|_next/i.test(`${aria} ${cls}`))
+          return true;
+        return rect.left > sectionRect.left + sectionRect.width / 2 && rect.width >= 18 && rect.width <= 90 && rect.height >= 18 && rect.height <= 90;
+      }).sort((a, b) => b.getBoundingClientRect().left - a.getBoundingClientRect().left);
+      const next = buttons[0];
+      if (!next)
+        continue;
+      next.scrollIntoView({ block: "center", inline: "center" });
+      next.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+      next.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+      next.click();
+      return { clicked: true, current, total, label: `${current + 1}/${total}` };
+    }
+    return {
+      clicked: false,
+      current: lastPagingCurrent,
+      total: lastPagingTotal,
+      reason: `nextCandidates=${directCandidates.length}`
+    };
+  }, maxCarouselPage).catch((e) => ({ clicked: false, reason: e?.message || String(e) }));
+}
+async function waitForIntegratedShoppingPageSettle(page, expectedCurrent) {
+  if (expectedCurrent) {
+    await page.waitForFunction(
+      (expected) => {
+        const currentText = document.querySelector(".pagination_wrap._page_root ._current, .pagination_wrap._page_root .cmm_npgs_now")?.textContent || "";
+        return Number((currentText.match(/\d+/) || [])[0]) === expected;
+      },
+      expectedCurrent,
+      { timeout: 2500 }
+    ).catch(() => {
+    });
+  }
+  await sleep2(INTEGRATED_SHOP_PAGE_SETTLE_MS);
+}
+async function getIntegratedShoppingPagingState(page) {
+  await ensurePageEvaluateNamePolyfill(page);
+  return page.evaluate(() => {
+    const root = document.querySelector(".pagination_wrap._page_root, .pagination_wrap, .cmm_pgs");
+    if (!root)
+      return null;
+    const readNumber = (selector) => {
+      const text = root.querySelector(selector)?.textContent || "";
+      const n = Number((text.match(/\d+/) || [])[0]);
+      return Number.isFinite(n) && n > 0 ? n : void 0;
+    };
+    const current = readNumber("._current, .cmm_npgs_now, [aria-current='page']");
+    const total = readNumber("._total");
+    return { current, total };
+  }).catch(() => null);
+}
+async function waitForDomReady(page, timeoutMs = 3e4) {
+  try {
+    await page.waitForLoadState("domcontentloaded", { timeout: timeoutMs });
+    return true;
+  } catch {
+    try {
+      await page.waitForFunction(
+        () => document.readyState === "interactive" || document.readyState === "complete",
+        { timeout: 5e3 }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+async function hasCaptchaChallenge(page) {
+  return page.evaluate(() => {
+    const bodyText = document.body?.innerText || "";
+    if (bodyText.includes("\uBCF4\uC548 \uD655\uC778") || bodyText.includes("\uC790\uB3D9\uC785\uB825\uBC29\uC9C0") || bodyText.includes("\uC790\uB3D9 \uC785\uB825 \uBC29\uC9C0") || bodyText.includes("\uBCF4\uC548\uBB38\uC790") || bodyText.includes("\uC601\uC218\uC99D") || bodyText.includes("\uAC00\uC0C1\uC73C\uB85C \uC81C\uC791") || bodyText.includes("\uBB34\uC5C7\uC785\uB2C8\uAE4C") || bodyText.includes("\uBE48 \uCE78\uC744 \uCC44\uC6CC\uC8FC\uC138\uC694") || bodyText.includes("\uBC88\uC9F8 \uC22B\uC790") || bodyText.includes("\uBC88\uC9F8 \uAE00\uC790") || bodyText.includes("CAPTCHA")) {
+      return true;
+    }
+    return !!document.querySelector(
+      [
+        ".captcha_img",
+        ".captcha_img_cover img",
+        ".captcha_area",
+        "[class*='captcha']",
+        "img[src*='captcha']",
+        "#captcha_image",
+        "#captcha_answer"
+      ].join(",")
+    );
+  }).catch(() => false);
+}
+async function waitForCaptchaChallenge(page, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await hasCaptchaChallenge(page))
+      return true;
+    await sleep2(500);
+  }
+  return await hasCaptchaChallenge(page);
+}
+async function solveCaptchaIfPresent(page, solver, result, workerId, scopeLabel, mid, catalogMid, waitForAppearMs = 0) {
+  const detected = waitForAppearMs > 0 ? await waitForCaptchaChallenge(page, waitForAppearMs) : await hasCaptchaChallenge(page);
+  if (!detected) {
+    log2(`[Worker ${workerId}] ${scopeLabel} CAPTCHA \uBBF8\uAC10\uC9C0`);
+    return true;
+  }
+  log2(`[Worker ${workerId}] ${scopeLabel} CAPTCHA \uAC10\uC9C0 - \uD574\uACB0 \uC2DC\uB3C4...`);
+  result.captchaDetected = true;
+  const solved = await solver.solve(page).catch(() => false);
+  await waitForDomReady(page, 15e3);
+  await sleep2(500);
+  if (solved && !await hasCaptchaChallenge(page)) {
+    log2(`[Worker ${workerId}] ${scopeLabel} CAPTCHA \uD574\uACB0 \uC131\uACF5!`);
+    result.captchaSolved = true;
+    result.captchaDetected = false;
+    return true;
+  }
+  log2(`[Worker ${workerId}] ${scopeLabel} CAPTCHA \uD574\uACB0 \uC2E4\uD328`, "warn");
+  log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+  result.failReason = "CAPTCHA_UNSOLVED";
+  return false;
 }
 async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid) {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log2(`[Worker ${workerId}] ${msg}`));
@@ -2383,63 +3069,29 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     captchaSolved: false,
     midMatched: false
   };
-  const flow = engine.searchFlowVersion;
-  const flowLabel = flow === "A" ? "A \uD1B5\uD5691+2\uCC28" : flow === "B" ? "B \uD1B5\uD569\uBA54\uC778" : flow === "C" ? "C \uD1B5\uD5692\uCC28" : flow === "E" ? "E ackey\uC704\uC7A5URL" : flow === "F" ? "F \uD1B5\uD569\uC0C1\uD488\uBA85" : flow;
   try {
-    const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
-    log2(`[Worker ${workerId}] \uAC80\uC0C9 \uC2DC\uC791 (\uC791\uC5C5 \uBAA8\uB4DC: ${flowLabel})`);
-    if (flow === "E") {
-      const query = pickQueryWords(firstKeyword, productName);
-      const searchUrl = buildAckeySearchUrl(query);
-      log2(`[Worker ${workerId}] E\uBAA8\uB4DC ackey URL: query="${query}"`);
-      await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 6e4 });
-      await sleep2(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = query;
-    } else if (flow === "C") {
-      const onlySecond = (secondKeywordRaw || "").trim();
-      if (!onlySecond) {
-        log2(`[Worker ${workerId}] C\uBAA8\uB4DC\uB294 2\uCC28 \uD0A4\uC6CC\uB4DC \uD544\uC218 \u2014 \uC791\uC5C5 \uC2A4\uD0B5`, "warn");
-        result.failReason = "INVALID_TASK";
-        result.error = "C\uBAA8\uB4DC_2\uCC28\uD0A4\uC6CC\uB4DC\uC5C6\uC74C";
-        return result;
-      }
-      log2(`[Worker ${workerId}] C\uBAA8\uB4DC \uD1B5\uD569\uAC80\uC0C9 (2\uCC28 \uD0A4\uC6CC\uB4DC): ${onlySecond.substring(0, 48)}${onlySecond.length > 48 ? "..." : ""}`);
-      await page.goto(buildIntegratedSearchUrl(onlySecond), { waitUntil: "domcontentloaded", timeout: 6e4 });
-      await sleep2(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = onlySecond;
-    } else if (flow === "F") {
-      const query = (productName || firstKeyword || "").trim() || pickQueryWords(firstKeyword, productName);
-      log2(`[Worker ${workerId}] F\uBAA8\uB4DC \uC0C1\uD488\uBA85 \uC804\uCCB4 \uD1B5\uD569\uAC80\uC0C9: "${query}"`);
-      await page.goto(buildIntegratedSearchUrl(query), { waitUntil: "domcontentloaded", timeout: 6e4 });
-      await sleep2(engine.delay("afterFirstSearchLoad"));
-      result.secondSearchPhraseUsed = query;
-    } else {
-      const firstQuery = firstKeyword;
-      log2(`[Worker ${workerId}] 1\uCC28 \uD1B5\uD569\uAC80\uC0C9: ${firstQuery}`);
-      await page.goto(buildIntegratedSearchUrl(firstQuery), { waitUntil: "domcontentloaded", timeout: 6e4 });
-      await sleep2(engine.delay("afterFirstSearchLoad"));
-      if (flow === "A") {
-        let secondSearchKeyword;
-        if (catalogMid && productName && productName.length > 10) {
-          secondSearchKeyword = productName;
-          log2(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (\uD480\uB124\uC784): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
-        } else {
-          const nameForSecond = (keywordName || productName || "").trim() || firstKeyword;
-          secondSearchKeyword = pickSecondSearchPhraseAvoidingBlacklist(
-            engine,
-            mid,
-            firstKeyword,
-            nameForSecond,
-            workerId
-          );
-          log2(`[Worker ${workerId}] A\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (3\uB2E8\uC870\uD569): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`);
-        }
-        result.secondSearchPhraseUsed = secondSearchKeyword;
-        await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
-        await sleep2(engine.delay("afterSecondSearchLoad"));
-      } else {
-        log2(`[Worker ${workerId}] B\uBAA8\uB4DC \u2014 1\uCC28 \uD1B5\uD569\uAC80\uC0C9 \uACB0\uACFC\uC5D0\uC11C \uC0C1\uD488 \uD0D0\uC0C9`);
-      }
+    const searchSetup = await prepareTrafficSearchFlow({
+      page,
+      mid,
+      productName,
+      keyword,
+      workerId,
+      engine,
+      keywordName,
+      secondKeywordRaw,
+      catalogMid
+    }, {
+      log: log2,
+      sleep: sleep2,
+      isSecondComboBlacklisted
+    });
+    if (!searchSetup.ok) {
+      result.failReason = searchSetup.failReason;
+      result.error = searchSetup.error;
+      return result;
+    }
+    if (searchSetup.secondSearchPhraseUsed) {
+      result.secondSearchPhraseUsed = searchSetup.secondSearchPhraseUsed;
     }
     const isBlocked = await page.evaluate(() => {
       const bodyText = document.body?.innerText || "";
@@ -2447,32 +3099,21 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     }).catch(() => false);
     if (isBlocked) {
       log2(`[Worker ${workerId}] IP \uCC28\uB2E8 \uAC10\uC9C0!`, "warn");
+      log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
       result.failReason = "IP_BLOCKED";
       result.error = "Blocked";
       return result;
     }
-    const searchCaptcha = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || "";
-      return bodyText.includes("\uBCF4\uC548 \uD655\uC778") || bodyText.includes("\uC790\uB3D9\uC785\uB825\uBC29\uC9C0");
-    }).catch(() => false);
-    if (searchCaptcha) {
-      log2(`[Worker ${workerId}] \uAC80\uC0C9 CAPTCHA \uAC10\uC9C0 - \uD574\uACB0 \uC2DC\uB3C4...`);
-      result.captchaDetected = true;
-      const solved = await captchaSolver.solve(page);
-      if (solved) {
-        log2(`[Worker ${workerId}] \uAC80\uC0C9 CAPTCHA \uD574\uACB0 \uC131\uACF5!`);
-        result.captchaSolved = true;
-        result.captchaDetected = false;
-      } else {
-        log2(`[Worker ${workerId}] \uAC80\uC0C9 CAPTCHA \uD574\uACB0 \uC2E4\uD328`, "warn");
-        result.failReason = "CAPTCHA_UNSOLVED";
-        return result;
-      }
+    if (!await solveCaptchaIfPresent(page, captchaSolver, result, workerId, "\uAC80\uC0C9", mid, catalogMid)) {
+      return result;
     }
-    const MAX_SCROLL = engine.maxScrollAttempts;
+    const MAX_SCROLL = Math.max(engine.maxScrollAttempts, INTEGRATED_SHOP_PAGE_LIMIT);
     let linkClicked = false;
+    const fallbackProductTitle = productName;
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
-      log2(`[Worker ${workerId}] \uC0C1\uD488 \uB9C1\uD06C \uD0D0\uC0C9 ${i + 1}/${MAX_SCROLL}`);
+      const pagingState = await getIntegratedShoppingPagingState(page);
+      const pagingLabel = pagingState?.current && pagingState?.total ? `\uCEF4\uD3EC\uB10C\uD2B8 ${pagingState.current}/${pagingState.total}\uD398\uC774\uC9C0` : `\uD0D0\uC0C9 ${i + 1}/${MAX_SCROLL}`;
+      log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 ${pagingLabel} MID(${catalogMid || mid}) \uD655\uC778`);
       const searchMid = catalogMid || mid;
       const link = (
         // 1. 쇼핑/통합 카드 공통: 제품 식별자 기반
@@ -2486,22 +3127,116 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
           log2(`[Worker ${workerId}] MID(${mid}) \uB9C1\uD06C \uBC1C\uACAC \u2192 \uD074\uB9AD`);
           await link.evaluate((el) => el.removeAttribute("target"));
           await link.click();
-          await page.waitForLoadState("domcontentloaded", { timeout: 3e4 }).catch(() => {
-          });
+          const detailDomReady = await waitForDomReady(page, 3e4);
           await sleep2(engine.delay("afterProductClick"));
+          if (!detailDomReady) {
+            log2(`[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 DOM \uB85C\uB4DC \uD655\uC778 \uC2E4\uD328`, "warn");
+            log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+            result.failReason = "PAGE_NOT_LOADED";
+            result.error = "DetailDomNotLoaded";
+            return result;
+          }
+          log2(`[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 DOM \uB85C\uB4DC \uD655\uC778 \uC644\uB8CC`);
+          log2(`[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 CAPTCHA \uD45C\uC2DC \uB300\uAE30 \uC911...`);
+          if (!await solveCaptchaIfPresent(page, captchaSolver, result, workerId, "\uC0C1\uC138\uD398\uC774\uC9C0", mid, catalogMid, 12e3)) {
+            return result;
+          }
           const currentPageUrl = page.url();
           log2(`[Worker ${workerId}] \uD398\uC774\uC9C0: ${currentPageUrl.substring(0, 80)}...`);
           linkClicked = true;
           result.midMatched = true;
-          const dwellTime = engine.delay("stayOnProduct");
-          log2(`[Worker ${workerId}] \uCCB4\uB958 ${(dwellTime / 1e3).toFixed(1)}\uCD08...`);
-          await sleep2(dwellTime);
           if (currentPageUrl.includes("smartstore.naver.com") || currentPageUrl.includes("brand.naver.com")) {
+            let detailError = await inspectDetailSystemError(page);
+            if (detailError.detected) {
+              log2(
+                `[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 \uC2DC\uC2A4\uD15C \uC624\uB958 \uAC10\uC9C0(${detailError.reason}) \u2014 1\uD68C \uC0C8\uB85C\uACE0\uCE68 \uD6C4 \uC7AC\uD655\uC778`,
+                "warn"
+              );
+              await page.reload({ waitUntil: "domcontentloaded", timeout: 3e4 }).catch((e) => {
+                log2(`[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 \uC0C8\uB85C\uACE0\uCE68 \uC2E4\uD328: ${e?.message || e}`, "warn");
+              });
+              await sleep2(engine.delay("afterProductClick"));
+              detailError = await inspectDetailSystemError(page);
+            }
+            if (detailError.detected) {
+              log2(
+                `[Worker ${workerId}] \uC0C1\uC138\uD398\uC774\uC9C0 \uC2DC\uC2A4\uD15C \uC624\uB958 \uC720\uC9C0: title=${JSON.stringify(detailError.title)} body=${JSON.stringify(detailError.snippet)}`,
+                "warn"
+              );
+              result.failReason = "DETAIL_NOT_REACHED";
+              result.error = `DetailSystemError:${detailError.reason || "unknown"}`;
+              return result;
+            }
             result.productPageEntered = true;
+            try {
+              const pageTitle = await page.evaluate(() => {
+                const clean = (value) => String(value || "").replace(/\s+/g, " ").replace(/\u00a0/g, " ").trim();
+                const stripSuffix = (value) => {
+                  let text = clean(value);
+                  text = text.replace(/\s*(?:\||·|:|\-|—)\s*(?:네이버.*|Naver.*|SmartStore.*)$/i, "").trim();
+                  text = text.replace(/\s*\|\s*$/, "").trim();
+                  return text;
+                };
+                const seen = /* @__PURE__ */ new Set();
+                const candidates = [];
+                const push = (value) => {
+                  const text = stripSuffix(String(value || ""));
+                  if (!text || seen.has(text))
+                    return;
+                  seen.add(text);
+                  candidates.push(text);
+                };
+                const bodyText = clean(document.body?.innerText || "");
+                const isErrorPage = /에러페이지|시스템오류|현재 서비스 접속이 불가합니다|Too Many Requests|접속이 불가합니다/i.test(
+                  `${document.title} ${bodyText}`
+                );
+                push(document.querySelector('meta[property="og:title"]')?.getAttribute("content"));
+                push(document.querySelector('meta[name="twitter:title"]')?.getAttribute("content"));
+                push(document.querySelector('meta[name="title"]')?.getAttribute("content"));
+                for (const script of Array.from(document.querySelectorAll('script[type="application/ld+json"]'))) {
+                  const raw = script.textContent?.trim();
+                  if (!raw)
+                    continue;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    const items = Array.isArray(parsed) ? parsed : [parsed];
+                    for (const item of items) {
+                      if (!item || typeof item !== "object")
+                        continue;
+                      const anyItem = item;
+                      push(anyItem.name);
+                      push(anyItem.headline);
+                      push(anyItem.title);
+                    }
+                  } catch {
+                  }
+                }
+                push(document.title);
+                for (const sel of ["h1", "h2", "h3", "strong", "[itemprop='name']"]) {
+                  document.querySelectorAll(sel).forEach((el) => push(el.textContent));
+                }
+                if (isErrorPage)
+                  return null;
+                return candidates.find((t) => t.length >= 4) || null;
+              });
+              if (pageTitle)
+                result.extractedProductTitle = pageTitle;
+              if (!result.extractedProductTitle && fallbackProductTitle) {
+                result.extractedProductTitle = fallbackProductTitle;
+              }
+            } catch {
+              if (!result.extractedProductTitle && fallbackProductTitle) {
+                result.extractedProductTitle = fallbackProductTitle;
+              }
+            }
           } else {
+            log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
             result.failReason = "DETAIL_NOT_REACHED";
             result.error = "StoreDetailUrlMismatch";
           }
+          const dwellTime = engine.delay("stayOnProduct");
+          log2(`[Worker ${workerId}] \uCCB4\uB958 ${(dwellTime / 1e3).toFixed(1)}\uCD08...`);
+          await sleep2(dwellTime);
           break;
         }
       }
@@ -2520,11 +3255,33 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
           });
         }
       }
+      const carouselNext = await clickIntegratedShoppingCarouselNext(page, INTEGRATED_SHOP_PAGE_LIMIT);
+      if (carouselNext.clicked) {
+        log2(
+          `[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uC1FC\uD551 \uCE90\uB7EC\uC140 \uB2E4\uC74C \uD398\uC774\uC9C0 \uD074\uB9AD` + (carouselNext.label ? ` (${carouselNext.label})` : "")
+        );
+        await waitForIntegratedShoppingPageSettle(page, carouselNext.current ? carouselNext.current + 1 : void 0);
+        await sleep2(engine.delay("explorationBetweenScrolls"));
+        continue;
+      } else if (carouselNext.reachedEnd) {
+        log2(
+          `[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uC1FC\uD551 \uCE90\uB7EC\uC140 \uD398\uC774\uC9C0 \uD55C\uB3C4 \uB3C4\uB2EC` + (carouselNext.current && carouselNext.total ? ` (${carouselNext.current}/${carouselNext.total})` : "")
+        );
+        break;
+      } else if (carouselNext.reason) {
+        log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uC1FC\uD551 \uCE90\uB7EC\uC140 \uB2E4\uC74C \uBC84\uD2BC \uBBF8\uD074\uB9AD: ${carouselNext.reason}`, "warn");
+      }
+      log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uCEF4\uD3EC\uB10C\uD2B8 \uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C \u2014 \uC2A4\uD06C\uB864\uB85C \uCD94\uAC00 \uB85C\uB529 \uD655\uC778`);
       await humanScroll2(page, engine.explorationScrollPixels);
       await sleep2(engine.delay("explorationBetweenScrolls"));
     }
     if (!linkClicked) {
-      log2(`[Worker ${workerId}] \uC0C1\uD488\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC74C \u2014 MID(${mid}) \uAC80\uC0C9\uACB0\uACFC\uC5D0 \uBBF8\uB178\uCD9C (${MAX_SCROLL}\uD68C \uC2A4\uD06C\uB864)`, "warn");
+      log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uCEF4\uD3EC\uB10C\uD2B8 \uD398\uC774\uC9C0\uB124\uC774\uC158 \uB0B4 \uC0C1\uD488 \uBBF8\uBC1C\uACAC`, "warn");
+      log2(`[Worker ${workerId}] \uC1FC\uD551 \uB354\uBCF4\uAE30 \uD3F4\uBC31 \uC5C6\uC774 \uD1B5\uD569\uAC80\uC0C9 \uCEF4\uD3EC\uB10C\uD2B8 \uD0D0\uC0C9\uC5D0\uC11C \uC885\uB8CC`, "warn");
+    }
+    if (!linkClicked) {
+      log2(`[Worker ${workerId}] \uC0C1\uD488\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC74C \u2014 MID(${mid}) \uD1B5\uD569\uAC80\uC0C9 \uCEF4\uD3EC\uB10C\uD2B8 \uD398\uC774\uC9C0\uB124\uC774\uC158 \uB0B4 \uBBF8\uB178\uCD9C`, "warn");
+      log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
       result.error = "\uC0C1\uD488\uC774 \uC874\uC7AC\uD558\uC9C0 \uC54A\uC74C";
       result.failReason = "PRODUCT_NOT_FOUND";
       result.midMatched = false;
@@ -2543,7 +3300,7 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
 }
 function getPrbRankUserDataDir(workerId) {
   const dir = path3.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
-  fs3.mkdirSync(dir, { recursive: true });
+  fs4.mkdirSync(dir, { recursive: true });
   return dir;
 }
 async function clearBrowserContextCookiesAndCache(context, workerId) {
@@ -2570,6 +3327,11 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
     try {
       const work = await claimWorkItem();
       if (!work) {
+        if (strategyQueue?.done) {
+          log2(`[Worker ${workerId}] \uC804\uB7B5 \uC644\uB8CC - \uBAA8\uB4E0 \uC791\uC5C5 \uC2E4\uD589 \uD69F\uC218 \uB2EC\uC131`);
+          printStats();
+          process.exit(0);
+        }
         if (onceMode) {
           log2(`[Worker ${workerId}] \uC791\uC5C5 \uC5C6\uC74C - \uC885\uB8CC`);
           process.exit(0);
@@ -2589,6 +3351,11 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       const isMobileTask = isRankD ? false : resolveMobileForTask(ENGINE);
       const ua = pickUserAgent(ENGINE, isMobileTask);
       const proxy = pickProxyConfig(ENGINE);
+      const profileName = profile.name;
+      const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
+      const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState;
+      const manualNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" || process.env.NAVER_MANUAL_LOGIN === "1";
       if (ENGINE.logEngineEvents) {
         log2(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat\xB7puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -2663,12 +3430,15 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
         context = await browser.newContext({
           ...ctxOpts,
-          ...proxy ? { proxy } : {}
+          ...proxy ? { proxy } : {},
+          ...useStoredNaverState ? { storageState: storedNaverStatePath } : {}
         });
         if (isMobileTask) {
           await applyMobileStealth(context);
         }
+        await context.addInitScript(PAGE_EVALUATE_NAME_POLYFILL2);
         page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
+        await ensurePageEvaluateNamePolyfill(page);
         page.setDefaultTimeout(6e4);
         page.setDefaultNavigationTimeout(6e4);
       }
@@ -2679,7 +3449,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         await sleep2(ENGINE.delay("proxySetup"));
       }
       totalRuns++;
-      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : await ensureNaverLoginIfConfigured(page, workerId);
+      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : useStoredNaverState ? (log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB85C\uB4DC \uC644\uB8CC: ${storedNaverStatePath}`), true) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : await ensureNaverLoginIfConfigured(page, workerId, context, profileName);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -2698,7 +3468,10 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
           process.exit(1);
         continue;
       }
-      const engineResult = isRankD ? await runShoppingRankCheck(page, work, workerId, ENGINE) : await runPatchrightEngine(
+      const engineResult = isRankD ? await runRankCheckFlow(
+        { page, work, workerId },
+        { log: log2, sleep: sleep2 }
+      ) : await runPatchrightEngine(
         page,
         work.mid,
         work.productName,
@@ -2820,6 +3593,28 @@ async function main() {
       stdio: "pipe"
     }).trim();
   } catch (e) {
+  }
+  if (STRATEGY_ARG) {
+    const strategyPath = path3.isAbsolute(STRATEGY_ARG) ? STRATEGY_ARG : path3.resolve(process.cwd(), STRATEGY_ARG);
+    log2(`[Strategy] \uC804\uB7B5 \uD30C\uC77C \uB85C\uB4DC: ${strategyPath}`);
+    const rawStrategy = loadStrategyFile(strategyPath);
+    const validation = validateStrategy(rawStrategy);
+    if (validation.errors.length > 0) {
+      console.error("[Strategy] \uC720\uD6A8\uC131 \uC624\uB958:\n" + validation.errors.join("\n"));
+      process.exit(1);
+    }
+    if (validation.warnings.length > 0) {
+      for (const w of validation.warnings)
+        log2(`[Strategy] \uACBD\uACE0: ${w}`, "warn");
+    }
+    const normalized = normalizeStrategy(rawStrategy);
+    ENGINE = buildEngineRuntime(normalized.runtime);
+    strategyQueue = createStrategyQueue(normalized);
+    const checkedTasks = normalized.tasks.filter((t) => t.checked);
+    log2(`[Strategy] "${normalized.name}" | \uD50C\uB85C\uC6B0=${ENGINE.searchFlowVersion} | \uC791\uC5C5=${checkedTasks.length}\uAC1C (checked)`);
+    for (const t of checkedTasks) {
+      log2(`[Strategy]   \xB7 ${t.keyword} \u2192 mid=${t.mid} | \uD69F\uC218=${t.targetCount > 0 ? t.targetCount + "\uD68C" : "\uBB34\uC81C\uD55C"}`);
+    }
   }
   const onceMode = process.argv.includes("--once");
   const workerCount = onceMode ? 1 : PARALLEL_BROWSERS;

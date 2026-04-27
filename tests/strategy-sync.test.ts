@@ -94,7 +94,7 @@ function testTasksFormatterKeepsGuiCompatibility(): void {
   ]);
 
   assert.ok(text.startsWith("#date\t"));
-  assert.ok(text.includes("검색키워드\t상품 URL\t2차키워드"));
+  assert.ok(text.includes("검색키워드\t상품 URL\t2차키워드\t횟수"));
 }
 
 testApplyStrategyWritesRuntimeFiles();

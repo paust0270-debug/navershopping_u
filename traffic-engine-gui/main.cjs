@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+
+const DEBUG_SKIP_AUTH = process.argv.includes("--debug-skip-auth") || process.env.DEBUG_SKIP_AUTH === "1";
+console.log("[main] DEBUG_SKIP_AUTH:", DEBUG_SKIP_AUTH, "| argv:", process.argv.join(" "));
 const { createClient } = require("@supabase/supabase-js");
 
 // ============ Supabase Auth ============
@@ -101,6 +104,14 @@ const RESULTS_SAVE_PATH = path.join(path.dirname(TASKS_TEXT_PATH), "results-save
 let mainWindow = null;
 let runnerChild = null;
 
+function isHiddenRunnerNoise(line) {
+  return (
+    /^From https?:\/\/github\.com\//.test(line) ||
+    /^\s*\*\s+branch\s+\S+\s+->\s+FETCH_HEAD/.test(line) ||
+    /Git update detected! Restarting to apply changes/i.test(line)
+  );
+}
+
 function paths() {
   const cfg = safeReadJson(path.join(DATA_ROOT, "engine-config.json")) || {};
   const ts = cfg.taskSource || {};
@@ -145,7 +156,9 @@ function createWindow() {
     backgroundColor: "#3a3a3a",
   });
 
-  mainWindow.loadFile(path.join(__dirname, "index.html"));
+  mainWindow.loadFile(path.join(__dirname, "index.html"), {
+    query: DEBUG_SKIP_AUTH ? { debugSkipAuth: "1" } : {},
+  });
 }
 
 app.whenReady().then(createWindow);
@@ -177,7 +190,7 @@ ipcMain.handle("save-task-rows-text", (_e, payload) => {
       ? payload.statsDate.trim()
       : ymdToday();
   const header =
-    "검색 키워드\t상품 URL\t2차 키워드\t목표\t상품명\t현재순위\t시작순위\t트래픽성공\t트래픽실패\t어제성공\t어제실패\t리뷰수\t별점";
+    "검색 키워드\t상품 URL\t2차 키워드\t횟수\t상품명\t현재순위\t시작순위\t트래픽성공\t트래픽실패\t어제성공\t어제실패\t리뷰수\t별점\tMID";
   const lines = safeRows.map((r) => {
     const keyword = String(r?.keyword ?? "").replace(/\r?\n/g, " ").trim();
     const linkUrl = String(r?.linkUrl ?? "").replace(/\r?\n/g, " ").trim();
@@ -192,7 +205,8 @@ ipcMain.handle("save-task-rows-text", (_e, payload) => {
     const yFail = Math.max(0, Math.floor(Number(r?.yesterdayFail) || 0));
     const reviewCount = String(r?.reviewCount ?? "").replace(/\r?\n/g, " ").trim();
     const starRating = String(r?.starRating ?? "").replace(/\r?\n/g, " ").trim();
-    return `${keyword}\t${linkUrl}\t${keywordName}\t${targetCount}\t${productTitle}\t${currentRank}\t${startRank}\t${tOk}\t${tFail}\t${yOk}\t${yFail}\t${reviewCount}\t${starRating}`;
+    const mid = String(r?.mid ?? "").replace(/\r?\n/g, " ").trim();
+    return `${keyword}\t${linkUrl}\t${keywordName}\t${targetCount}\t${productTitle}\t${currentRank}\t${startRank}\t${tOk}\t${tFail}\t${yOk}\t${yFail}\t${reviewCount}\t${starRating}\t${mid}`;
   });
   const body = [`#date\t${statsDate}`, header, ...lines].join("\n");
   fs.writeFileSync(TASKS_TEXT_PATH, body, "utf-8");
@@ -223,7 +237,7 @@ ipcMain.handle("load-task-rows-text", () => {
     const keyword = p[0] ?? "";
     const linkUrl = p[1] ?? "";
     const keywordName = p[2] ?? "";
-    // 신 포맷 v2 (14컬럼): keyword url kw2 target productTitle curRank startRank ok fail yOk yFail review star
+    // 신 포맷 v3 (14컬럼): keyword url kw2 target productTitle curRank startRank ok fail yOk yFail review star mid
     if (p.length >= 14) {
       return {
         keyword, linkUrl, keywordName,
@@ -237,6 +251,7 @@ ipcMain.handle("load-task-rows-text", () => {
         yesterdayFail: Math.max(0, Math.floor(Number(p[10]) || 0)),
         reviewCount: p[11] ?? "",
         starRating: p[12] ?? "",
+        mid: p[13] ?? "",
       };
     }
     // 신 포맷 v1 (13컬럼): keyword url kw2 target curRank startRank ok fail yOk yFail review star
@@ -366,6 +381,10 @@ ipcMain.handle("runner-start", (_e, { once }) => {
     cmd = isWin ? "npx.cmd" : "npx";
     args = ["tsx", "unified-runner.ts", ...(once ? ["--once"] : [])];
     shell = isWin;
+    env = {
+      ...env,
+      SKIP_GIT_UPDATE_CHECK: "1",
+    };
   }
 
   const cfg = safeReadJson(paths().config) || {};
@@ -391,6 +410,7 @@ ipcMain.handle("runner-start", (_e, { once }) => {
   });
 
   const send = (line, stream) => {
+    if (stream === "stderr" && isHiddenRunnerNoise(line)) return;
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("runner-log", { line, stream });
     }
@@ -506,4 +526,7 @@ ipcMain.handle("auth-check", async () => {
   return null;
 });
 
-ipcMain.handle("auth-available", () => !!supabase);
+ipcMain.handle("auth-available", () => {
+  if (DEBUG_SKIP_AUTH) return false;
+  return !!supabase;
+});

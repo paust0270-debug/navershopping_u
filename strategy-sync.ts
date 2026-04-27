@@ -71,7 +71,7 @@ export interface ApplyStrategyResult {
 }
 
 const TASKS_TEXT_HEADER =
-  "검색키워드\t상품 URL\t2차키워드\t목표\t상품명\t현재순위\t시작순위\t오늘성공\t오늘실패\t어제성공\t어제실패\t리뷰수\t별점";
+  "검색키워드\t상품 URL\t2차키워드\t횟수\t상품명\t현재순위\t시작순위\t오늘성공\t오늘실패\t어제성공\t어제실패\t리뷰수\t별점";
 
 function toNonNegativeInt(value: unknown): number {
   return Math.max(0, Math.floor(Number(value) || 0));

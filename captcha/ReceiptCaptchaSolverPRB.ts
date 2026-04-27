@@ -52,6 +52,25 @@ export class ReceiptCaptchaSolverPRB {
     this.logFn(`[CaptchaSolver] ${msg}`);
   }
 
+  private screenshotToBase64(data: unknown): string {
+    if (typeof data === "string") {
+      const commaIdx = data.indexOf(",");
+      return commaIdx >= 0 && data.substring(0, commaIdx).includes("base64")
+        ? data.substring(commaIdx + 1)
+        : data;
+    }
+
+    if (Buffer.isBuffer(data)) {
+      return data.toString("base64");
+    }
+
+    if (data instanceof Uint8Array) {
+      return Buffer.from(data).toString("base64");
+    }
+
+    throw new Error(`Screenshot result is not base64-compatible: ${Object.prototype.toString.call(data)}`);
+  }
+
   /**
    * CAPTCHA 해결 시도
    * @returns true if solved, false if failed or no CAPTCHA
@@ -249,9 +268,10 @@ export class ReceiptCaptchaSolverPRB {
       const imageElement = await page.$(selector);
       if (imageElement) {
         try {
-          const buffer = await imageElement.screenshot({ encoding: "base64" });
-          this.log(`이미지 캡처 성공: ${selector}`);
-          return buffer as string;
+          const screenshot = await imageElement.screenshot();
+          const base64 = this.screenshotToBase64(screenshot);
+          this.log(`이미지 캡처 성공: ${selector} (${base64.length} bytes base64)`);
+          return base64;
         } catch {
           continue;
         }
@@ -270,9 +290,10 @@ export class ReceiptCaptchaSolverPRB {
       const area = await page.$(selector);
       if (area) {
         try {
-          const buffer = await area.screenshot({ encoding: "base64" });
-          this.log(`영역 캡처 성공: ${selector}`);
-          return buffer as string;
+          const screenshot = await area.screenshot();
+          const base64 = this.screenshotToBase64(screenshot);
+          this.log(`영역 캡처 성공: ${selector} (${base64.length} bytes base64)`);
+          return base64;
         } catch {
           continue;
         }
@@ -281,8 +302,8 @@ export class ReceiptCaptchaSolverPRB {
 
     // fallback: 전체 페이지 스크린샷
     this.log("전체 페이지 캡처");
-    const buffer = await page.screenshot({ encoding: "base64" });
-    return buffer as string;
+    const screenshot = await page.screenshot();
+    return this.screenshotToBase64(screenshot);
   }
 
   /**
