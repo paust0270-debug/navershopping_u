@@ -28,6 +28,7 @@ export interface EngineConfigFile {
   scheduling?: { emptyQueueWaitMs?: number; workerStartDelayMs?: number };
   taskSource?: { taskFilePath?: string; resultFilePath?: string };
   naverLoginEnabled?: boolean;
+  naverLoginMode?: "gui" | "auto" | "manual";
   anthropicApiKeys?: Array<{ name: string; key: string }>;
   anthropicApiKeyIndex?: number;
   [key: string]: unknown;
@@ -190,6 +191,7 @@ export function loadEngineConfig(): EngineRuntime {
 }
 
 export function resolveMobileForTask(runtime: EngineRuntime): boolean {
+  if (runtime.searchFlowVersion === "E") return true;
   if (runtime.workMode === "mobile") return true;
   if (runtime.workMode === "desktop") return false;
   return Math.random() < 0.5;

@@ -92,11 +92,21 @@
                   <option value="random">PC+Mobile 랜덤</option>
                 </select>
               </div>
-              <div class="delay-grid" style="margin-top:6px">
-                <div style="grid-column:1/4" class="checkbox-row">
+              <div class="naver-login-grid" style="margin-top:6px">
+                <div class="checkbox-row">
                   <input type="checkbox" id="naverLoginEnabled" />
-                  <label for="naverLoginEnabled">네이버 로그인 사용 (naver-account.txt 필요)</label>
+                  <label for="naverLoginEnabled">네이버 로그인 사용</label>
                 </div>
+                <label>로그인 방식</label>
+                <select id="naverLoginMode" class="mode">
+                  <option value="gui">GUI 입력 자동 로그인</option>
+                  <option value="manual">브라우저에서 직접 입력</option>
+                  <option value="auto">naver-account.txt 자동 입력</option>
+                </select>
+                <label>네이버 ID</label>
+                <input type="text" id="naverLoginId" autocomplete="off" />
+                <label>네이버 PW</label>
+                <input type="password" id="naverLoginPw" autocomplete="off" />
               </div>
             </div>
           </div>

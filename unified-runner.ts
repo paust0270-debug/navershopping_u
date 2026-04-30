@@ -323,6 +323,19 @@ function randomBetween(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
 
+async function isMobileBrowserPage(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const ua = navigator.userAgent || "";
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua);
+    const width = Math.min(
+      window.innerWidth || Number.MAX_SAFE_INTEGER,
+      document.documentElement?.clientWidth || Number.MAX_SAFE_INTEGER,
+      screen.width || Number.MAX_SAFE_INTEGER
+    );
+    return uaMobile || (navigator.maxTouchPoints > 0 && width <= 768);
+  }).catch(() => false);
+}
+
 function randomKeyDelay(): number {
   return 30 + Math.random() * 30;
 }
@@ -560,10 +573,11 @@ async function ensureNaverLoginIfConfigured(
   page: Page,
   workerId: number,
   context: BrowserContext | null,
-  profileName: string
+  profileName: string,
+  ignoreStoredSession = false
 ): Promise<boolean> {
   const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
-  if (storedPath) {
+  if (storedPath && !ignoreStoredSession) {
     log(`[Worker ${workerId}] 네이버 저장 세션 사용: ${storedPath}`);
     return true;
   }
@@ -986,6 +1000,25 @@ interface StrategyQueue {
 
 let strategyQueue: StrategyQueue | null = null;
 
+function reloadEngineConfigForNextClaim(): void {
+  const previous = ENGINE;
+  const next = loadEngineConfig();
+  ENGINE = next;
+
+  if (
+    previous.searchFlowVersion !== next.searchFlowVersion ||
+    previous.workMode !== next.workMode ||
+    previous.proxyEnabled !== next.proxyEnabled ||
+    previous.engineTaskFilePath !== next.engineTaskFilePath ||
+    previous.engineResultFilePath !== next.engineResultFilePath
+  ) {
+    log(
+      `[EngineConfig] 설정 재로드: 검색모드 ${previous.searchFlowVersion}→${next.searchFlowVersion}, ` +
+        `workMode ${previous.workMode}→${next.workMode}, proxy ${previous.proxyEnabled}→${next.proxyEnabled}`
+    );
+  }
+}
+
 function createStrategyQueue(strategy: NormalizedStrategyFile): StrategyQueue {
   const tasks = strategy.tasks.filter((t) => t.checked);
   if (tasks.length === 0) {
@@ -1040,6 +1073,7 @@ async function claimWorkItem(): Promise<WorkItem | null> {
   isClaimingTask = true;
 
   try {
+    reloadEngineConfigForNextClaim();
     return tryClaimWorkItemFromEngineFile();
   } catch (e: any) {
     log(`[CLAIM ERROR] ${e.message}`, "error");
@@ -1279,6 +1313,218 @@ async function inspectDetailSystemError(page: Page): Promise<{ detected: boolean
       snippet: `detail error inspection failed: ${e?.message || e}`,
     };
   }
+}
+
+async function findTrafficMidLink(
+  page: Page,
+  mid: string,
+  catalogMid?: string
+): Promise<{ link: any; method: string; hrefSnippet: string } | null> {
+  const linkHandle = await page.evaluateHandle(({ mid, catalogMid }) => {
+    const mids = [catalogMid, mid].filter(Boolean) as string[];
+    const isAdAnchor = (anchor: HTMLAnchorElement): boolean => {
+      const inventory =
+        anchor.getAttribute("data-shp-inventory") ||
+        anchor.closest("[data-shp-inventory]")?.getAttribute("data-shp-inventory") ||
+        "";
+      return /lst\*(A|P|D)/.test(inventory);
+    };
+    const directProductHref = (href: string, targetMid: string): boolean => {
+      return (
+        href.includes(`/products/${targetMid}`) ||
+        href.includes(`smartstore.naver.com/main/products/${targetMid}`) ||
+        href.includes(`m.smartstore.naver.com/main/products/${targetMid}`)
+      );
+    };
+    const trackedSearchHref = (href: string, targetMid: string): boolean => {
+      return (
+        href.includes(targetMid) &&
+        (
+          href.includes("/p/crd/rd") ||
+          href.includes("cr.shopping") ||
+          href.includes("cr2.shopping") ||
+          href.includes("cr3.shopping") ||
+          href.includes("/bridge/searchGate") ||
+          href.includes("searchGate")
+        )
+      );
+    };
+    const scoreAnchor = (anchor: HTMLAnchorElement): { score: number; method: string } | null => {
+      if (isAdAnchor(anchor)) return null;
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      const contentId = anchor.getAttribute("data-shp-contents-id") || "";
+      const labelledBy = anchor.getAttribute("aria-labelledby") || "";
+      const dataset = JSON.stringify(anchor.dataset || {});
+
+      for (const targetMid of mids) {
+        if (trackedSearchHref(href, targetMid)) return { score: 0, method: "tracked-search-gate" };
+      }
+      for (const targetMid of mids) {
+        if (href.includes(`nv_mid=${targetMid}`)) return { score: 1, method: "nv_mid" };
+      }
+      for (const targetMid of mids) {
+        if (href.includes("searchGate") && href.includes(targetMid)) return { score: 2, method: "searchGate" };
+      }
+      for (const targetMid of mids) {
+        if (contentId === targetMid) return { score: 3, method: "data-shp-contents-id" };
+      }
+      for (const targetMid of mids) {
+        if (labelledBy.includes(`nstore_productId_${targetMid}`)) return { score: 4, method: "aria-product-id" };
+      }
+      for (const targetMid of mids) {
+        if (dataset.includes(targetMid)) return { score: 5, method: "data-attr-mid" };
+      }
+      for (const targetMid of mids) {
+        if (directProductHref(href, targetMid)) return { score: 6, method: "direct-product" };
+      }
+      return null;
+    };
+
+    const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("a"));
+    const ranked = anchors
+      .map((anchor, index) => {
+        const scored = scoreAnchor(anchor);
+        return scored ? { anchor, index, ...scored } : null;
+      })
+      .filter((item): item is { anchor: HTMLAnchorElement; index: number; score: number; method: string } => Boolean(item))
+      .sort((a, b) => a.score - b.score || a.index - b.index);
+
+    const clipHref = (anchor: HTMLAnchorElement): string => {
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      return href.substring(0, 180);
+    };
+
+    if (ranked.length > 0) {
+      return { link: ranked[0].anchor, method: ranked[0].method, hrefSnippet: clipHref(ranked[0].anchor) };
+    }
+
+    for (const targetMid of mids) {
+      const marker = document.getElementById(`nstore_productId_${targetMid}`);
+      if (!marker) continue;
+      let cur: Element | null = marker;
+      while (cur) {
+        const anchor = cur.matches("a") ? cur : cur.querySelector("a");
+        if (anchor instanceof HTMLAnchorElement && !isAdAnchor(anchor)) {
+          return { link: anchor, method: "product-id-container", hrefSnippet: clipHref(anchor) };
+        }
+        cur = cur.parentElement;
+      }
+      let sibling = marker.previousElementSibling;
+      while (sibling) {
+        if (sibling instanceof HTMLAnchorElement && !isAdAnchor(sibling)) {
+          return { link: sibling, method: "product-id-sibling", hrefSnippet: clipHref(sibling) };
+        }
+        const anchor = sibling.querySelector("a");
+        if (anchor instanceof HTMLAnchorElement && !isAdAnchor(anchor)) {
+          return { link: anchor, method: "product-id-sibling", hrefSnippet: clipHref(anchor) };
+        }
+        sibling = sibling.previousElementSibling;
+      }
+    }
+
+    return { link: null, method: "", hrefSnippet: "" };
+  }, { mid, catalogMid: catalogMid ?? null });
+
+  const props = await linkHandle.getProperties();
+  const link = props.get("link")?.asElement();
+  const method = await props.get("method")?.jsonValue().catch(() => "");
+  const hrefSnippet = await props.get("hrefSnippet")?.jsonValue().catch(() => "");
+  await linkHandle.dispose().catch(() => {});
+  return link ? { link, method: String(method || "unknown"), hrefSnippet: String(hrefSnippet || "") } : null;
+}
+
+async function clickTrafficMidLink(page: Page, link: any, workerId: number, method: string): Promise<boolean> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const failures: string[] = [];
+    try {
+      if (typeof link.scrollIntoViewIfNeeded === "function") {
+        await link.scrollIntoViewIfNeeded().catch(() => {});
+      }
+      await link.evaluate((el: HTMLAnchorElement) => {
+        el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior });
+        el.removeAttribute("target");
+      });
+      await sleep(randomBetween(300, 600));
+      const box = await link.boundingBox().catch(() => null);
+      let clickedBy = "";
+      if (box && box.width > 0 && box.height > 0) {
+        const clickX = box.x + box.width / 2 + randomBetween(-Math.min(8, box.width / 4), Math.min(8, box.width / 4));
+        const clickY = box.y + box.height / 2 + randomBetween(-Math.min(5, box.height / 4), Math.min(5, box.height / 4));
+        const useTouch = await isMobileBrowserPage(page);
+
+        if (useTouch && (page as any).touchscreen?.tap) {
+          try {
+            await (page as any).touchscreen.tap(clickX, clickY);
+            clickedBy = "touchscreen.tap";
+          } catch (e: any) {
+            failures.push(`touchscreen.tap=${e?.message || e}`);
+          }
+        }
+
+        if (!clickedBy) {
+          try {
+            await page.mouse.move(clickX + randomBetween(-20, 20), clickY + randomBetween(-15, 15)).catch(() => {});
+            await sleep(randomBetween(80, 180));
+            await page.mouse.click(clickX, clickY, { delay: randomBetween(35, 85) });
+            clickedBy = "mouse.click";
+          } catch (e: any) {
+            failures.push(`mouse.click=${e?.message || e}`);
+          }
+        }
+      } else {
+        failures.push("boundingBox=missing");
+      }
+
+      if (!clickedBy) {
+        try {
+          await link.click({ timeout: 5000 });
+          clickedBy = "element.click";
+        } catch (e: any) {
+          failures.push(`element.click=${e?.message || e}`);
+        }
+      }
+
+      if (!clickedBy) {
+        try {
+          const domClicked = await link.evaluate((el: HTMLAnchorElement) => {
+            el.removeAttribute("target");
+            el.click();
+            return true;
+          });
+          if (domClicked) clickedBy = "dom.click";
+        } catch (e: any) {
+          failures.push(`dom.click=${e?.message || e}`);
+        }
+      }
+
+      if (clickedBy) {
+        log(`[Worker ${workerId}] MID 링크 클릭 성공 (${method}, ${clickedBy}, attempt ${attempt})`);
+        return true;
+      }
+
+      log(`[Worker ${workerId}] MID 링크 클릭 실패 (${method}, attempt ${attempt}): ${failures.join(" | ") || "unknown"}`, "warn");
+    } catch (e: any) {
+      failures.push(`prepare=${e?.message || e}`);
+      try {
+        const domClicked = await link.evaluate((el: HTMLAnchorElement) => {
+          el.removeAttribute("target");
+          el.click();
+          return true;
+        });
+        if (domClicked) {
+          log(`[Worker ${workerId}] MID 링크 클릭 성공 (${method}, dom.click-after-prepare-fail, attempt ${attempt})`);
+          return true;
+        } else {
+          failures.push("dom.click-after-prepare-fail=false");
+        }
+      } catch (fallbackError: any) {
+        failures.push(`dom.click-after-prepare-fail=${fallbackError?.message || fallbackError}`);
+      }
+      log(`[Worker ${workerId}] MID 링크 클릭 실패 (${method}, attempt ${attempt}): ${failures.join(" | ")}`, "warn");
+      await sleep(500);
+    }
+  }
+  return false;
 }
 
 const INTEGRATED_SHOP_PAGE_LIMIT = 5;
@@ -1695,28 +1941,20 @@ async function runPatchrightEngine(
         : `탐색 ${i + 1}/${MAX_SCROLL}`;
       log(`[Worker ${workerId}] 통합검색 ${pagingLabel} MID(${catalogMid || mid}) 확인`);
 
-      // 통합검색 grid 영역: 가격비교/플러스스토어/쇼핑 카드 모두 커버
-      const searchMid = catalogMid || mid;
-      const link =
-        // 1. 쇼핑/통합 카드 공통: 제품 식별자 기반
-        (catalogMid ? await page.$(`a[data-shp-contents-id="${catalogMid}"]`).catch(() => null) : null) ||
-        await page.$(`a[aria-labelledby="nstore_productId_${searchMid}"]`).catch(() => null) ||
-        await page.$(`a[href*="smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) ||
-        await page.$(`a[href*="m.smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) ||
-        await page.$(`a[href*="/products/${searchMid}"]`).catch(() => null) ||
-        // 2. 가격비교 / 브릿지 링크
-        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) ||
-        await page.$(`a[href*="searchGate?nv_mid=${searchMid}"]`).catch(() => null) ||
-        // 3. ID 속성 매칭 (카드 컨테이너)
-        await page.$(`[id="nstore_productId_${mid}"]`).catch(() => null) ||
-        (catalogMid ? await page.$(`a[href*="/products/${mid}"]`).catch(() => null) : null);
+      // D 전략 제외 트래픽 진입: 광고 제외 후 data-shp/nv_mid/searchGate를 직접 상품 URL보다 우선 클릭
+      const midLink = await findTrafficMidLink(page, mid, catalogMid);
 
-      if (link) {
-        const isVisible = await link.isVisible().catch(() => false);
+      if (midLink) {
+        const isVisible = await midLink.link.isVisible().catch(() => false);
         if (isVisible) {
-          log(`[Worker ${workerId}] MID(${mid}) 링크 발견 → 클릭`);
-          await link.evaluate((el: HTMLAnchorElement) => el.removeAttribute('target'));
-          await link.click();
+          log(`[Worker ${workerId}] MID(${mid}) 링크 발견 (${midLink.method}) → 클릭 | href=${midLink.hrefSnippet || "-"}`);
+          const clicked = await clickTrafficMidLink(page, midLink.link, workerId, midLink.method);
+          if (!clicked) {
+            log(`[Worker ${workerId}] MID를 찾았지만 클릭 실패`, "warn");
+            result.failReason = "NO_MID_MATCH";
+            result.error = "ClickFailed";
+            return result;
+          }
           const detailDomReady = await waitForDomReady(page, 30000);
           await sleep(engine.delay("afterProductClick"));
 
@@ -1975,12 +2213,13 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       const ua = pickUserAgent(ENGINE, isMobileTask);
       const proxy = pickProxyConfig(ENGINE);
       const profileName = profile.name;
-      const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
-      const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState;
       const manualNaverLogin =
         (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" ||
         process.env.NAVER_MANUAL_LOGIN === "1";
+      const guiNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "gui";
+      const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
+      const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin && !guiNaverLogin;
       if (ENGINE.logEngineEvents) {
         log(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat·puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -2090,11 +2329,11 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
           ? true
           : isRankD
             ? await ensureNaverLoginPrbPage(page, workerId)
-            : useStoredNaverState
-              ? (log(`[Worker ${workerId}] 네이버 저장 세션 로드 완료: ${storedNaverStatePath}`), true)
-              : manualNaverLogin
-                ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
-                : await ensureNaverLoginIfConfigured(page as Page, workerId, context, profileName);
+            : manualNaverLogin
+              ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
+              : useStoredNaverState
+                ? (log(`[Worker ${workerId}] 네이버 저장 세션 로드 완료: ${storedNaverStatePath}`), true)
+                : await ensureNaverLoginIfConfigured(page as Page, workerId, context, profileName, guiNaverLogin);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {

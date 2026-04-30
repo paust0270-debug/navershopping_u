@@ -673,6 +673,8 @@ function loadEngineConfig() {
   return buildEngineRuntime(readConfigJson());
 }
 function resolveMobileForTask(runtime) {
+  if (runtime.searchFlowVersion === "E")
+    return true;
   if (runtime.workMode === "mobile")
     return true;
   if (runtime.workMode === "desktop")
@@ -1283,6 +1285,18 @@ var PAGE_EVALUATE_NAME_POLYFILL = "window.__name = window.__name || ((fn) => fn)
 function microDelay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
+async function isMobileBrowserPage(page) {
+  return page.evaluate(() => {
+    const ua = navigator.userAgent || "";
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua);
+    const width = Math.min(
+      window.innerWidth || Number.MAX_SAFE_INTEGER,
+      document.documentElement?.clientWidth || Number.MAX_SAFE_INTEGER,
+      screen.width || Number.MAX_SAFE_INTEGER
+    );
+    return uaMobile || navigator.maxTouchPoints > 0 && width <= 768;
+  }).catch(() => false);
+}
 async function ensureEvaluateNamePolyfill(page) {
   await page.evaluate(PAGE_EVALUATE_NAME_POLYFILL).catch(() => {
   });
@@ -1568,15 +1582,113 @@ async function findRankOnCurrentPage(page, targetMid, pageNum) {
             starRating: extra.starRating,
             productTitle,
             catalogMid,
-            detailUrl: anchor.href || null
+            detailUrl: anchor.href || null,
+            anchorIndex: i
           };
         } catch {
         }
       }
-      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null };
+      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null, anchorIndex: null };
     },
     { targetId: targetMid, pageNum, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
   );
+}
+async function waitForDetailAfterCardClick(page) {
+  const waits = [];
+  if (typeof page.waitForLoadState === "function") {
+    waits.push(page.waitForLoadState("domcontentloaded", { timeout: 3e4 }).catch(() => null));
+  }
+  if (typeof page.waitForNavigation === "function") {
+    waits.push(page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 3e4 }).catch(() => null));
+  }
+  if (waits.length > 0) {
+    await Promise.race([...waits, microDelay(3e4)]);
+  } else {
+    await microDelay(SAFE_DELAY_MS);
+  }
+}
+async function clickShoppingResultCardByIndex(page, anchorIndex, log3) {
+  if (anchorIndex == null || anchorIndex < 0)
+    return false;
+  const selector = "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]";
+  const handles = await page.$$(selector).catch(() => []);
+  const anchor = handles[anchorIndex];
+  if (!anchor)
+    return false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const failures = [];
+    try {
+      if (typeof anchor.scrollIntoViewIfNeeded === "function") {
+        await anchor.scrollIntoViewIfNeeded().catch(() => {
+        });
+      }
+      await anchor.evaluate((el) => {
+        const card = el.closest(".product_item__KQayS") || el.closest('[class*="product_item__"]') || el;
+        card.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        el.removeAttribute("target");
+      });
+      await microDelay(250 + Math.random() * 250);
+      const box = await anchor.boundingBox().catch(() => null);
+      let clickedBy = "";
+      if (box && box.width > 0 && box.height > 0) {
+        const clickX = box.x + box.width / 2 + (Math.random() - 0.5) * Math.min(16, box.width / 2);
+        const clickY = box.y + box.height / 2 + (Math.random() - 0.5) * Math.min(10, box.height / 2);
+        const useTouch = await isMobileBrowserPage(page);
+        if (useTouch && page.touchscreen?.tap) {
+          try {
+            await page.touchscreen.tap(clickX, clickY);
+            clickedBy = "touchscreen.tap";
+          } catch (e) {
+            failures.push(`touchscreen.tap=${e?.message || e}`);
+          }
+        }
+        if (!clickedBy && page.mouse?.click) {
+          try {
+            await page.mouse.move(clickX, clickY).catch(() => {
+            });
+            await microDelay(70 + Math.random() * 120);
+            await page.mouse.click(clickX, clickY, { delay: 35 + Math.random() * 50 });
+            clickedBy = "mouse.click";
+          } catch (e) {
+            failures.push(`mouse.click=${e?.message || e}`);
+          }
+        }
+      } else {
+        failures.push("boundingBox=missing");
+      }
+      if (!clickedBy) {
+        try {
+          await anchor.click();
+          clickedBy = "element.click";
+        } catch (e) {
+          failures.push(`element.click=${e?.message || e}`);
+        }
+      }
+      if (!clickedBy) {
+        try {
+          const domClicked = await anchor.evaluate((el) => {
+            el.removeAttribute("target");
+            el.click();
+            return true;
+          });
+          if (domClicked)
+            clickedBy = "dom.click";
+        } catch (e) {
+          failures.push(`dom.click=${e?.message || e}`);
+        }
+      }
+      if (clickedBy) {
+        log3(`\uC0C1\uC138\uD398\uC774\uC9C0 \uCE74\uB4DC \uD074\uB9AD \uC131\uACF5 (${clickedBy}, attempt ${attempt})`);
+        await waitForDetailAfterCardClick(page);
+        return true;
+      }
+    } catch (e) {
+      failures.push(`prepare=${e?.message || e}`);
+    }
+    log3(`\uC0C1\uC138\uD398\uC774\uC9C0 \uCE74\uB4DC \uD074\uB9AD \uC2E4\uD328(attempt ${attempt}): ${failures.join(" | ") || "unknown"}`, "warn");
+    await microDelay(400);
+  }
+  return false;
 }
 async function goToNextPage(page, targetPage) {
   const paginationSelector = 'a.pagination_btn_page__utqBz, a[class*="pagination_btn"]';
@@ -1687,9 +1799,13 @@ async function findNaverShoppingRankByMid(page, keyword, targetMid, maxPages, lo
       out.starRating = result.starRating;
       out.productTitle = result.productTitle || null;
       out.catalogMid = result.catalogMid || null;
-      if (result.detailUrl) {
+      if (result.anchorIndex != null) {
         try {
-          await page.goto(result.detailUrl, { waitUntil: "domcontentloaded", timeout: 45e3 });
+          const clicked = await clickShoppingResultCardByIndex(page, result.anchorIndex, log3);
+          if (!clicked) {
+            log3("\uC0C1\uC138\uD398\uC774\uC9C0 \uCE74\uB4DC \uD074\uB9AD \uC2E4\uD328", "warn");
+            break;
+          }
           await sleepMs(SAFE_DELAY_MS);
           const detailTitle = await extractDetailPageTitle(page);
           if (detailTitle) {
@@ -1832,14 +1948,14 @@ function pickQueryWords(keyword, productName) {
   }
   return selected.slice(0, 3).join(" ");
 }
-function buildAckeySearchUrl(query) {
+function buildAckeySearchUrl(query, acq = query, acr = 1) {
   const p = new URLSearchParams({
     sm: "mtp_sug.top",
     where: "m",
     query,
     ackey: generateAckey(),
-    acq: query,
-    acr: String(Math.floor(Math.random() * 9) + 1),
+    acq,
+    acr: String(Math.max(1, Math.floor(acr))),
     qdt: "0"
   });
   return `https://m.search.naver.com/search.naver?${p.toString()}`;
@@ -1911,14 +2027,60 @@ async function runTrafficFlowC(input, deps, flowLabel) {
 }
 
 // flows/flow-e-traffic.ts
+function buildAutocompleteInput(keyword, productName) {
+  const source = (keyword || productName || "\uC0C1\uD488").replace(/\s+/g, " ").trim();
+  const words = source.split(" ").filter(Boolean);
+  if (source.length <= 18 && words.length <= 3)
+    return source;
+  const picked = words.slice(0, Math.min(3, words.length)).join(" ");
+  return picked || source.substring(0, 18);
+}
 async function runTrafficFlowE(input, deps, flowLabel) {
   const { page, productName, keyword, workerId, engine } = input;
-  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
-  const query = pickQueryWords(firstKeyword, productName);
-  const searchUrl = buildAckeySearchUrl(query);
-  deps.log(`[Worker ${workerId}] E\uBAA8\uB4DC ackey URL: query="${query}"`);
-  await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 6e4 });
-  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  const query = (productName || keyword || "").trim() || "\uC0C1\uD488";
+  const acq = buildAutocompleteInput(keyword, query);
+  deps.log(
+    `[Worker ${workerId}] E\uBAA8\uB4DC \uC6D0\uBCF8 \uC790\uB3D9\uC644\uC131 \uD750\uB984: input="${acq.substring(0, 40)}${acq.length > 40 ? "..." : ""}" query="${query.substring(0, 40)}${query.length > 40 ? "..." : ""}"`
+  );
+  await page.goto("https://m.naver.com", { waitUntil: "load", timeout: 3e4 });
+  await deps.sleep(Math.max(2e3, engine.delay("portalAfterOpen")));
+  const searchBtn = await page.$("#MM_SEARCH_FAKE");
+  if (searchBtn) {
+    await searchBtn.click();
+  } else {
+    deps.log(`[Worker ${workerId}] E\uBAA8\uB4DC \uAC80\uC0C9\uCC3D \uD65C\uC131\uD654 \uBC84\uD2BC \uBBF8\uBC1C\uACAC(#MM_SEARCH_FAKE)`, "warn");
+  }
+  await deps.sleep(Math.max(1e3, engine.delay("searchFakeClickGap")));
+  const inputEl = await page.$("#query");
+  if (!inputEl) {
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "PAGE_NOT_LOADED",
+      error: "E\uBAA8\uB4DC_\uAC80\uC0C9\uC785\uB825\uCC3D\uC5C6\uC74C"
+    };
+  }
+  await inputEl.click();
+  for (const char of acq) {
+    await page.keyboard.type(char, { delay: Math.max(80, engine.delay("firstKeywordTypingDelay")) });
+    await deps.sleep(50);
+  }
+  await deps.sleep(2e3);
+  await page.waitForSelector("li.u_atcp_l", { timeout: 4e3 }).catch(() => null);
+  const items = await page.$$("li.u_atcp_l");
+  deps.log(`[Worker ${workerId}] E\uBAA8\uB4DC \uC790\uB3D9\uC644\uC131 \uD56D\uBAA9: ${items.length}\uAC1C`);
+  if (items.length <= 0) {
+    const fallbackUrl = buildAckeySearchUrl(query, acq, 1);
+    deps.log(
+      `[Worker ${workerId}] E\uBAA8\uB4DC \uC790\uB3D9\uC644\uC131 \uC5C6\uC74C \u2192 turafic_update Case B ackey URL \uAC80\uC0C9 \uC9C4\uC785`,
+      "warn"
+    );
+    await page.goto(fallbackUrl, { waitUntil: "load", timeout: 6e4 });
+    await deps.sleep(Math.max(3e3, engine.delay("afterFirstSearchLoad")));
+    return { ok: true, flowLabel, secondSearchPhraseUsed: query };
+  }
+  await items[0].click();
+  await deps.sleep(Math.max(3e3, engine.delay("afterFirstSearchLoad")));
   return { ok: true, flowLabel, secondSearchPhraseUsed: query };
 }
 
@@ -2228,6 +2390,18 @@ function log2(msg, level = "info") {
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
 }
+async function isMobileBrowserPage2(page) {
+  return page.evaluate(() => {
+    const ua = navigator.userAgent || "";
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua);
+    const width = Math.min(
+      window.innerWidth || Number.MAX_SAFE_INTEGER,
+      document.documentElement?.clientWidth || Number.MAX_SAFE_INTEGER,
+      screen.width || Number.MAX_SAFE_INTEGER
+    );
+    return uaMobile || navigator.maxTouchPoints > 0 && width <= 768;
+  }).catch(() => false);
+}
 function randomKeyDelay() {
   return 30 + Math.random() * 30;
 }
@@ -2355,9 +2529,9 @@ async function persistNaverLoginStorageState(context, profileName, workerId) {
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uC800\uC7A5 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
   }
 }
-async function ensureNaverLoginIfConfigured(page, workerId, context, profileName) {
+async function ensureNaverLoginIfConfigured(page, workerId, context, profileName, ignoreStoredSession = false) {
   const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
-  if (storedPath) {
+  if (storedPath && !ignoreStoredSession) {
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uC0AC\uC6A9: ${storedPath}`);
     return true;
   }
@@ -2610,6 +2784,16 @@ function tryClaimWorkItemFromEngineFile() {
   };
 }
 var strategyQueue = null;
+function reloadEngineConfigForNextClaim() {
+  const previous = ENGINE;
+  const next = loadEngineConfig();
+  ENGINE = next;
+  if (previous.searchFlowVersion !== next.searchFlowVersion || previous.workMode !== next.workMode || previous.proxyEnabled !== next.proxyEnabled || previous.engineTaskFilePath !== next.engineTaskFilePath || previous.engineResultFilePath !== next.engineResultFilePath) {
+    log2(
+      `[EngineConfig] \uC124\uC815 \uC7AC\uB85C\uB4DC: \uAC80\uC0C9\uBAA8\uB4DC ${previous.searchFlowVersion}\u2192${next.searchFlowVersion}, workMode ${previous.workMode}\u2192${next.workMode}, proxy ${previous.proxyEnabled}\u2192${next.proxyEnabled}`
+    );
+  }
+}
 function createStrategyQueue(strategy) {
   const tasks = strategy.tasks.filter((t) => t.checked);
   if (tasks.length === 0) {
@@ -2658,6 +2842,7 @@ async function claimWorkItem() {
   }
   isClaimingTask = true;
   try {
+    reloadEngineConfigForNextClaim();
     return tryClaimWorkItemFromEngineFile();
   } catch (e) {
     log2(`[CLAIM ERROR] ${e.message}`, "error");
@@ -2782,6 +2967,192 @@ async function inspectDetailSystemError(page) {
       snippet: `detail error inspection failed: ${e?.message || e}`
     };
   }
+}
+async function findTrafficMidLink(page, mid, catalogMid) {
+  const linkHandle = await page.evaluateHandle(({ mid: mid2, catalogMid: catalogMid2 }) => {
+    const mids = [catalogMid2, mid2].filter(Boolean);
+    const isAdAnchor = (anchor) => {
+      const inventory = anchor.getAttribute("data-shp-inventory") || anchor.closest("[data-shp-inventory]")?.getAttribute("data-shp-inventory") || "";
+      return /lst\*(A|P|D)/.test(inventory);
+    };
+    const directProductHref = (href, targetMid) => {
+      return href.includes(`/products/${targetMid}`) || href.includes(`smartstore.naver.com/main/products/${targetMid}`) || href.includes(`m.smartstore.naver.com/main/products/${targetMid}`);
+    };
+    const trackedSearchHref = (href, targetMid) => {
+      return href.includes(targetMid) && (href.includes("/p/crd/rd") || href.includes("cr.shopping") || href.includes("cr2.shopping") || href.includes("cr3.shopping") || href.includes("/bridge/searchGate") || href.includes("searchGate"));
+    };
+    const scoreAnchor = (anchor) => {
+      if (isAdAnchor(anchor))
+        return null;
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      const contentId = anchor.getAttribute("data-shp-contents-id") || "";
+      const labelledBy = anchor.getAttribute("aria-labelledby") || "";
+      const dataset = JSON.stringify(anchor.dataset || {});
+      for (const targetMid of mids) {
+        if (trackedSearchHref(href, targetMid))
+          return { score: 0, method: "tracked-search-gate" };
+      }
+      for (const targetMid of mids) {
+        if (href.includes(`nv_mid=${targetMid}`))
+          return { score: 1, method: "nv_mid" };
+      }
+      for (const targetMid of mids) {
+        if (href.includes("searchGate") && href.includes(targetMid))
+          return { score: 2, method: "searchGate" };
+      }
+      for (const targetMid of mids) {
+        if (contentId === targetMid)
+          return { score: 3, method: "data-shp-contents-id" };
+      }
+      for (const targetMid of mids) {
+        if (labelledBy.includes(`nstore_productId_${targetMid}`))
+          return { score: 4, method: "aria-product-id" };
+      }
+      for (const targetMid of mids) {
+        if (dataset.includes(targetMid))
+          return { score: 5, method: "data-attr-mid" };
+      }
+      for (const targetMid of mids) {
+        if (directProductHref(href, targetMid))
+          return { score: 6, method: "direct-product" };
+      }
+      return null;
+    };
+    const anchors = Array.from(document.querySelectorAll("a"));
+    const ranked = anchors.map((anchor, index) => {
+      const scored = scoreAnchor(anchor);
+      return scored ? { anchor, index, ...scored } : null;
+    }).filter((item) => Boolean(item)).sort((a, b) => a.score - b.score || a.index - b.index);
+    const clipHref = (anchor) => {
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      return href.substring(0, 180);
+    };
+    if (ranked.length > 0) {
+      return { link: ranked[0].anchor, method: ranked[0].method, hrefSnippet: clipHref(ranked[0].anchor) };
+    }
+    for (const targetMid of mids) {
+      const marker = document.getElementById(`nstore_productId_${targetMid}`);
+      if (!marker)
+        continue;
+      let cur = marker;
+      while (cur) {
+        const anchor = cur.matches("a") ? cur : cur.querySelector("a");
+        if (anchor instanceof HTMLAnchorElement && !isAdAnchor(anchor)) {
+          return { link: anchor, method: "product-id-container", hrefSnippet: clipHref(anchor) };
+        }
+        cur = cur.parentElement;
+      }
+      let sibling = marker.previousElementSibling;
+      while (sibling) {
+        if (sibling instanceof HTMLAnchorElement && !isAdAnchor(sibling)) {
+          return { link: sibling, method: "product-id-sibling", hrefSnippet: clipHref(sibling) };
+        }
+        const anchor = sibling.querySelector("a");
+        if (anchor instanceof HTMLAnchorElement && !isAdAnchor(anchor)) {
+          return { link: anchor, method: "product-id-sibling", hrefSnippet: clipHref(anchor) };
+        }
+        sibling = sibling.previousElementSibling;
+      }
+    }
+    return { link: null, method: "", hrefSnippet: "" };
+  }, { mid, catalogMid: catalogMid ?? null });
+  const props = await linkHandle.getProperties();
+  const link = props.get("link")?.asElement();
+  const method = await props.get("method")?.jsonValue().catch(() => "");
+  const hrefSnippet = await props.get("hrefSnippet")?.jsonValue().catch(() => "");
+  await linkHandle.dispose().catch(() => {
+  });
+  return link ? { link, method: String(method || "unknown"), hrefSnippet: String(hrefSnippet || "") } : null;
+}
+async function clickTrafficMidLink(page, link, workerId, method) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const failures = [];
+    try {
+      if (typeof link.scrollIntoViewIfNeeded === "function") {
+        await link.scrollIntoViewIfNeeded().catch(() => {
+        });
+      }
+      await link.evaluate((el) => {
+        el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        el.removeAttribute("target");
+      });
+      await sleep2(randomBetween(300, 600));
+      const box = await link.boundingBox().catch(() => null);
+      let clickedBy = "";
+      if (box && box.width > 0 && box.height > 0) {
+        const clickX = box.x + box.width / 2 + randomBetween(-Math.min(8, box.width / 4), Math.min(8, box.width / 4));
+        const clickY = box.y + box.height / 2 + randomBetween(-Math.min(5, box.height / 4), Math.min(5, box.height / 4));
+        const useTouch = await isMobileBrowserPage2(page);
+        if (useTouch && page.touchscreen?.tap) {
+          try {
+            await page.touchscreen.tap(clickX, clickY);
+            clickedBy = "touchscreen.tap";
+          } catch (e) {
+            failures.push(`touchscreen.tap=${e?.message || e}`);
+          }
+        }
+        if (!clickedBy) {
+          try {
+            await page.mouse.move(clickX + randomBetween(-20, 20), clickY + randomBetween(-15, 15)).catch(() => {
+            });
+            await sleep2(randomBetween(80, 180));
+            await page.mouse.click(clickX, clickY, { delay: randomBetween(35, 85) });
+            clickedBy = "mouse.click";
+          } catch (e) {
+            failures.push(`mouse.click=${e?.message || e}`);
+          }
+        }
+      } else {
+        failures.push("boundingBox=missing");
+      }
+      if (!clickedBy) {
+        try {
+          await link.click({ timeout: 5e3 });
+          clickedBy = "element.click";
+        } catch (e) {
+          failures.push(`element.click=${e?.message || e}`);
+        }
+      }
+      if (!clickedBy) {
+        try {
+          const domClicked = await link.evaluate((el) => {
+            el.removeAttribute("target");
+            el.click();
+            return true;
+          });
+          if (domClicked)
+            clickedBy = "dom.click";
+        } catch (e) {
+          failures.push(`dom.click=${e?.message || e}`);
+        }
+      }
+      if (clickedBy) {
+        log2(`[Worker ${workerId}] MID \uB9C1\uD06C \uD074\uB9AD \uC131\uACF5 (${method}, ${clickedBy}, attempt ${attempt})`);
+        return true;
+      }
+      log2(`[Worker ${workerId}] MID \uB9C1\uD06C \uD074\uB9AD \uC2E4\uD328 (${method}, attempt ${attempt}): ${failures.join(" | ") || "unknown"}`, "warn");
+    } catch (e) {
+      failures.push(`prepare=${e?.message || e}`);
+      try {
+        const domClicked = await link.evaluate((el) => {
+          el.removeAttribute("target");
+          el.click();
+          return true;
+        });
+        if (domClicked) {
+          log2(`[Worker ${workerId}] MID \uB9C1\uD06C \uD074\uB9AD \uC131\uACF5 (${method}, dom.click-after-prepare-fail, attempt ${attempt})`);
+          return true;
+        } else {
+          failures.push("dom.click-after-prepare-fail=false");
+        }
+      } catch (fallbackError) {
+        failures.push(`dom.click-after-prepare-fail=${fallbackError?.message || fallbackError}`);
+      }
+      log2(`[Worker ${workerId}] MID \uB9C1\uD06C \uD074\uB9AD \uC2E4\uD328 (${method}, attempt ${attempt}): ${failures.join(" | ")}`, "warn");
+      await sleep2(500);
+    }
+  }
+  return false;
 }
 var INTEGRATED_SHOP_PAGE_LIMIT = 5;
 var INTEGRATED_SHOP_PAGE_SETTLE_MS = 900;
@@ -3114,19 +3485,18 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
       const pagingState = await getIntegratedShoppingPagingState(page);
       const pagingLabel = pagingState?.current && pagingState?.total ? `\uCEF4\uD3EC\uB10C\uD2B8 ${pagingState.current}/${pagingState.total}\uD398\uC774\uC9C0` : `\uD0D0\uC0C9 ${i + 1}/${MAX_SCROLL}`;
       log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 ${pagingLabel} MID(${catalogMid || mid}) \uD655\uC778`);
-      const searchMid = catalogMid || mid;
-      const link = (
-        // 1. 쇼핑/통합 카드 공통: 제품 식별자 기반
-        (catalogMid ? await page.$(`a[data-shp-contents-id="${catalogMid}"]`).catch(() => null) : null) || await page.$(`a[aria-labelledby="nstore_productId_${searchMid}"]`).catch(() => null) || await page.$(`a[href*="smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) || await page.$(`a[href*="m.smartstore.naver.com/main/products/${searchMid}"]`).catch(() => null) || await page.$(`a[href*="/products/${searchMid}"]`).catch(() => null) || // 2. 가격비교 / 브릿지 링크
-        await page.$(`a[href*="nv_mid=${searchMid}"]`).catch(() => null) || await page.$(`a[href*="searchGate?nv_mid=${searchMid}"]`).catch(() => null) || // 3. ID 속성 매칭 (카드 컨테이너)
-        await page.$(`[id="nstore_productId_${mid}"]`).catch(() => null) || (catalogMid ? await page.$(`a[href*="/products/${mid}"]`).catch(() => null) : null)
-      );
-      if (link) {
-        const isVisible = await link.isVisible().catch(() => false);
+      const midLink = await findTrafficMidLink(page, mid, catalogMid);
+      if (midLink) {
+        const isVisible = await midLink.link.isVisible().catch(() => false);
         if (isVisible) {
-          log2(`[Worker ${workerId}] MID(${mid}) \uB9C1\uD06C \uBC1C\uACAC \u2192 \uD074\uB9AD`);
-          await link.evaluate((el) => el.removeAttribute("target"));
-          await link.click();
+          log2(`[Worker ${workerId}] MID(${mid}) \uB9C1\uD06C \uBC1C\uACAC (${midLink.method}) \u2192 \uD074\uB9AD | href=${midLink.hrefSnippet || "-"}`);
+          const clicked = await clickTrafficMidLink(page, midLink.link, workerId, midLink.method);
+          if (!clicked) {
+            log2(`[Worker ${workerId}] MID\uB97C \uCC3E\uC558\uC9C0\uB9CC \uD074\uB9AD \uC2E4\uD328`, "warn");
+            result.failReason = "NO_MID_MATCH";
+            result.error = "ClickFailed";
+            return result;
+          }
           const detailDomReady = await waitForDomReady(page, 3e4);
           await sleep2(engine.delay("afterProductClick"));
           if (!detailDomReady) {
@@ -3352,10 +3722,11 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       const ua = pickUserAgent(ENGINE, isMobileTask);
       const proxy = pickProxyConfig(ENGINE);
       const profileName = profile.name;
+      const manualNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" || process.env.NAVER_MANUAL_LOGIN === "1";
+      const guiNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "gui";
       const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
       const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState;
-      const manualNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" || process.env.NAVER_MANUAL_LOGIN === "1";
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin && !guiNaverLogin;
       if (ENGINE.logEngineEvents) {
         log2(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat\xB7puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -3449,7 +3820,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         await sleep2(ENGINE.delay("proxySetup"));
       }
       totalRuns++;
-      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : useStoredNaverState ? (log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB85C\uB4DC \uC644\uB8CC: ${storedNaverStatePath}`), true) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : await ensureNaverLoginIfConfigured(page, workerId, context, profileName);
+      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : useStoredNaverState ? (log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB85C\uB4DC \uC644\uB8CC: ${storedNaverStatePath}`), true) : await ensureNaverLoginIfConfigured(page, workerId, context, profileName, guiNaverLogin);
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {

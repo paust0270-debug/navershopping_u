@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("engineApi", {
   getPaths: () => ipcRenderer.invoke("get-paths"),
   loadEngineConfig: () => ipcRenderer.invoke("load-engine-config"),
   saveEngineConfig: (data) => ipcRenderer.invoke("save-engine-config", data),
+  saveNaverAccount: (data) => ipcRenderer.invoke("save-naver-account", data),
+  loadNaverAccount: () => ipcRenderer.invoke("load-naver-account"),
   saveTaskRowsText: (rows) => ipcRenderer.invoke("save-task-rows-text", rows),
   loadTaskRowsText: () => ipcRenderer.invoke("load-task-rows-text"),
   writeTaskFile: (task) => ipcRenderer.invoke("write-task-file", task),

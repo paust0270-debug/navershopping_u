@@ -87,14 +87,14 @@ export function pickQueryWords(keyword: string, productName: string): string {
   return selected.slice(0, 3).join(" ");
 }
 
-export function buildAckeySearchUrl(query: string): string {
+export function buildAckeySearchUrl(query: string, acq = query, acr = 1): string {
   const p = new URLSearchParams({
     sm: "mtp_sug.top",
     where: "m",
     query,
     ackey: generateAckey(),
-    acq: query,
-    acr: String(Math.floor(Math.random() * 9) + 1),
+    acq,
+    acr: String(Math.max(1, Math.floor(acr))),
     qdt: "0",
   });
   return `https://m.search.naver.com/search.naver?${p.toString()}`;

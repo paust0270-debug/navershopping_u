@@ -100,6 +100,7 @@ const TASKS_TEXT_PATH = app.isPackaged
   ? path.join(process.env.PORTABLE_EXECUTABLE_DIR || app.getPath("userData"), "tasks.txt")
   : path.join(RUNNER_ROOT, "traffic-engine-gui", "tasks.txt");
 const RESULTS_SAVE_PATH = path.join(path.dirname(TASKS_TEXT_PATH), "results-save.txt");
+const RUNNER_LIVE_LOG_PATH = path.join(path.dirname(TASKS_TEXT_PATH), "runner-live.log");
 
 let mainWindow = null;
 let runnerChild = null;
@@ -173,6 +174,26 @@ ipcMain.handle("load-engine-config", () => safeReadJson(paths().config) || {});
 ipcMain.handle("save-engine-config", (_e, data) => {
   fs.writeFileSync(paths().config, JSON.stringify(data, null, 2), "utf-8");
   return { ok: true };
+});
+
+const NAVER_ACCOUNT_PATH = path.join(DATA_ROOT, "naver-account.txt");
+
+ipcMain.handle("save-naver-account", (_e, data) => {
+  const id = String(data?.id ?? "").trim();
+  const pw = String(data?.password ?? "");
+  if (!id || !pw) return { ok: false, error: "네이버 ID/PW를 입력하세요." };
+  fs.writeFileSync(NAVER_ACCOUNT_PATH, `${id}\n${pw}\n`, "utf-8");
+  return { ok: true, path: NAVER_ACCOUNT_PATH };
+});
+
+ipcMain.handle("load-naver-account", () => {
+  try {
+    const raw = fs.readFileSync(NAVER_ACCOUNT_PATH, "utf-8");
+    const lines = raw.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith("#"));
+    return { ok: true, id: lines[0] || "", password: lines[1] || "" };
+  } catch {
+    return { ok: true, id: "", password: "" };
+  }
 });
 
 ipcMain.handle("save-task-rows-text", (_e, payload) => {
@@ -395,6 +416,7 @@ ipcMain.handle("runner-start", (_e, { once }) => {
     cfg.anthropicApiKey ||
     process.env.ANTHROPIC_API_KEY ||
     "";
+  const naverLoginMode = cfg.naverLoginMode === "manual" ? "manual" : cfg.naverLoginMode === "gui" ? "gui" : "auto";
 
   runnerChild = spawn(cmd, args, {
     cwd: DATA_ROOT,
@@ -403,14 +425,34 @@ ipcMain.handle("runner-start", (_e, { once }) => {
       ...env,
       ENGINE_TASK_FILE: paths().task,
       ENGINE_RESULT_FILE: paths().result,
+      NAVER_LOGIN_MODE: naverLoginMode,
       ...(anthropicKey ? { ANTHROPIC_API_KEY: anthropicKey } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
 
+  try {
+    fs.writeFileSync(
+      RUNNER_LIVE_LOG_PATH,
+      `[${new Date().toISOString()}] runner start cmd=${cmd} args=${args.join(" ")} cwd=${DATA_ROOT}\n`,
+      "utf-8"
+    );
+  } catch {
+    /* log file is best-effort */
+  }
+
   const send = (line, stream) => {
     if (stream === "stderr" && isHiddenRunnerNoise(line)) return;
+    try {
+      fs.appendFileSync(
+        RUNNER_LIVE_LOG_PATH,
+        `[${new Date().toISOString()}] [${stream}] ${line}\n`,
+        "utf-8"
+      );
+    } catch {
+      /* log file is best-effort */
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("runner-log", { line, stream });
     }
@@ -419,12 +461,22 @@ ipcMain.handle("runner-start", (_e, { once }) => {
   const child = runnerChild;
   child.on("close", (code) => {
     if (runnerChild === child) runnerChild = null;
+    try {
+      fs.appendFileSync(RUNNER_LIVE_LOG_PATH, `[${new Date().toISOString()}] runner close code=${code}\n`, "utf-8");
+    } catch {
+      /* log file is best-effort */
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("runner-exit", { code });
     }
   });
   child.on("error", (err) => {
     if (runnerChild === child) runnerChild = null;
+    try {
+      fs.appendFileSync(RUNNER_LIVE_LOG_PATH, `[${new Date().toISOString()}] runner error=${err.message}\n`, "utf-8");
+    } catch {
+      /* log file is best-effort */
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("runner-exit", { code: -1, error: err.message });
     }

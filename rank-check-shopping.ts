@@ -40,6 +40,17 @@ export interface VisibleSearchMidDebug {
   cards: VisibleSearchMidCardDebug[];
 }
 
+interface RankPageMatch {
+  found: boolean;
+  rank: number | null;
+  reviewCount: number | null;
+  starRating: number | null;
+  productTitle: string | null;
+  catalogMid: string | null;
+  detailUrl: string | null;
+  anchorIndex: number | null;
+}
+
 /** 쇼핑탭 전환 후 통합검색 카드는 없으므로 stub */
 export async function collectVisibleSearchMidDebug(_page: RankCheckPage, _limit = 12): Promise<VisibleSearchMidDebug> {
   return { mids: [], cards: [] };
@@ -58,6 +69,19 @@ const PAGE_EVALUATE_NAME_POLYFILL = "window.__name = window.__name || ((fn) => f
 
 function microDelay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function isMobileBrowserPage(page: RankCheckPage): Promise<boolean> {
+  return page.evaluate(() => {
+    const ua = navigator.userAgent || "";
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua);
+    const width = Math.min(
+      window.innerWidth || Number.MAX_SAFE_INTEGER,
+      document.documentElement?.clientWidth || Number.MAX_SAFE_INTEGER,
+      screen.width || Number.MAX_SAFE_INTEGER
+    );
+    return uaMobile || (navigator.maxTouchPoints > 0 && width <= 768);
+  }).catch(() => false);
 }
 
 async function ensureEvaluateNamePolyfill(page: RankCheckPage): Promise<void> {
@@ -306,7 +330,7 @@ async function findRankOnCurrentPage(
   page: RankCheckPage,
   targetMid: string,
   pageNum: number
-): Promise<{ found: boolean; rank: number | null; reviewCount: number | null; starRating: number | null; productTitle: string | null; catalogMid: string | null; detailUrl: string | null }> {
+): Promise<RankPageMatch> {
   return page.evaluate(
     ({ targetId, pageNum, itemsPerPage, titleMax }: { targetId: string; pageNum: number; itemsPerPage: number; titleMax: number }) => {
       const clip = (s: string): string => {
@@ -401,14 +425,125 @@ async function findRankOnCurrentPage(
             productTitle,
             catalogMid,
             detailUrl: (anchor as HTMLAnchorElement).href || null,
+            anchorIndex: i,
           };
         } catch { /* 다음 앵커 */ }
       }
 
-      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null };
+      return { found: false, rank: null, reviewCount: null, starRating: null, productTitle: null, catalogMid: null, detailUrl: null, anchorIndex: null };
     },
     { targetId: targetMid, pageNum, itemsPerPage: ITEMS_PER_PAGE, titleMax: TITLE_MAX }
   );
+}
+
+async function waitForDetailAfterCardClick(page: RankCheckPage): Promise<void> {
+  const waits: Promise<unknown>[] = [];
+  if (typeof page.waitForLoadState === "function") {
+    waits.push(page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => null));
+  }
+  if (typeof page.waitForNavigation === "function") {
+    waits.push(page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null));
+  }
+  if (waits.length > 0) {
+    await Promise.race([...waits, microDelay(30000)]);
+  } else {
+    await microDelay(SAFE_DELAY_MS);
+  }
+}
+
+async function clickShoppingResultCardByIndex(
+  page: RankCheckPage,
+  anchorIndex: number | null,
+  log: RankCheckLog
+): Promise<boolean> {
+  if (anchorIndex == null || anchorIndex < 0) return false;
+
+  const selector = "a[data-shp-contents-id][data-shp-contents-rank][data-shp-contents-dtl]";
+  const handles = await page.$$(selector).catch(() => []);
+  const anchor = handles[anchorIndex];
+  if (!anchor) return false;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const failures: string[] = [];
+    try {
+      if (typeof anchor.scrollIntoViewIfNeeded === "function") {
+        await anchor.scrollIntoViewIfNeeded().catch(() => {});
+      }
+      await anchor.evaluate((el: HTMLAnchorElement) => {
+        const card =
+          el.closest(".product_item__KQayS") ||
+          el.closest('[class*="product_item__"]') ||
+          el;
+        card.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior });
+        el.removeAttribute("target");
+      });
+      await microDelay(250 + Math.random() * 250);
+
+      const box = await anchor.boundingBox().catch(() => null);
+      let clickedBy = "";
+      if (box && box.width > 0 && box.height > 0) {
+        const clickX = box.x + box.width / 2 + (Math.random() - 0.5) * Math.min(16, box.width / 2);
+        const clickY = box.y + box.height / 2 + (Math.random() - 0.5) * Math.min(10, box.height / 2);
+        const useTouch = await isMobileBrowserPage(page);
+
+        if (useTouch && page.touchscreen?.tap) {
+          try {
+            await page.touchscreen.tap(clickX, clickY);
+            clickedBy = "touchscreen.tap";
+          } catch (e: any) {
+            failures.push(`touchscreen.tap=${e?.message || e}`);
+          }
+        }
+
+        if (!clickedBy && page.mouse?.click) {
+          try {
+            await page.mouse.move(clickX, clickY).catch(() => {});
+            await microDelay(70 + Math.random() * 120);
+            await page.mouse.click(clickX, clickY, { delay: 35 + Math.random() * 50 });
+            clickedBy = "mouse.click";
+          } catch (e: any) {
+            failures.push(`mouse.click=${e?.message || e}`);
+          }
+        }
+      } else {
+        failures.push("boundingBox=missing");
+      }
+
+      if (!clickedBy) {
+        try {
+          await anchor.click();
+          clickedBy = "element.click";
+        } catch (e: any) {
+          failures.push(`element.click=${e?.message || e}`);
+        }
+      }
+
+      if (!clickedBy) {
+        try {
+          const domClicked = await anchor.evaluate((el: HTMLAnchorElement) => {
+            el.removeAttribute("target");
+            el.click();
+            return true;
+          });
+          if (domClicked) clickedBy = "dom.click";
+        } catch (e: any) {
+          failures.push(`dom.click=${e?.message || e}`);
+        }
+      }
+
+      if (clickedBy) {
+        log(`상세페이지 카드 클릭 성공 (${clickedBy}, attempt ${attempt})`);
+        await waitForDetailAfterCardClick(page);
+        return true;
+      }
+    } catch (e: any) {
+      failures.push(`prepare=${e?.message || e}`);
+    }
+    log(`상세페이지 카드 클릭 실패(attempt ${attempt}): ${failures.join(" | ") || "unknown"}`, "warn");
+    await microDelay(400);
+  }
+
+  return false;
 }
 
 async function goToNextPage(page: RankCheckPage, targetPage: number): Promise<boolean> {
@@ -546,9 +681,13 @@ export async function findNaverShoppingRankByMid(
       out.productTitle = result.productTitle || null;
       out.catalogMid = result.catalogMid || null;
 
-      if (result.detailUrl) {
+      if (result.anchorIndex != null) {
         try {
-          await page.goto(result.detailUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+          const clicked = await clickShoppingResultCardByIndex(page, result.anchorIndex, log);
+          if (!clicked) {
+            log("상세페이지 카드 클릭 실패", "warn");
+            break;
+          }
           await sleepMs(SAFE_DELAY_MS);
           const detailTitle = await extractDetailPageTitle(page);
           if (detailTitle) {

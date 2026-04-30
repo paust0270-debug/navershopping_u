@@ -286,6 +286,9 @@ async function buildConfigObject() {
     },
     logging: { engineEvents: true },
     naverLoginEnabled: document.getElementById("naverLoginEnabled")?.checked || false,
+    naverLoginMode: ["gui", "auto", "manual"].includes(document.getElementById("naverLoginMode")?.value)
+      ? document.getElementById("naverLoginMode").value
+      : "gui",
     anthropicApiKeys: apiKeys.length > 0 ? apiKeys.map(k => ({ name: k.name, key: k.key })) : undefined,
     anthropicApiKeyIndex: apiKeys.length > 0 ? apiKeySelectedIdx : undefined,
   };
@@ -316,6 +319,13 @@ async function applyConfigToForm(cfg) {
   }
   const loginToggle = document.getElementById("naverLoginEnabled");
   if (loginToggle) loginToggle.checked = cfg.naverLoginEnabled === true;
+  const loginMode = document.getElementById("naverLoginMode");
+  if (loginMode) loginMode.value = ["gui", "auto", "manual"].includes(cfg.naverLoginMode) ? cfg.naverLoginMode : "gui";
+  const savedNaver = await window.engineApi.loadNaverAccount?.();
+  const naverId = document.getElementById("naverLoginId");
+  if (naverId && savedNaver?.id) naverId.value = savedNaver.id;
+  const naverPw = document.getElementById("naverLoginPw");
+  if (naverPw && savedNaver?.password) naverPw.value = savedNaver.password;
   apiKeys = Array.isArray(cfg.anthropicApiKeys) ? cfg.anthropicApiKeys.map(k => ({ name: k.name || "", key: k.key || "" })) : [];
   apiKeySelectedIdx = typeof cfg.anthropicApiKeyIndex === "number" ? cfg.anthropicApiKeyIndex : 0;
   renderApiKeyList();
@@ -496,6 +506,12 @@ async function persistEngineConfigFromForm() {
   if (cfg.userAgents && !cfg.userAgents.desktop?.length) delete cfg.userAgents.desktop;
   if (cfg.userAgents && !cfg.userAgents.mobile?.length) delete cfg.userAgents.mobile;
   if (cfg.userAgents && Object.keys(cfg.userAgents).length === 0) delete cfg.userAgents;
+  if (cfg.naverLoginEnabled && cfg.naverLoginMode === "gui") {
+    const id = document.getElementById("naverLoginId")?.value || "";
+    const password = document.getElementById("naverLoginPw")?.value || "";
+    const saved = await window.engineApi.saveNaverAccount({ id, password });
+    if (!saved?.ok) throw new Error(saved?.error || "네이버 계정 저장 실패");
+  }
   await window.engineApi.saveEngineConfig(cfg);
   return cfg;
 }
@@ -656,13 +672,15 @@ function stopDModeBatchRun(silent = false) {
   if (!silent) logLine("D모드 배치 실행 중지");
 }
 
-async function feedNextInfiniteTask() {
+async function feedNextInfiniteTask(requireRunning = true) {
   if (infiniteFeedInProgress) return;
   infiniteFeedInProgress = true;
   try {
   if (!infiniteRunEnabled) return;
-  const st = await window.engineApi.runnerStatus();
-  if (!st.running) return;
+  if (requireRunning) {
+    const st = await window.engineApi.runnerStatus();
+    if (!st.running) return;
+  }
 
   const taskExists = await window.engineApi.taskFileExists();
   if (taskExists) return;
@@ -789,18 +807,23 @@ async function startInfiniteRunner() {
   }
 
   const st = await window.engineApi.runnerStatus();
-  if (!st.running) {
-    const r = await window.engineApi.runnerStart({ once: false });
-    if (!r.ok) {
-      logLine("무제한 실행 시작 실패: " + (r.error || ""));
-      return;
-    }
-    logLine("러너 무제한 모드 시작");
-  }
-
   snapshotRunTargets(rows);
   infiniteRunEnabled = true;
   infiniteTaskIndex = 0;
+
+  if (!st.running) {
+    await feedNextInfiniteTask(false);
+    const r = await window.engineApi.runnerStart({ once: false });
+    if (!r.ok) {
+      logLine("무제한 실행 시작 실패: " + (r.error || ""));
+      stopInfiniteRun(true);
+      return;
+    }
+    logLine("러너 무제한 모드 시작");
+  } else {
+    await saveConfigToDisk();
+  }
+
   if (infiniteRunTimer) clearInterval(infiniteRunTimer);
   infiniteRunTimer = setInterval(() => {
     feedNextInfiniteTask().catch((e) => logLine("무제한 큐 오류: " + (e?.message || String(e))));
