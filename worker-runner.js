@@ -2449,6 +2449,7 @@ async function humanScroll2(page, targetY) {
   }
 }
 var NAVER_LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/";
+var NAVER_HOME_URL = "https://www.naver.com/";
 var NAVER_ACCOUNT_PATHS = [
   path3.join(process.cwd(), "naver-account.txt"),
   path3.join(__dirname, "naver-account.txt")
@@ -2529,11 +2530,35 @@ async function persistNaverLoginStorageState(context, profileName, workerId) {
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uC800\uC7A5 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
   }
 }
+async function isNaverLoginSessionActive(page, workerId) {
+  try {
+    await page.goto(NAVER_HOME_URL, { waitUntil: "domcontentloaded", timeout: 6e4 });
+    await sleep2(randomBetween(1e3, 1800));
+    const state = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || "";
+      const hasLogout = !!document.querySelector('a[href*="nidlogin.logout"], a[href*="logout"]') || /로그아웃/.test(bodyText);
+      const hasLogin = !!document.querySelector('a[href*="nidlogin.login"], a[href*="mode=form"]') || /로그인/.test(bodyText);
+      const hasUserArea = !!document.querySelector('[class*="MyView"], [class*="my_view"], [class*="account"], [id*="account"]');
+      return { hasLogout, hasLogin, hasUserArea };
+    });
+    if (state.hasLogout || state.hasUserArea && !state.hasLogin) {
+      log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uC720\uD6A8`);
+      return true;
+    }
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB9CC\uB8CC \uB610\uB294 \uB85C\uADF8\uC544\uC6C3 \uC0C1\uD0DC`, "warn");
+    return false;
+  } catch (e) {
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uD655\uC778 \uC2E4\uD328: ${e?.message ?? e}`, "warn");
+    return false;
+  }
+}
 async function ensureNaverLoginIfConfigured(page, workerId, context, profileName, ignoreStoredSession = false) {
   const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
   if (storedPath && !ignoreStoredSession) {
-    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uC0AC\uC6A9: ${storedPath}`);
-    return true;
+    log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uD655\uC778: ${storedPath}`);
+    if (await isNaverLoginSessionActive(page, workerId)) {
+      return true;
+    }
   }
   const r = readNaverAccountFile();
   if (r.status === "absent")
@@ -3723,10 +3748,9 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       const proxy = pickProxyConfig(ENGINE);
       const profileName = profile.name;
       const manualNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" || process.env.NAVER_MANUAL_LOGIN === "1";
-      const guiNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "gui";
       const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
       const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin && !guiNaverLogin;
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin;
       if (ENGINE.logEngineEvents) {
         log2(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat\xB7puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -3820,7 +3844,13 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         await sleep2(ENGINE.delay("proxySetup"));
       }
       totalRuns++;
-      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : useStoredNaverState ? (log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB85C\uB4DC \uC644\uB8CC: ${storedNaverStatePath}`), true) : await ensureNaverLoginIfConfigured(page, workerId, context, profileName, guiNaverLogin);
+      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : await ensureNaverLoginIfConfigured(
+        page,
+        workerId,
+        context,
+        profileName,
+        forceRefreshNaverState
+      );
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {

@@ -463,6 +463,7 @@ async function humanizedType(page: Page, selector: string, text: string): Promis
 // naver-account.txt: 1줄 아이디, 2줄 비밀번호 (# 으로 시작하는 줄은 주석)
 const NAVER_LOGIN_URL =
   "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/";
+const NAVER_HOME_URL = "https://www.naver.com/";
 
 const NAVER_ACCOUNT_PATHS = [
   path.join(process.cwd(), "naver-account.txt"),
@@ -568,6 +569,35 @@ async function persistNaverLoginStorageState(
   }
 }
 
+async function isNaverLoginSessionActive(page: Page, workerId: number): Promise<boolean> {
+  try {
+    await page.goto(NAVER_HOME_URL, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await sleep(randomBetween(1000, 1800));
+    const state = await page.evaluate(() => {
+      const bodyText = document.body?.innerText || "";
+      const hasLogout =
+        !!document.querySelector('a[href*="nidlogin.logout"], a[href*="logout"]') ||
+        /로그아웃/.test(bodyText);
+      const hasLogin =
+        !!document.querySelector('a[href*="nidlogin.login"], a[href*="mode=form"]') ||
+        /로그인/.test(bodyText);
+      const hasUserArea =
+        !!document.querySelector('[class*="MyView"], [class*="my_view"], [class*="account"], [id*="account"]');
+      return { hasLogout, hasLogin, hasUserArea };
+    });
+
+    if (state.hasLogout || (state.hasUserArea && !state.hasLogin)) {
+      log(`[Worker ${workerId}] 네이버 저장 세션 유효`);
+      return true;
+    }
+    log(`[Worker ${workerId}] 네이버 저장 세션 만료 또는 로그아웃 상태`, "warn");
+    return false;
+  } catch (e: any) {
+    log(`[Worker ${workerId}] 네이버 세션 확인 실패: ${e?.message ?? e}`, "warn");
+    return false;
+  }
+}
+
 /** naver-account.txt 없으면 true. 있으면 로그인 성공 시 true, 형식 오류·로그인 실패 시 false */
 async function ensureNaverLoginIfConfigured(
   page: Page,
@@ -578,8 +608,10 @@ async function ensureNaverLoginIfConfigured(
 ): Promise<boolean> {
   const storedPath = resolveExistingNaverLoginStorageStatePath(profileName);
   if (storedPath && !ignoreStoredSession) {
-    log(`[Worker ${workerId}] 네이버 저장 세션 사용: ${storedPath}`);
-    return true;
+    log(`[Worker ${workerId}] 네이버 저장 세션 확인: ${storedPath}`);
+    if (await isNaverLoginSessionActive(page, workerId)) {
+      return true;
+    }
   }
 
   const r = readNaverAccountFile();
@@ -2216,10 +2248,9 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       const manualNaverLogin =
         (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" ||
         process.env.NAVER_MANUAL_LOGIN === "1";
-      const guiNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "gui";
       const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
       const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin && !guiNaverLogin;
+      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin;
       if (ENGINE.logEngineEvents) {
         log(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat·puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -2331,9 +2362,13 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             ? await ensureNaverLoginPrbPage(page, workerId)
             : manualNaverLogin
               ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
-              : useStoredNaverState
-                ? (log(`[Worker ${workerId}] 네이버 저장 세션 로드 완료: ${storedNaverStatePath}`), true)
-                : await ensureNaverLoginIfConfigured(page as Page, workerId, context, profileName, guiNaverLogin);
+              : await ensureNaverLoginIfConfigured(
+                  page as Page,
+                  workerId,
+                  context,
+                  profileName,
+                  forceRefreshNaverState
+                );
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
