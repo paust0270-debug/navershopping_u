@@ -11,6 +11,24 @@ const DELAY_ROWS = [
   { label: "작업 간 휴식", key: "taskGapRest", range: true, defMin: 2000, defMax: 3000 },
 ];
 
+const TASK_COLUMN_STORAGE_KEY = "trafficEngine.taskTable.columnWidths.v1";
+const TASK_COLUMN_WIDTHS = [
+  { key: "check", width: 34, min: 30 },
+  { key: "rownum", width: 42, min: 36 },
+  { key: "keyword", width: 160, min: 110 },
+  { key: "url", width: 270, min: 180 },
+  { key: "secondKeyword", width: 150, min: 110 },
+  { key: "mid", width: 110, min: 80 },
+  { key: "productTitle", width: 240, min: 150 },
+  { key: "targetCount", width: 64, min: 56 },
+  { key: "remaining", width: 76, min: 58 },
+  { key: "success", width: 58, min: 48 },
+  { key: "fail", width: 58, min: 48 },
+  { key: "rank", width: 70, min: 54 },
+  { key: "review", width: 76, min: 58 },
+  { key: "rating", width: 58, min: 48 },
+];
+
 let selectedTaskRow = 0;
 let taskRows = [
   {
@@ -384,9 +402,85 @@ function renderApiKeyList() {
   });
 }
 
+function readTaskColumnWidths() {
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(TASK_COLUMN_STORAGE_KEY) || "{}") || {};
+  } catch {
+    saved = {};
+  }
+  return TASK_COLUMN_WIDTHS.map((col) => ({
+    ...col,
+    width: Math.max(col.min, Math.floor(Number(saved[col.key]) || col.width)),
+  }));
+}
+
+function writeTaskColumnWidths(widths) {
+  const out = {};
+  widths.forEach((col) => {
+    out[col.key] = Math.max(col.min, Math.floor(Number(col.width) || col.min));
+  });
+  localStorage.setItem(TASK_COLUMN_STORAGE_KEY, JSON.stringify(out));
+}
+
+function applyTaskColumnWidths(widths = readTaskColumnWidths()) {
+  const cols = document.querySelectorAll("#taskColumnGroup col");
+  widths.forEach((col, i) => {
+    if (cols[i]) cols[i].style.width = `${col.width}px`;
+  });
+}
+
+function initTaskColumnResizers() {
+  const table = document.getElementById("taskTable");
+  if (!table || table.dataset.resizersReady === "true") return;
+  table.dataset.resizersReady = "true";
+  applyTaskColumnWidths();
+
+  table.querySelectorAll("thead th").forEach((th, index) => {
+    const handle = document.createElement("span");
+    handle.className = "col-resizer";
+    handle.title = "드래그해서 컬럼 폭 조절";
+    th.appendChild(handle);
+
+    handle.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      const widths = readTaskColumnWidths();
+      const col = widths[index];
+      if (!col) return;
+
+      const startX = ev.clientX;
+      const startWidth = col.width;
+      th.classList.add("is-resizing");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+
+      const onMove = (moveEv) => {
+        const nextWidth = Math.max(col.min, startWidth + moveEv.clientX - startX);
+        widths[index] = { ...col, width: nextWidth };
+        applyTaskColumnWidths(widths);
+      };
+
+      const onUp = () => {
+        th.classList.remove("is-resizing");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        writeTaskColumnWidths(widths);
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+  });
+}
+
 function renderTaskTable() {
   const tb = document.getElementById("taskBody");
   tb.innerHTML = "";
+  applyTaskColumnWidths();
   taskRows.forEach((row, i) => {
     const tr = document.createElement("tr");
     if (i === selectedTaskRow) tr.classList.add("selected");
@@ -405,20 +499,20 @@ function renderTaskTable() {
     const pendingText = runProgress.pending > 0 ? ` / 진행중 ${runProgress.pending}` : "";
     const midDisplay = row.mid || "—";
     tr.innerHTML = `
-      <td style="text-align:center"><input type="checkbox" data-f="checked" ${row.checked ? 'checked' : ''} /></td>
-      <td>${i + 1}</td>
+      <td class="check-cell"><input type="checkbox" data-f="checked" ${row.checked ? 'checked' : ''} /></td>
+      <td class="row-index">${i + 1}</td>
       <td><input type="text" data-f="keyword" value="${escapeAttr(row.keyword)}" placeholder="검색어" /></td>
       <td><input type="text" data-f="linkUrl" value="${escapeAttr(row.linkUrl)}" placeholder="상품 URL" /></td>
       <td><input type="text" data-f="keywordName" value="${escapeAttr(row.keywordName)}" placeholder="선택" /></td>
-      <td class="stat-cell" title="${midDisplay}" style="font-size:10px;color:#aaa">${midDisplay}</td>
-      <td class="stat-cell" title="${escapeAttr(row.productTitle || '')}" style="font-size:10px;color:#ccc;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.productTitle || '—'}</td>
-      <td class="stat-cell"><input type="number" data-f="targetCount" value="${target || ''}" placeholder="0" min="0" style="width:48px;text-align:center" title="시작 시점에 로드할 실행 횟수 (0=무제한)" /></td>
-      <td class="stat-cell ${done ? 'target-done' : ''}" title="이번 실행 성공 ${runProgress.runOk} / 실패 ${runProgress.runFail}${pendingText}">${remainingText}</td>
-      <td class="stat-cell" title="오늘 성공 ${tOk} / 이번 실행 성공 ${runProgress.runOk}">${tOk}</td>
-      <td class="stat-cell" title="오늘 실패 ${tFail} / 이번 실행 실패 ${runProgress.runFail}">${tFail}</td>
-      <td class="stat-cell rank-display">${curR || "—"}</td>
-      <td class="stat-cell rank-display">${rev || "—"}</td>
-      <td class="stat-cell rank-display">${star || "—"}</td>
+      <td class="stat-cell compact-stat" title="${midDisplay}">${midDisplay}</td>
+      <td class="stat-cell compact-stat" title="${escapeAttr(row.productTitle || '')}">${row.productTitle || '—'}</td>
+      <td class="stat-cell compact-stat"><input type="number" data-f="targetCount" value="${target || ''}" placeholder="0" min="0" style="text-align:center" title="시작 시점에 로드할 실행 횟수 (0=무제한)" /></td>
+      <td class="stat-cell compact-stat ${done ? 'target-done' : ''}" title="이번 실행 성공 ${runProgress.runOk} / 실패 ${runProgress.runFail}${pendingText}">${remainingText}</td>
+      <td class="stat-cell compact-stat" title="오늘 성공 ${tOk} / 이번 실행 성공 ${runProgress.runOk}">${tOk}</td>
+      <td class="stat-cell compact-stat" title="오늘 실패 ${tFail} / 이번 실행 실패 ${runProgress.runFail}">${tFail}</td>
+      <td class="stat-cell compact-stat rank-display">${curR || "—"}</td>
+      <td class="stat-cell compact-stat rank-display">${rev || "—"}</td>
+      <td class="stat-cell compact-stat rank-display">${star || "—"}</td>
     `;
     tr.addEventListener("click", (ev) => {
       if (ev.target.tagName === "INPUT") return;
@@ -902,6 +996,7 @@ async function init() {
 
 async function initApp() {
   buildDelaySection();
+  initTaskColumnResizers();
   const cfg = await window.engineApi.loadEngineConfig();
   await applyConfigToForm(cfg);
   const rowsRes = await window.engineApi.loadTaskRowsText();
@@ -997,6 +1092,9 @@ async function initApp() {
     } catch (e) {
       logLine("결과 내보내기 오류: " + (e?.message || String(e)));
     }
+  };
+  document.getElementById("btnAdBanner").onclick = () => {
+    logLine("광고 배너 클릭");
   };
   document.getElementById("btnStart").onclick = async () => {
     const err = validateCheckedRows();

@@ -121,6 +121,59 @@ body {
   margin-left: auto;
   opacity: 0.85;
 }
+.ad-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  background: linear-gradient(90deg, #263746, #3f4631 58%, #4a3d2d);
+  color: #f1f5f9;
+  overflow: hidden;
+}
+.ad-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px;
+  color: #ffd866;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.ad-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+.ad-copy strong {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #ffffff;
+}
+.ad-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #d4dde7;
+}
+.ad-action {
+  flex: 0 0 auto;
+  padding: 4px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #ffffff;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ad-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
 .main-flex {
   flex: 1;
   display: flex;
@@ -288,7 +341,8 @@ body {
   overflow: auto;
 }
 table.data {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 11px;
@@ -298,20 +352,49 @@ table.data td {
   border: 1px solid #555;
   padding: 4px 6px;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 table.data th.col-rownum,
-table.data td:first-child {
-  width: 36px;
-  min-width: 36px;
-  max-width: 36px;
+table.data td.row-index,
+table.data td.check-cell {
   padding: 2px 4px;
   text-align: center;
   box-sizing: border-box;
   font-variant-numeric: tabular-nums;
 }
 table.data th {
+  position: relative;
   background: #2d2d2d;
   color: #ccc;
+  white-space: nowrap;
+  user-select: none;
+}
+table.data th.is-resizing {
+  background: #3a4652;
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 2;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  right: 3px;
+  width: 1px;
+  height: 60%;
+  background: #666;
+}
+.col-resizer:hover::after,
+table.data th.is-resizing .col-resizer::after {
+  background: #7aadff;
 }
 table.data th:nth-child(5),
 table.data th:nth-child(6),
@@ -324,6 +407,7 @@ table.data th:nth-child(10) {
 table.data td input,
 table.data td select {
   width: 100%;
+  min-width: 0;
   background: #2a2a2a;
   border: 1px solid #555;
   color: #eee;
@@ -345,13 +429,7 @@ table.data td.stat-cell {
   font-variant-numeric: tabular-nums;
   color: #d0e8ff;
 }
-/* 트래픽·어제 — 좁은 카운터 열 (키워드·URL이 남는 폭 사용) */
-table.data th.col-traffic,
-table.data td:nth-child(7),
-table.data td:nth-child(8) {
-  width: 52px;
-  max-width: 52px;
-  min-width: 52px;
+table.data td.compact-stat {
   padding: 2px 3px;
   font-size: 10px;
   box-sizing: border-box;

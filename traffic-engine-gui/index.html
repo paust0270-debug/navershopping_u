@@ -29,28 +29,53 @@
       <span class="status" id="runnerStatus">대기 중</span>
     </div>
 
+    <div class="ad-banner" aria-label="광고 배너">
+      <div class="ad-badge">AD</div>
+      <div class="ad-copy">
+        <strong>광고 배너 영역</strong>
+        <span>파트너 공지나 프로모션 이미지를 이 위치에 노출할 수 있습니다.</span>
+      </div>
+      <button type="button" class="ad-action" id="btnAdBanner">자세히</button>
+    </div>
+
     <div class="main-flex">
       <div class="row-top">
         <div class="panel task-panel">
           <h3>작업 키워드</h3>
           <div class="body">
             <table class="data" id="taskTable">
+              <colgroup id="taskColumnGroup">
+                <col data-col-key="check" />
+                <col data-col-key="rownum" />
+                <col data-col-key="keyword" />
+                <col data-col-key="url" />
+                <col data-col-key="secondKeyword" />
+                <col data-col-key="mid" />
+                <col data-col-key="productTitle" />
+                <col data-col-key="targetCount" />
+                <col data-col-key="remaining" />
+                <col data-col-key="success" />
+                <col data-col-key="fail" />
+                <col data-col-key="rank" />
+                <col data-col-key="review" />
+                <col data-col-key="rating" />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style="width:28px"><input type="checkbox" id="checkAll" title="전체 선택" /></th>
+                  <th><input type="checkbox" id="checkAll" title="전체 선택" /></th>
                   <th class="col-rownum">#</th>
                   <th>검색 키워드</th>
                   <th>상품 URL</th>
                   <th id="thSecondKeyword" title="2차 검색 조합에 사용할 추가 키워드">2차 키워드 (선택)</th>
-                  <th style="width:80px" title="URL에서 자동 추출">MID</th>
-                  <th style="width:160px" title="순위체크 시 자동 수집">상품명</th>
-                  <th style="width:56px" title="시작 시점에 로드할 실행 횟수 (0=무제한)">횟수</th>
-                  <th style="width:56px" title="시작 시점 기준 남은 실행 횟수">남은</th>
-                  <th style="width:48px" title="오늘 성공 횟수">성공</th>
-                  <th style="width:48px" title="오늘 실패 횟수">실패</th>
-                  <th style="width:56px" title="D순위체크 결과">순위</th>
-                  <th style="width:56px" title="리뷰 수">리뷰</th>
-                  <th style="width:48px" title="별점">별점</th>
+                  <th title="URL에서 자동 추출">MID</th>
+                  <th title="순위체크 시 자동 수집">상품명</th>
+                  <th title="시작 시점에 로드할 실행 횟수 (0=무제한)">횟수</th>
+                  <th title="시작 시점 기준 남은 실행 횟수">남은</th>
+                  <th title="오늘 성공 횟수">성공</th>
+                  <th title="오늘 실패 횟수">실패</th>
+                  <th title="D순위체크 결과">순위</th>
+                  <th title="리뷰 수">리뷰</th>
+                  <th title="별점">별점</th>
                 </tr>
               </thead>
               <tbody id="taskBody"></tbody>
