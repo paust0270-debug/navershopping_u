@@ -56,6 +56,8 @@
               <tbody id="taskBody"></tbody>
             </table>
             <div class="row-tools">
+              <button type="button" id="btnImportTaskRows" title="저장(tasks.txt)과 동일한 탭 구분 파일">파일에서 불러오기</button>
+              <button type="button" id="btnExportKeywordsPreset" title="검색 키워드·상품 URL·2차 키워드만 txt로 저장">키워드만 내보내기</button>
               <button type="button" id="btnAddRow">행 추가</button>
               <button type="button" id="btnDelRow">선택 행 삭제</button>
               <button type="button" class="danger-inline" id="btnClearAllRows">전체 삭제</button>
@@ -77,6 +79,7 @@
                   <option value="D">D — 쇼핑 순위체크만 (트래픽 없음)</option>
                   <option value="E">E — ackey 위장 URL (자동완성 위장)</option>
                   <option value="F">F — 제목 풀 검색 (상품명 단어 조합)</option>
+                  <option value="G">G — 5단어 통합검색 (메인1+2차4·제외키워드)</option>
                 </select>
               </div>
               <div class="delay-grid" id="delayGrid"></div>
@@ -114,9 +117,9 @@
             <h3>User-Agent</h3>
             <div class="body ua-body">
               <label class="ua-label">Desktop (줄당 1개)</label>
-              <textarea class="block compact-textarea" rows="2" id="uaDesktop" placeholder="비워두면 기본 UA 자동 사용 (Chrome/131)"></textarea>
+              <textarea class="block compact-textarea" rows="2" id="uaDesktop" placeholder="비워두면 기본 UA 자동 사용 (Chrome/136)"></textarea>
               <label class="ua-label">Mobile</label>
-              <textarea class="block compact-textarea" rows="2" id="uaMobile" placeholder="비워두면 기본 UA 자동 사용 (Galaxy S23 Chrome/144)"></textarea>
+              <textarea class="block compact-textarea" rows="2" id="uaMobile" placeholder="비워두면 기본 UA 자동 사용 (Galaxy S23 Chrome/136)"></textarea>
             </div>
           </div>
           <div class="panel config-panel proxy-panel">

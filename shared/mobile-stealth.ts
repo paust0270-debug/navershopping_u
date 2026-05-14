@@ -136,9 +136,9 @@ export const DEVICE_PROFILE = {
   platformVersion: '14.0.0',
 
   // 브라우저 버전
-  chromeVersion: '144',
-  chromeMajor: '144',
-  chromeFullVersion: '144.0.0.0',
+  chromeVersion: '136',
+  chromeMajor: '136',
+  chromeFullVersion: '136.0.0.0',
 
   // 아키텍처
   architecture: 'arm',
@@ -152,23 +152,23 @@ export const DEVICE_PROFILE = {
 export const MOBILE_STEALTH_SCRIPT = `
 // ============================================================
 // 모바일 스텔스 스크립트 - navigator 및 API 오버라이드
-// Chrome 144 / Android 14 / SM-S911B (Galaxy S23)
+// Chrome 136 / Android 14 / SM-S911B (Galaxy S23)
 // ============================================================
 
 // 1. navigator.userAgentData 오버라이드 (Client Hints API)
 Object.defineProperty(navigator, 'userAgentData', {
   get: () => ({
     brands: [
-      { brand: 'Chromium', version: '144' },
-      { brand: 'Google Chrome', version: '144' },
+      { brand: 'Chromium', version: '136' },
+      { brand: 'Google Chrome', version: '136' },
       { brand: 'Not-A.Brand', version: '99' }
     ],
     mobile: true,
     platform: 'Android',
     getHighEntropyValues: async (hints) => ({
       brands: [
-        { brand: 'Chromium', version: '144' },
-        { brand: 'Google Chrome', version: '144' },
+        { brand: 'Chromium', version: '136' },
+        { brand: 'Google Chrome', version: '136' },
         { brand: 'Not-A.Brand', version: '99' }
       ],
       mobile: true,
@@ -177,10 +177,10 @@ Object.defineProperty(navigator, 'userAgentData', {
       architecture: 'arm',
       bitness: '64',
       model: 'SM-S911B',
-      uaFullVersion: '144.0.0.0',
+      uaFullVersion: '136.0.0.0',
       fullVersionList: [
-        { brand: 'Chromium', version: '144.0.0.0' },
-        { brand: 'Google Chrome', version: '144.0.0.0' },
+        { brand: 'Chromium', version: '136.0.0.0' },
+        { brand: 'Google Chrome', version: '136.0.0.0' },
         { brand: 'Not-A.Brand', version: '99.0.0.0' }
       ]
     }),
@@ -321,18 +321,18 @@ export async function applyMobileStealthPuppeteer(page: PuppeteerLikePage): Prom
 /**
  * 모바일 컨텍스트 설정 (viewport, userAgent 등)
  * unified-runner.ts의 MOBILE_CONTEXT와 일치
- * Chrome 144 + Android 14 + Galaxy S23 (Snapdragon 8 Gen 2)
+ * Chrome 136 + Android 14 + Galaxy S23 (Snapdragon 8 Gen 2)
  */
 export const MOBILE_CONTEXT_OPTIONS = {
-  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36',
-  viewport: { width: 400, height: 700 },
+  userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36',
+  viewport: { width: 520, height: 860 },
   isMobile: true,
   hasTouch: true,
   deviceScaleFactor: 3,
   locale: 'ko-KR',
   timezoneId: 'Asia/Seoul',
   extraHTTPHeaders: {
-    'sec-ch-ua': '"Chromium";v="144", "Google Chrome";v="144", "Not-A.Brand";v="99"',
+    'sec-ch-ua': '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
     // High entropy 헤더 제거 (네이버는 Accept-CH로 요청하지 않음 - 봇 탐지 위험)

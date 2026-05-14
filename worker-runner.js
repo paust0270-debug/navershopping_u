@@ -555,7 +555,7 @@ var CONFIG_CANDIDATES = [
   path2.join(process.cwd(), "engine-config.json"),
   path2.join(__dirname, "engine-config.json")
 ];
-var DEFAULT_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+var DEFAULT_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 var DEFAULT_DELAY_SPECS = {
   browserLaunch: 2e3,
   browserLoad: { min: 2500, max: 4e3 },
@@ -576,15 +576,15 @@ var DEFAULT_DELAY_SPECS = {
   taskGapRest: { min: 2e3, max: 3e3 }
 };
 var MOBILE_CONTEXT_OPTIONS = {
-  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
-  viewport: { width: 400, height: 700 },
+  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+  viewport: { width: 520, height: 860 },
   isMobile: true,
   hasTouch: true,
   deviceScaleFactor: 3,
   locale: "ko-KR",
   timezoneId: "Asia/Seoul",
   extraHTTPHeaders: {
-    "sec-ch-ua": '"Chromium";v="144", "Google Chrome";v="144", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?1",
     "sec-ch-ua-platform": '"Android"'
   }
@@ -611,9 +611,9 @@ function delayMs(spec, fallback) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
 function parseSearchFlowVersion(v) {
-  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F")
+  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F" || v === "G")
     return v;
-  return "A";
+  return "G";
 }
 function resolveEngineTaskFilePath(file) {
   if (process.env.ENGINE_TASK_FILE?.trim()) {
@@ -673,7 +673,7 @@ function loadEngineConfig() {
   return buildEngineRuntime(readConfigJson());
 }
 function resolveMobileForTask(runtime) {
-  if (runtime.searchFlowVersion === "E")
+  if (runtime.searchFlowVersion === "E" || runtime.searchFlowVersion === "G")
     return true;
   if (runtime.workMode === "mobile")
     return true;
@@ -706,7 +706,7 @@ function buildBrowserContextOptions(isMobile, userAgent) {
     };
   }
   return {
-    viewport: { width: 400, height: 700 },
+    viewport: { width: 520, height: 860 },
     locale: "ko-KR",
     timezoneId: "Asia/Seoul",
     userAgent,
@@ -1118,23 +1118,23 @@ var ReceiptCaptchaSolverPRB = class {
 var MOBILE_STEALTH_SCRIPT = `
 // ============================================================
 // \uBAA8\uBC14\uC77C \uC2A4\uD154\uC2A4 \uC2A4\uD06C\uB9BD\uD2B8 - navigator \uBC0F API \uC624\uBC84\uB77C\uC774\uB4DC
-// Chrome 144 / Android 14 / SM-S911B (Galaxy S23)
+// Chrome 136 / Android 14 / SM-S911B (Galaxy S23)
 // ============================================================
 
 // 1. navigator.userAgentData \uC624\uBC84\uB77C\uC774\uB4DC (Client Hints API)
 Object.defineProperty(navigator, 'userAgentData', {
   get: () => ({
     brands: [
-      { brand: 'Chromium', version: '144' },
-      { brand: 'Google Chrome', version: '144' },
+      { brand: 'Chromium', version: '136' },
+      { brand: 'Google Chrome', version: '136' },
       { brand: 'Not-A.Brand', version: '99' }
     ],
     mobile: true,
     platform: 'Android',
     getHighEntropyValues: async (hints) => ({
       brands: [
-        { brand: 'Chromium', version: '144' },
-        { brand: 'Google Chrome', version: '144' },
+        { brand: 'Chromium', version: '136' },
+        { brand: 'Google Chrome', version: '136' },
         { brand: 'Not-A.Brand', version: '99' }
       ],
       mobile: true,
@@ -1143,10 +1143,10 @@ Object.defineProperty(navigator, 'userAgentData', {
       architecture: 'arm',
       bitness: '64',
       model: 'SM-S911B',
-      uaFullVersion: '144.0.0.0',
+      uaFullVersion: '136.0.0.0',
       fullVersionList: [
-        { brand: 'Chromium', version: '144.0.0.0' },
-        { brand: 'Google Chrome', version: '144.0.0.0' },
+        { brand: 'Chromium', version: '136.0.0.0' },
+        { brand: 'Google Chrome', version: '136.0.0.0' },
         { brand: 'Not-A.Brand', version: '99.0.0.0' }
       ]
     }),
@@ -1896,6 +1896,56 @@ function buildSecondSearchPhrase(firstKeyword, keywordName) {
   }
   return parts.join(" ");
 }
+function tokenizeKeywordWords(text) {
+  return (text || "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+}
+function shuffleArrayInPlace(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+function buildGIntegratedFiveWordQuery(mainKeyword, secondaryText) {
+  const mainWords = tokenizeKeywordWords(mainKeyword);
+  const mainPick = mainWords.length > 0 ? mainWords[Math.floor(Math.random() * mainWords.length)] : "\uC0C1\uD488";
+  let pool = [...new Set(tokenizeKeywordWords(secondaryText))].filter((w) => w !== mainPick);
+  if (pool.length === 0) {
+    pool = [...new Set(tokenizeKeywordWords(secondaryText))];
+  }
+  if (pool.length === 0) {
+    pool = [mainPick];
+  }
+  const shuffled = [...pool];
+  shuffleArrayInPlace(shuffled);
+  const four = [];
+  for (let i = 0; i < 4; i++) {
+    four.push(shuffled[i % shuffled.length]);
+  }
+  return [mainPick, ...four].join(" ");
+}
+function pickGSecondSearchPhraseAvoidingBlacklist(engine, mid, firstKeyword, keywordName, workerId, deps) {
+  if (!engine.keywordBlacklistEnabled) {
+    return buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+  }
+  const maxTries = 200;
+  for (let t = 0; t < maxTries; t++) {
+    const phrase = buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+    if (!deps.isSecondComboBlacklisted(engine, mid, phrase)) {
+      if (t > 0) {
+        deps.log(
+          `[Worker ${workerId}] [KeywordBlacklist] G 2\uCC28 5\uB2E8\uC5B4 ${t + 1}\uBC88\uC9F8 \uC2DC\uB3C4\uB85C \uCC44\uD0DD: "${phrase.substring(0, 50)}${phrase.length > 50 ? "..." : ""}"`
+        );
+      }
+      return phrase;
+    }
+  }
+  const fallback = buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+  deps.log(
+    `[Worker ${workerId}] [KeywordBlacklist] G 2\uCC28 \uC81C\uC678 \uBAA9\uB85D\uACFC \uCDA9\uB3CC \uB2E4\uC218 \u2014 \uC784\uC758 5\uB2E8\uC5B4 \uC0AC\uC6A9: "${fallback.substring(0, 50)}${fallback.length > 50 ? "..." : ""}"`,
+    "warn"
+  );
+  return fallback;
+}
 function pickSecondSearchPhraseAvoidingBlacklist(engine, mid, firstKeyword, keywordName, workerId, deps) {
   if (!engine.keywordBlacklistEnabled) {
     return buildSecondSearchPhrase(firstKeyword, keywordName);
@@ -2095,9 +2145,157 @@ async function runTrafficFlowF(input, deps, flowLabel) {
   return { ok: true, flowLabel, secondSearchPhraseUsed: query };
 }
 
+// flows/flow-g-traffic.ts
+var G_FORCE_FULL_SECOND_SEARCH_AFTER_MISSES = 10;
+async function resolveMobileIntegratedSearchInput(page) {
+  const combined = "#nx_query, input#query, input[name='query'][type='search'], input[name='query'], form[role='search'] input[type='text'], .search_input input[type='text'], header input[type='text']";
+  const loc = page.locator(combined).first();
+  try {
+    await loc.waitFor({ state: "visible", timeout: 15e3 });
+    return loc;
+  } catch {
+    return null;
+  }
+}
+async function integratedSearchClearAllAndSubmitNewQuery(page, engine, workerId, deps, newQuery) {
+  const q = (newQuery || "").trim();
+  if (!q)
+    return false;
+  const portalSearchInput = await resolveMobileIntegratedSearchInput(page);
+  if (!portalSearchInput) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC \uD1B5\uD569\uAC80\uC0C9 \uC785\uB825\uCC3D \uBBF8\uBC1C\uACAC`, "warn");
+    return false;
+  }
+  const context = page.context();
+  try {
+    await portalSearchInput.click({ force: true });
+  } catch {
+    await portalSearchInput.evaluate((el) => {
+      try {
+        el.scrollIntoView({ block: "center", inline: "center" });
+        el.focus();
+      } catch {
+      }
+    }).catch(() => {
+    });
+  }
+  await deps.sleep(engine.delay("secondSearchField"));
+  await page.keyboard.press("Control+a");
+  await deps.sleep(40);
+  await page.keyboard.press("Backspace");
+  await deps.sleep(50);
+  for (const origin of ["https://m.search.naver.com", "https://search.naver.com"]) {
+    try {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+    } catch {
+    }
+  }
+  try {
+    await page.evaluate(async (t) => {
+      await navigator.clipboard.writeText(t);
+    }, q);
+    await page.keyboard.press("Control+v");
+  } catch (e) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uD074\uB9BD\uBCF4\uB4DC \uBD99\uC5EC\uB123\uAE30 \uC2E4\uD328 \u2192 value \uD3F4\uBC31: ${String(e)}`, "warn");
+  }
+  await deps.sleep(engine.delay("afterSecondKeywordType"));
+  let inBox = (await portalSearchInput.inputValue().catch(() => "")).trim();
+  if (!inBox && q) {
+    try {
+      await portalSearchInput.click({ force: true });
+    } catch {
+      await portalSearchInput.evaluate((el) => {
+        try {
+          el.scrollIntoView({ block: "center", inline: "center" });
+          el.focus();
+        } catch {
+        }
+      }).catch(() => {
+      });
+    }
+    await deps.sleep(80);
+    await portalSearchInput.evaluate((el, value) => {
+      const input = el;
+      input.value = String(value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, q).catch(() => {
+    });
+    await deps.sleep(engine.delay("afterSecondKeywordType"));
+    inBox = (await portalSearchInput.inputValue().catch(() => "")).trim();
+  }
+  if (!inBox.trim()) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uAC80\uC0C9\uC5B4 \uC785\uB825 \uD6C4\uC5D0\uB3C4 \uBE44\uC5B4 \uC788\uC74C`, "warn");
+    return false;
+  }
+  deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uAC80\uC0C9\uCC3D \uC804\uCCB4 \uC0AD\uC81C \uD6C4 \uC7AC\uC785\uB825 \u2192 Enter`);
+  await page.keyboard.press("Enter");
+  try {
+    await page.waitForLoadState("domcontentloaded", { timeout: 45e3 });
+  } catch {
+  }
+  return true;
+}
+async function runTrafficFlowG(input, deps, flowLabel) {
+  const { page, mid, productName, keyword, workerId, engine, keywordName, catalogMid, secondKeywordRaw } = input;
+  const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
+  const secondaryText = (secondKeywordRaw || keywordName || productName || "").trim() || firstKeyword;
+  const firstPhrase = buildGIntegratedFiveWordQuery(firstKeyword, secondaryText);
+  deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC 1\uCC28 \uD1B5\uD569\uAC80\uC0C9(5\uB2E8\uC5B4): ${firstPhrase}`);
+  await page.goto(buildIntegratedSearchUrl(firstPhrase), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("afterFirstSearchLoad"));
+  const secondKeywordPool = (keywordName || productName || "").trim() || firstKeyword;
+  const midMissCount = deps.countBlacklistedSecondCombosForMid(engine, mid);
+  const mustUseFullSecondKeyword = midMissCount >= G_FORCE_FULL_SECOND_SEARCH_AFTER_MISSES;
+  let secondSearchKeyword;
+  if (mustUseFullSecondKeyword) {
+    secondSearchKeyword = secondKeywordPool;
+    deps.log(
+      `[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uBBF8\uB178\uCD9C \uB204\uC801 ${midMissCount}\uD68C(>=${G_FORCE_FULL_SECOND_SEARCH_AFTER_MISSES}) \u2192 \uD480\uAC80\uC0C9\uC5B4 \uAC15\uC81C: ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`,
+      "warn"
+    );
+  } else if (catalogMid && productName && productName.length > 10) {
+    secondSearchKeyword = productName;
+    deps.log(
+      `[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9 (\uD480\uB124\uC784\xB7A\uB3D9\uC77C): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`
+    );
+  } else {
+    secondSearchKeyword = pickGSecondSearchPhraseAvoidingBlacklist(
+      engine,
+      mid,
+      firstKeyword,
+      secondKeywordPool,
+      workerId,
+      deps
+    );
+    deps.log(
+      `[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uD1B5\uD569\uAC80\uC0C9(5\uB2E8\uC5B4\xB7\uAF2C\uB9AC\uC5C6\uC74C): ${secondSearchKeyword.substring(0, 50)}${secondSearchKeyword.length > 50 ? "..." : ""}`
+    );
+  }
+  if (mustUseFullSecondKeyword && deps.isSecondComboBlacklisted(engine, mid, secondSearchKeyword)) {
+    deps.log(
+      `[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uD480\uAC80\uC0C9\uC5B4 \uBBF8\uB178\uCD9C \uC774\uB825 \uC874\uC7AC\uD558\uC9C0\uB9CC \uC2E4\uC2DC\uAC04 \uC7AC\uAC80\uC99D \uC9C4\uD589(mid=${mid})`,
+      "warn"
+    );
+  }
+  const typedOk = await integratedSearchClearAllAndSubmitNewQuery(
+    page,
+    engine,
+    workerId,
+    deps,
+    secondSearchKeyword
+  );
+  if (!typedOk) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uAC80\uC0C9\uCC3D \uC785\uB825 \uC2E4\uD328 \u2192 URL \uC9C1\uC811 \uC774\uB3D9 \uD3F4\uBC31`, "warn");
+    await page.goto(buildIntegratedSearchUrl(secondSearchKeyword), { waitUntil: "domcontentloaded", timeout: 6e4 });
+  }
+  await deps.sleep(engine.delay("afterSecondSearchLoad"));
+  return { ok: true, flowLabel, secondSearchPhraseUsed: secondSearchKeyword };
+}
+
 // flows/traffic-search-flow.ts
 function trafficFlowLabel(flow) {
-  return flow === "A" ? "A \uD1B5\uD5691+2\uCC28" : flow === "B" ? "B \uD1B5\uD569\uBA54\uC778" : flow === "C" ? "C \uD1B5\uD5692\uCC28" : flow === "E" ? "E ackey\uC704\uC7A5URL" : flow === "F" ? "F \uD1B5\uD569\uC0C1\uD488\uBA85" : flow;
+  return flow === "A" ? "A \uD1B5\uD5691+2\uCC28" : flow === "B" ? "B \uD1B5\uD569\uBA54\uC778" : flow === "C" ? "C \uD1B5\uD5692\uCC28" : flow === "E" ? "E ackey\uC704\uC7A5URL" : flow === "F" ? "F \uD1B5\uD569\uC0C1\uD488\uBA85" : flow === "G" ? "G \uD1B5\uD5695\uB2E8\uC5B4+\uC81C\uC678\uD0A4\uC6CC\uB4DC" : flow;
 }
 async function prepareTrafficSearchFlow(input, deps) {
   const flow = input.engine.searchFlowVersion;
@@ -2111,6 +2309,8 @@ async function prepareTrafficSearchFlow(input, deps) {
     return runTrafficFlowE(input, deps, flowLabel);
   if (flow === "F")
     return runTrafficFlowF(input, deps, flowLabel);
+  if (flow === "G")
+    return runTrafficFlowG(input, deps, flowLabel);
   return runTrafficFlowB(input, deps, flowLabel);
 }
 
@@ -2197,6 +2397,9 @@ function validateStrategy(strategy) {
     if (flow === "C" && !task.keywordName) {
       errors.push(`${label}: flow C requires keywordName.`);
     }
+    if (flow === "G" && !task.keywordName) {
+      errors.push(`${label}: flow G requires keywordName (2\uCC28 \uB2E8\uC5B4 \uD480).`);
+    }
     if (flow !== "D" && task.checked && task.targetCount <= 0) {
       warnings.push(`${label}: non-D flows usually need targetCount > 0 for infinite-run parity.`);
     }
@@ -2207,7 +2410,7 @@ function validateStrategy(strategy) {
   return { errors, warnings };
 }
 function isSupportedSearchFlowVersion(value) {
-  return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F";
+  return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F" || value === "G";
 }
 function loadStrategyFile(strategyPath) {
   const raw = fs3.readFileSync(strategyPath, "utf-8");
@@ -2259,15 +2462,15 @@ var STRATEGY_ARG = (() => {
 var BROWSER_POSITIONS = [
   { x: 0, y: 0 },
   // Worker 1: 좌상단
-  { x: 480, y: 0 },
+  { x: 560, y: 0 },
   // Worker 2: 우상단
-  { x: 0, y: 540 },
+  { x: 0, y: 760 },
   // Worker 3: 좌하단
-  { x: 480, y: 540 }
+  { x: 560, y: 760 }
   // Worker 4: 우하단
 ];
-var BROWSER_WIDTH = 480;
-var BROWSER_HEIGHT = 540;
+var BROWSER_WIDTH = 560;
+var BROWSER_HEIGHT = 760;
 var ENGINE = loadEngineConfig();
 function normalizeComboForBlacklist(s) {
   return (s || "").replace(/\s+/g, " ").trim();
@@ -2295,6 +2498,15 @@ function isSecondComboBlacklisted(runtime, mid, secondSearchPhrase) {
   const key = secondComboEntryKey(mid, secondSearchPhrase);
   const items = readKeywordBlacklistItems(runtime.keywordBlacklistPath);
   return items.some((e) => secondComboEntryKey(e.mid, storedComboFromItem(e)) === key);
+}
+function countBlacklistedSecondCombosForMid(runtime, mid) {
+  if (!runtime.keywordBlacklistEnabled)
+    return 0;
+  const targetMid = (mid || "").trim();
+  if (!targetMid)
+    return 0;
+  const items = readKeywordBlacklistItems(runtime.keywordBlacklistPath);
+  return items.filter((e) => (e.mid || "").trim() === targetMid).length;
 }
 async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase) {
   if (!runtime.keywordBlacklistEnabled)
@@ -2448,6 +2660,126 @@ async function humanScroll2(page, targetY) {
     await sleep2(80 + Math.random() * 60);
   }
 }
+async function scrollIntegratedSearchPageDown(page, deltaY) {
+  await page.evaluate((dy) => {
+    const hints = ["#ct", "#content", "#main_pack", ".api_subject_bx", ".sc_new", "#wrap", "main"];
+    for (const sel of hints) {
+      const el = document.querySelector(sel);
+      if (el instanceof HTMLElement) {
+        const sh = el.scrollHeight;
+        const ch = el.clientHeight;
+        if (sh > ch + 50) {
+          const max = sh - ch;
+          el.scrollTop = Math.min(max, Math.max(0, el.scrollTop + dy));
+          return true;
+        }
+      }
+    }
+    let best = null;
+    let bestExcess = 0;
+    for (const el of document.body.querySelectorAll("div")) {
+      if (!(el instanceof HTMLElement))
+        continue;
+      const st = getComputedStyle(el);
+      if (st.overflowY !== "scroll" && st.overflowY !== "auto")
+        continue;
+      const excess = el.scrollHeight - el.clientHeight;
+      if (excess > bestExcess && excess > 100) {
+        bestExcess = excess;
+        best = el;
+      }
+    }
+    if (best) {
+      const max = best.scrollHeight - best.clientHeight;
+      best.scrollTop = Math.min(max, Math.max(0, best.scrollTop + dy));
+      return true;
+    }
+    window.scrollBy(0, dy);
+    return true;
+  }, deltaY).catch(() => {
+  });
+  await sleep2(120 + Math.floor(Math.random() * 120));
+}
+async function scrollSmartstoreDetailBy(page, deltaY) {
+  const applied = await page.evaluate((dy) => {
+    const pickScrollTarget = () => {
+      const hints = ["#wrap", "main", "#content", "#__next", '[id*="layout"]', ".container"];
+      for (const sel of hints) {
+        const el = document.querySelector(sel);
+        if (el instanceof HTMLElement) {
+          const sh = el.scrollHeight;
+          const ch = el.clientHeight;
+          if (sh > ch + 60)
+            return el;
+        }
+      }
+      let best = null;
+      let bestExcess = 0;
+      const nodes = document.body.querySelectorAll("div, main, section, article");
+      for (const el of nodes) {
+        if (!(el instanceof HTMLElement))
+          continue;
+        const st = getComputedStyle(el);
+        if (st.overflowY !== "scroll" && st.overflowY !== "auto")
+          continue;
+        const excess = el.scrollHeight - el.clientHeight;
+        if (excess > bestExcess && excess > 100) {
+          bestExcess = excess;
+          best = el;
+        }
+      }
+      return best || document.scrollingElement || document.documentElement;
+    };
+    const target = pickScrollTarget();
+    const docEl = document.documentElement;
+    const body = document.body;
+    if (target === docEl || target === body || target === document.scrollingElement) {
+      window.scrollBy(0, dy);
+      return true;
+    }
+    if (target instanceof HTMLElement) {
+      const max = target.scrollHeight - target.clientHeight;
+      const next = Math.max(0, Math.min(max, target.scrollTop + dy));
+      if (next !== target.scrollTop) {
+        target.scrollTop = next;
+        return true;
+      }
+    }
+    window.scrollBy(0, dy);
+    return true;
+  }, deltaY).catch(() => false);
+  if (!applied) {
+    await page.evaluate((dy) => window.scrollBy(0, dy), deltaY).catch(() => {
+    });
+  }
+  await sleep2(160 + Math.floor(Math.random() * 140));
+}
+async function gModeDetailPageOscillateScroll(page, engine) {
+  const base = Math.min(520, Math.max(220, engine.explorationScrollPixels));
+  const down1 = Math.floor(base * 0.55);
+  const up = -Math.floor(base * 0.38);
+  const down2 = Math.floor(base * 0.3);
+  await scrollSmartstoreDetailBy(page, down1);
+  await sleep2(engine.delay("explorationBetweenScrolls"));
+  await scrollSmartstoreDetailBy(page, up);
+  await sleep2(engine.delay("explorationBetweenScrolls"));
+  await scrollSmartstoreDetailBy(page, down2);
+  const vp = page.viewportSize();
+  if (vp && vp.width > 80 && vp.height > 80) {
+    const cx = Math.max(20, Math.floor(vp.width / 2));
+    const cy = Math.max(20, Math.floor(vp.height * 0.45));
+    try {
+      await page.mouse.move(cx, cy);
+      await page.mouse.wheel(0, 340);
+      await sleep2(220 + Math.floor(Math.random() * 120));
+      await page.mouse.wheel(0, -200);
+      await sleep2(200 + Math.floor(Math.random() * 100));
+      await page.mouse.wheel(0, 140);
+    } catch {
+    }
+  }
+  await sleep2(200 + Math.floor(Math.random() * 160));
+}
 var NAVER_LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/";
 var NAVER_ACCOUNT_PATHS = [
   path3.join(process.cwd(), "naver-account.txt"),
@@ -2480,7 +2812,7 @@ function readNaverAccountFile() {
   if (!found)
     return { status: "absent" };
   const raw = fs4.readFileSync(found, "utf-8");
-  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith("#"));
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length < 2) {
     log2("[NaverLogin] naver-account.txt: \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638 2\uC904 \uD544\uC694", "warn");
     return { status: "invalid" };
@@ -2784,6 +3116,31 @@ function tryClaimWorkItemFromEngineFile() {
   };
 }
 var strategyQueue = null;
+function buildBrowserChannelCandidates() {
+  const explicit = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+  if (explicit && explicit.trim())
+    return [explicit.trim()];
+  return ["chrome", "msedge", void 0];
+}
+async function launchChromiumWithChannelFallback(browserLaunchOptions) {
+  let lastError;
+  for (const channel of buildBrowserChannelCandidates()) {
+    const options = { ...browserLaunchOptions };
+    if (channel)
+      options.channel = channel;
+    else
+      delete options.channel;
+    try {
+      return await import_patchright.chromium.launch(options);
+    } catch (e) {
+      lastError = e;
+      const msg = String(e?.message || e || "");
+      if (!/Executable doesn't exist|Failed to launch|channel/i.test(msg))
+        throw e;
+    }
+  }
+  throw lastError ?? new Error("chromium launch failed");
+}
 function reloadEngineConfigForNextClaim() {
   const previous = ENGINE;
   const next = loadEngineConfig();
@@ -2851,10 +3208,25 @@ async function claimWorkItem() {
     isClaimingTask = false;
   }
 }
+async function detectNaverShoppingAccessBlocked(page) {
+  return page.evaluate(() => {
+    const bodyText = document.body?.innerText || "";
+    const titleText = document.title || "";
+    const merged = `${titleText}
+${bodyText}`;
+    return merged.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC811\uADFC") || merged.includes("\uC790\uB3D9\uD654\uB41C \uC811\uADFC") || merged.includes("\uC811\uADFC\uC774 \uC81C\uD55C") || merged.includes("\uC811\uC18D\uC774 \uC81C\uD55C") || merged.includes("\uC1FC\uD551 \uC11C\uBE44\uC2A4 \uC811\uC18D\uC774 \uC77C\uC2DC\uC801\uC73C\uB85C \uC81C\uD55C") || merged.includes("\uC774\uC6A9\uC774 \uC81C\uD55C") || merged.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC694\uCCAD") || merged.includes("\uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC");
+  }).catch(() => false);
+}
 function shouldBlacklistSecondComboAfterRun(r) {
   if (r.productPageEntered)
     return false;
   return r.failReason === "NO_MID_MATCH" || r.failReason === "DETAIL_NOT_REACHED";
+}
+function shouldAppendSecondComboBlacklistAfterRun(flow, r) {
+  if (flow === "G" && r.failReason === "PRODUCT_NOT_FOUND" && (r.secondSearchPhraseUsed || "").trim()) {
+    return true;
+  }
+  return flow === "A" && shouldBlacklistSecondComboAfterRun(r);
 }
 function writeEngineTaskResult(work, result) {
   const okTraffic = result.productPageEntered;
@@ -2968,8 +3340,8 @@ async function inspectDetailSystemError(page) {
     };
   }
 }
-async function findTrafficMidLink(page, mid, catalogMid) {
-  const linkHandle = await page.evaluateHandle(({ mid: mid2, catalogMid: catalogMid2 }) => {
+async function findTrafficMidLink(page, mid, catalogMid, expectedProductName, expectedStoreAlias, expectedKeyword) {
+  const linkHandle = await page.evaluateHandle(({ mid: mid2, catalogMid: catalogMid2, expectedProductName: expectedProductName2, expectedStoreAlias: expectedStoreAlias2, expectedKeyword: expectedKeyword2 }) => {
     const mids = [catalogMid2, mid2].filter(Boolean);
     const isAdAnchor = (anchor) => {
       const inventory = anchor.getAttribute("data-shp-inventory") || anchor.closest("[data-shp-inventory]")?.getAttribute("data-shp-inventory") || "";
@@ -2980,6 +3352,66 @@ async function findTrafficMidLink(page, mid, catalogMid) {
     };
     const trackedSearchHref = (href, targetMid) => {
       return href.includes(targetMid) && (href.includes("/p/crd/rd") || href.includes("cr.shopping") || href.includes("cr2.shopping") || href.includes("cr3.shopping") || href.includes("/bridge/searchGate") || href.includes("searchGate"));
+    };
+    const normalize = (s) => String(s || "").toLowerCase().replace(/\u00a0/g, " ").replace(/[^\wㄱ-ㅎㅏ-ㅣ가-힣]+/g, " ").replace(/\s+/g, " ").trim();
+    const normProduct = normalize(expectedProductName2 || "");
+    const productTokens = normProduct.split(" ").filter((t) => t.length >= 2);
+    const normStoreAlias = normalize(expectedStoreAlias2 || "");
+    const normKeyword = normalize(expectedKeyword2 || "");
+    const hasStoreAlias = (text) => {
+      if (!normStoreAlias)
+        return false;
+      return normalize(text).includes(normStoreAlias);
+    };
+    const collectAnchorContextText = (anchor) => {
+      const chunks = [];
+      const own = (anchor.textContent || "").trim();
+      if (own)
+        chunks.push(own);
+      const card = anchor.closest("[data-shp-contents-id]") || anchor.closest("li") || anchor.closest("article") || anchor.closest("div");
+      if (card) {
+        const cardText = (card.textContent || "").trim();
+        if (cardText)
+          chunks.push(cardText.slice(0, 700));
+      }
+      const aria = `${anchor.getAttribute("aria-label") || ""} ${anchor.getAttribute("title") || ""}`.trim();
+      if (aria)
+        chunks.push(aria);
+      return chunks.join(" ");
+    };
+    const isTitleStoreFallbackMatch = (anchor) => {
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      if (!(href.includes("searchGate") || href.includes("nv_mid=")))
+        return false;
+      if (isAdAnchor(anchor))
+        return false;
+      const contextText = collectAnchorContextText(anchor);
+      const normContext = normalize(contextText);
+      let hit = 0;
+      for (const token of productTokens) {
+        if (normContext.includes(token))
+          hit++;
+      }
+      const ratio = productTokens.length > 0 ? hit / productTokens.length : 0;
+      const keywordMatched = normKeyword && normKeyword.length >= 2 ? normContext.includes(normKeyword) : false;
+      if (normStoreAlias && hasStoreAlias(contextText)) {
+        if (keywordMatched)
+          return true;
+        if (productTokens.length === 0)
+          return true;
+        if (productTokens.length <= 2)
+          return hit >= 1;
+        if (productTokens.length <= 4)
+          return hit >= 2;
+        return hit >= 2 && ratio >= 0.45;
+      }
+      if (productTokens.length >= 5) {
+        return hit >= 4 && ratio >= 0.65;
+      }
+      if (productTokens.length >= 3) {
+        return hit >= 3 && ratio >= 0.75;
+      }
+      return false;
     };
     const scoreAnchor = (anchor) => {
       if (isAdAnchor(anchor))
@@ -3015,6 +3447,9 @@ async function findTrafficMidLink(page, mid, catalogMid) {
       for (const targetMid of mids) {
         if (directProductHref(href, targetMid))
           return { score: 6, method: "direct-product" };
+      }
+      if (isTitleStoreFallbackMatch(anchor)) {
+        return { score: 7, method: "title-store-fallback" };
       }
       return null;
     };
@@ -3055,7 +3490,13 @@ async function findTrafficMidLink(page, mid, catalogMid) {
       }
     }
     return { link: null, method: "", hrefSnippet: "" };
-  }, { mid, catalogMid: catalogMid ?? null });
+  }, {
+    mid,
+    catalogMid: catalogMid ?? null,
+    expectedProductName: expectedProductName ?? null,
+    expectedStoreAlias: expectedStoreAlias ?? null,
+    expectedKeyword: expectedKeyword ?? null
+  });
   const props = await linkHandle.getProperties();
   const link = props.get("link")?.asElement();
   const method = await props.get("method")?.jsonValue().catch(() => "");
@@ -3063,6 +3504,22 @@ async function findTrafficMidLink(page, mid, catalogMid) {
   await linkHandle.dispose().catch(() => {
   });
   return link ? { link, method: String(method || "unknown"), hrefSnippet: String(hrefSnippet || "") } : null;
+}
+function extractStoreAliasFromLinkUrl(linkUrl) {
+  const raw = (linkUrl || "").trim();
+  if (!raw)
+    return "";
+  try {
+    const u = new URL(raw);
+    if (!/smartstore\.naver\.com$/i.test(u.hostname))
+      return "";
+    const seg = (u.pathname || "/").split("/").filter(Boolean);
+    if (seg.length > 0)
+      return seg[0] || "";
+    return "";
+  } catch {
+    return "";
+  }
 }
 async function clickTrafficMidLink(page, link, workerId, method) {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -3432,7 +3889,7 @@ async function solveCaptchaIfPresent(page, solver, result, workerId, scopeLabel,
   result.failReason = "CAPTCHA_UNSOLVED";
   return false;
 }
-async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid) {
+async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid, linkUrl) {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log2(`[Worker ${workerId}] ${msg}`));
   const result = {
     productPageEntered: false,
@@ -3454,7 +3911,8 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     }, {
       log: log2,
       sleep: sleep2,
-      isSecondComboBlacklisted
+      isSecondComboBlacklisted,
+      countBlacklistedSecondCombosForMid
     });
     if (!searchSetup.ok) {
       result.failReason = searchSetup.failReason;
@@ -3464,10 +3922,7 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     if (searchSetup.secondSearchPhraseUsed) {
       result.secondSearchPhraseUsed = searchSetup.secondSearchPhraseUsed;
     }
-    const isBlocked = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || "";
-      return bodyText.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC811\uADFC") || bodyText.includes("\uC790\uB3D9\uD654\uB41C \uC811\uADFC") || bodyText.includes("\uC811\uADFC\uC774 \uC81C\uD55C") || bodyText.includes("\uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC") || bodyText.includes("\uBE44\uC815\uC0C1\uC801\uC778 \uC694\uCCAD") || bodyText.includes("\uC774\uC6A9\uC774 \uC81C\uD55C");
-    }).catch(() => false);
+    const isBlocked = await detectNaverShoppingAccessBlocked(page);
     if (isBlocked) {
       log2(`[Worker ${workerId}] IP \uCC28\uB2E8 \uAC10\uC9C0!`, "warn");
       log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
@@ -3478,17 +3933,97 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
     if (!await solveCaptchaIfPresent(page, captchaSolver, result, workerId, "\uAC80\uC0C9", mid, catalogMid)) {
       return result;
     }
+    if (engine.searchFlowVersion === "G") {
+      log2(`[Worker ${workerId}] G\uBAA8\uB4DC 2\uCC28 \uAC80\uC0C9 \uC9C1\uD6C4 \uC1FC\uD551 \uC601\uC5ED\uAE4C\uC9C0 \uD398\uC774\uC9C0 \uC2A4\uD06C\uB864(\uC120\uD0D0\uC0C9)`);
+      const step = Math.max(280, Math.floor(engine.explorationScrollPixels * 0.95));
+      for (let s = 0; s < 4; s++) {
+        await scrollIntegratedSearchPageDown(page, step);
+        await sleep2(engine.delay("explorationBetweenScrolls"));
+      }
+      const vp0 = page.viewportSize();
+      if (vp0 && vp0.width > 80) {
+        try {
+          await page.mouse.move(Math.floor(vp0.width / 2), Math.floor(vp0.height * 0.38));
+          await page.mouse.wheel(0, 420);
+          await sleep2(280);
+          await page.mouse.wheel(0, 320);
+        } catch {
+        }
+      }
+      await sleep2(450);
+    }
     const MAX_SCROLL = Math.max(engine.maxScrollAttempts, INTEGRATED_SHOP_PAGE_LIMIT);
     let linkClicked = false;
     const fallbackProductTitle = productName;
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
+      const blockedDuringPaging = await detectNaverShoppingAccessBlocked(page);
+      if (blockedDuringPaging) {
+        log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9/\uC1FC\uD551 \uC811\uADFC \uC81C\uD55C \uAC10\uC9C0(\uD398\uC774\uC9C0\uB124\uC774\uC158 \uC911\uB2E8)`, "warn");
+        log2(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+        result.failReason = "IP_BLOCKED";
+        result.error = "ShoppingAccessTemporarilyRestricted";
+        return result;
+      }
       const pagingState = await getIntegratedShoppingPagingState(page);
       const pagingLabel = pagingState?.current && pagingState?.total ? `\uCEF4\uD3EC\uB10C\uD2B8 ${pagingState.current}/${pagingState.total}\uD398\uC774\uC9C0` : `\uD0D0\uC0C9 ${i + 1}/${MAX_SCROLL}`;
       log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 ${pagingLabel} MID(${catalogMid || mid}) \uD655\uC778`);
-      const midLink = await findTrafficMidLink(page, mid, catalogMid);
+      let midLink = await findTrafficMidLink(
+        page,
+        mid,
+        catalogMid,
+        productName,
+        extractStoreAliasFromLinkUrl(linkUrl),
+        keyword
+      );
+      if (!midLink) {
+        const probeSteps = engine.searchFlowVersion === "G" ? 3 : 1;
+        const probeStepPx = Math.max(220, Math.floor(engine.explorationScrollPixels * (engine.searchFlowVersion === "G" ? 0.8 : 0.55)));
+        log2(
+          `[Worker ${workerId}] MID(${catalogMid || mid}) 1\uCC28 \uBBF8\uBC1C\uACAC \u2192 \uD398\uC774\uC9C0 \uC2A4\uD06C\uB864 \uC7AC\uD0D0\uC0C9 ${probeSteps}\uD68C`,
+          "warn"
+        );
+        for (let probe = 0; probe < probeSteps && !midLink; probe++) {
+          await scrollIntegratedSearchPageDown(page, probeStepPx);
+          await sleep2(engine.delay("explorationBetweenScrolls"));
+          midLink = await findTrafficMidLink(
+            page,
+            mid,
+            catalogMid,
+            productName,
+            extractStoreAliasFromLinkUrl(linkUrl),
+            keyword
+          );
+          if (midLink) {
+            log2(
+              `[Worker ${workerId}] MID(${catalogMid || mid}) \uC2A4\uD06C\uB864 \uC7AC\uD0D0\uC0C9 ${probe + 1}/${probeSteps}\uC5D0\uC11C \uBC1C\uACAC`,
+              "warn"
+            );
+          }
+        }
+      }
       if (midLink) {
+        try {
+          await midLink.link.scrollIntoViewIfNeeded({ timeout: 8e3 }).catch(() => {
+          });
+          await midLink.link.evaluate((el) => {
+            if (el instanceof HTMLElement) {
+              el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+            }
+          });
+        } catch {
+        }
+        await sleep2(320 + Math.floor(Math.random() * 220));
         const isVisible = await midLink.link.isVisible().catch(() => false);
-        if (isVisible) {
+        if (!isVisible) {
+          log2(
+            `[Worker ${workerId}] MID \uB9C1\uD06C DOM \uC874\uC7AC\xB7\uC2A4\uD06C\uB864 \uC815\uB82C \uD6C4\uC5D0\uB3C4 \uBE44\uD45C\uC2DC \u2014 \uCD94\uAC00 \uC2A4\uD06C\uB864 \uD6C4 \uC7AC\uC2DC\uB3C4`,
+            "warn"
+          );
+          await scrollIntegratedSearchPageDown(page, Math.floor(engine.explorationScrollPixels * 0.75));
+          await sleep2(engine.delay("explorationBetweenScrolls"));
+        }
+        const isVisible2 = await midLink.link.isVisible().catch(() => false);
+        if (isVisible2) {
           log2(`[Worker ${workerId}] MID(${mid}) \uB9C1\uD06C \uBC1C\uACAC (${midLink.method}) \u2192 \uD074\uB9AD | href=${midLink.hrefSnippet || "-"}`);
           const clicked = await clickTrafficMidLink(page, midLink.link, workerId, midLink.method);
           if (!clicked) {
@@ -3604,10 +4139,22 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
             result.failReason = "DETAIL_NOT_REACHED";
             result.error = "StoreDetailUrlMismatch";
           }
-          const dwellTime = engine.delay("stayOnProduct");
+          if (result.productPageEntered && engine.searchFlowVersion === "G") {
+            log2(`[Worker ${workerId}] G\uBAA8\uB4DC \uC0C1\uC138 \uC2A4\uD06C\uB864 \uC654\uB2E4\uAC14\uB2E4`);
+            await gModeDetailPageOscillateScroll(page, engine);
+          }
+          const dwellTime = result.productPageEntered && engine.searchFlowVersion === "G" ? 4e3 : engine.delay("stayOnProduct");
           log2(`[Worker ${workerId}] \uCCB4\uB958 ${(dwellTime / 1e3).toFixed(1)}\uCD08...`);
           await sleep2(dwellTime);
           break;
+        }
+      }
+      if (midLink && !linkClicked) {
+        const stillHidden = !await midLink.link.isVisible().catch(() => false);
+        if (stillHidden) {
+          log2(`[Worker ${workerId}] MID \uB9C1\uD06C\uAC00 \uBDF0\uD3EC\uD2B8 \uBC16\uC73C\uB85C \uCD94\uC815 \u2014 \uD1B5\uD569\uAC80\uC0C9 \uC2A4\uD06C\uB864\uB85C \uB178\uCD9C \uC2DC\uB3C4`, "warn");
+          await scrollIntegratedSearchPageDown(page, Math.floor(engine.explorationScrollPixels));
+          await sleep2(engine.delay("explorationBetweenScrolls"));
         }
       }
       if (!linkClicked && process.env.NAVERSHOPPING_DEBUG_VISIBLE_MIDS === "1") {
@@ -3642,7 +4189,18 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
         log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uC1FC\uD551 \uCE90\uB7EC\uC140 \uB2E4\uC74C \uBC84\uD2BC \uBBF8\uD074\uB9AD: ${carouselNext.reason}`, "warn");
       }
       log2(`[Worker ${workerId}] \uD1B5\uD569\uAC80\uC0C9 \uCEF4\uD3EC\uB10C\uD2B8 \uB2E4\uC74C \uD398\uC774\uC9C0 \uC5C6\uC74C \u2014 \uC2A4\uD06C\uB864\uB85C \uCD94\uAC00 \uB85C\uB529 \uD655\uC778`);
-      await humanScroll2(page, engine.explorationScrollPixels);
+      if (engine.searchFlowVersion === "G") {
+        await scrollIntegratedSearchPageDown(page, engine.explorationScrollPixels);
+        const vp1 = page.viewportSize();
+        if (vp1 && vp1.width > 80) {
+          try {
+            await page.mouse.move(Math.floor(vp1.width / 2), Math.floor(vp1.height * 0.42));
+            await page.mouse.wheel(0, Math.floor(engine.explorationScrollPixels * 0.9));
+          } catch {
+          }
+        }
+      }
+      await humanScroll2(page, Math.floor(engine.explorationScrollPixels * (engine.searchFlowVersion === "G" ? 0.45 : 1)));
       await sleep2(engine.delay("explorationBetweenScrolls"));
     }
     if (!linkClicked) {
@@ -3672,6 +4230,28 @@ function getPrbRankUserDataDir(workerId) {
   const dir = path3.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
   fs4.mkdirSync(dir, { recursive: true });
   return dir;
+}
+function removeStaleChromiumProfileLocks(userDataDir) {
+  if (process.env.PRB_KEEP_PROFILE_LOCKS === "1")
+    return;
+  const names = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"];
+  const bases = [userDataDir, path3.join(userDataDir, "Default")];
+  for (const base of bases) {
+    try {
+      if (!fs4.existsSync(base))
+        continue;
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const p = path3.join(base, name);
+      try {
+        if (fs4.existsSync(p))
+          fs4.unlinkSync(p);
+      } catch {
+      }
+    }
+  }
 }
 async function clearBrowserContextCookiesAndCache(context, workerId) {
   try {
@@ -3741,11 +4321,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
             `--window-size=${winW},${winH}`
           ]
         };
-        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
-        if (browserChannel) {
-          browserLaunchOptions.channel = browserChannel;
-        }
-        browser = await import_patchright.chromium.launch(browserLaunchOptions);
+        browser = await launchChromiumWithChannelFallback(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(false, ua);
         context = await browser.newContext({
           ...ctxOpts,
@@ -3756,6 +4332,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         page.setDefaultNavigationTimeout(6e4);
       } else if (isRankD) {
         const userDataDir = getPrbRankUserDataDir(workerId);
+        removeStaleChromiumProfileLocks(userDataDir);
         if (ENGINE.logEngineEvents) {
           log2(`[Engine] Worker ${workerId} \uC21C\uC704 PRB \uD504\uB85C\uD544: ${userDataDir}`);
         }
@@ -3793,11 +4370,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
             `--window-size=${winW},${winH}`
           ]
         };
-        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
-        if (browserChannel) {
-          browserLaunchOptions.channel = browserChannel;
-        }
-        browser = await import_patchright.chromium.launch(browserLaunchOptions);
+        browser = await launchChromiumWithChannelFallback(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
         context = await browser.newContext({
           ...ctxOpts,
@@ -3851,7 +4424,8 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         ENGINE,
         work.keywordName,
         work.secondKeywordRaw,
-        work.catalogMid
+        work.catalogMid,
+        work.linkUrl
       );
       if (isRankD) {
         if (engineResult.rankCheckOk) {
@@ -3881,7 +4455,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         }
       } else {
         totalFailed++;
-        const failReason = engineResult.failReason === "CAPTCHA_UNSOLVED" ? "CAPTCHA" : engineResult.failReason === "IP_BLOCKED" ? "IP\uCC28\uB2E8" : engineResult.failReason === "NO_MID_MATCH" ? "MID\uC5C6\uC74C" : engineResult.failReason === "DETAIL_NOT_REACHED" ? "\uC0C1\uC138\uBBF8\uC9C4\uC785" : engineResult.failReason === "TIMEOUT" ? "\uD0C0\uC784\uC544\uC6C3" : engineResult.failReason === "INVALID_TASK" ? "\uC791\uC5C5\uC124\uC815\uC624\uB958" : engineResult.error || "Unknown";
+        const failReason = engineResult.failReason === "CAPTCHA_UNSOLVED" ? "CAPTCHA" : engineResult.failReason === "IP_BLOCKED" ? "IP\uCC28\uB2E8" : engineResult.failReason === "NO_MID_MATCH" ? "MID\uC5C6\uC74C" : engineResult.failReason === "DETAIL_NOT_REACHED" ? "\uC0C1\uC138\uBBF8\uC9C4\uC785" : engineResult.failReason === "PRODUCT_NOT_FOUND" ? "\uC0C1\uD488\uBBF8\uB178\uCD9C" : engineResult.failReason === "TIMEOUT" ? "\uD0C0\uC784\uC544\uC6C3" : engineResult.failReason === "INVALID_TASK" ? "\uC791\uC5C5\uC124\uC815\uC624\uB958" : engineResult.error || "Unknown";
         writeEngineTaskResult(work, engineResult);
         const failMsg = `[\uC2E4\uD328] Worker${workerId} | slot_sequence=${work.slotSequence} | \uC0AC\uC720=${failReason} | ${productShort}...`;
         log2(failMsg, "warn");
@@ -3902,7 +4476,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         } else {
           log2(`[Worker ${workerId}] FAIL(${engineResult.error || "Unknown"}) | ${productShort}...`, "warn");
         }
-        if (ENGINE.searchFlowVersion === "A" && shouldBlacklistSecondComboAfterRun(engineResult)) {
+        if (shouldAppendSecondComboBlacklistAfterRun(ENGINE.searchFlowVersion, engineResult)) {
           await appendSecondComboBlacklistEntry(
             ENGINE,
             work.mid,
@@ -3922,9 +4496,10 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       await sleep2(5e3);
     } finally {
       if (rankPrbBrowser) {
-        await sleep2(randomBetween(100, 500));
+        await sleep2(randomBetween(200, 500));
         await rankPrbBrowser.close().catch(() => {
         });
+        await sleep2(randomBetween(800, 1500));
       } else {
         if (context) {
           await clearBrowserContextCookiesAndCache(context, workerId);

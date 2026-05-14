@@ -72,6 +72,25 @@ function testFlowCRequiresKeywordName(): void {
   assert.ok(validation.errors.some((error) => error.includes("flow C requires keywordName")));
 }
 
+function testFlowGRequiresKeywordName(): void {
+  const strategy: StrategyFile = {
+    version: 1,
+    name: "flow-g-invalid",
+    runtime: {
+      search: { searchFlowVersion: "G" },
+    },
+    tasks: [
+      {
+        keyword: "테스트",
+        linkUrl: "https://smartstore.naver.com/example/products/1234567890",
+      },
+    ],
+  };
+
+  const validation = validateStrategy(strategy);
+  assert.ok(validation.errors.some((error) => error.includes("flow G requires keywordName")));
+}
+
 function testTasksFormatterKeepsGuiCompatibility(): void {
   const text = formatTasksText([
     {
@@ -99,6 +118,7 @@ function testTasksFormatterKeepsGuiCompatibility(): void {
 
 testApplyStrategyWritesRuntimeFiles();
 testFlowCRequiresKeywordName();
+testFlowGRequiresKeywordName();
 testTasksFormatterKeepsGuiCompatibility();
 
 console.log("strategy-sync tests passed");

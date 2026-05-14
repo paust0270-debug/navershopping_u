@@ -28,6 +28,72 @@ function buildSecondSearchPhrase(firstKeyword: string, keywordName: string): str
   return parts.join(" ");
 }
 
+function tokenizeKeywordWords(text: string): string[] {
+  return (text || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+function shuffleArrayInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
+/** G모드: 메인 키워드에서 1단어 + 2차 텍스트 풀에서 4단어(중복 최소화, 부족 시 반복 추출) = 총 5단어 */
+export function buildGIntegratedFiveWordQuery(mainKeyword: string, secondaryText: string): string {
+  const mainWords = tokenizeKeywordWords(mainKeyword);
+  const mainPick = mainWords.length > 0 ? mainWords[Math.floor(Math.random() * mainWords.length)] : "상품";
+  let pool = [...new Set(tokenizeKeywordWords(secondaryText))].filter((w) => w !== mainPick);
+  if (pool.length === 0) {
+    pool = [...new Set(tokenizeKeywordWords(secondaryText))];
+  }
+  if (pool.length === 0) {
+    pool = [mainPick];
+  }
+  const shuffled = [...pool];
+  shuffleArrayInPlace(shuffled);
+  const four: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    four.push(shuffled[i % shuffled.length]);
+  }
+  return [mainPick, ...four].join(" ");
+}
+
+export function pickGSecondSearchPhraseAvoidingBlacklist(
+  engine: EngineRuntime,
+  mid: string,
+  firstKeyword: string,
+  keywordName: string,
+  workerId: number,
+  deps: TrafficSearchFlowDeps
+): string {
+  if (!engine.keywordBlacklistEnabled) {
+    return buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+  }
+  const maxTries = 200;
+  for (let t = 0; t < maxTries; t++) {
+    const phrase = buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+    if (!deps.isSecondComboBlacklisted(engine, mid, phrase)) {
+      if (t > 0) {
+        deps.log(
+          `[Worker ${workerId}] [KeywordBlacklist] G 2차 5단어 ${t + 1}번째 시도로 채택: "${phrase.substring(0, 50)}${phrase.length > 50 ? "..." : ""}"`
+        );
+      }
+      return phrase;
+    }
+  }
+  const fallback = buildGIntegratedFiveWordQuery(firstKeyword, keywordName);
+  deps.log(
+    `[Worker ${workerId}] [KeywordBlacklist] G 2차 제외 목록과 충돌 다수 — 임의 5단어 사용: "${fallback.substring(0, 50)}${fallback.length > 50 ? "..." : ""}"`,
+    "warn"
+  );
+  return fallback;
+}
+
 export function pickSecondSearchPhraseAvoidingBlacklist(
   engine: EngineRuntime,
   mid: string,

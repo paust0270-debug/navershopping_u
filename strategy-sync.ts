@@ -161,6 +161,9 @@ export function validateStrategy(strategy: StrategyFile): StrategyValidation {
     if (flow === "C" && !task.keywordName) {
       errors.push(`${label}: flow C requires keywordName.`);
     }
+    if (flow === "G" && !task.keywordName) {
+      errors.push(`${label}: flow G requires keywordName (2차 단어 풀).`);
+    }
     if (flow !== "D" && task.checked && task.targetCount <= 0) {
       warnings.push(`${label}: non-D flows usually need targetCount > 0 for infinite-run parity.`);
     }
@@ -174,7 +177,7 @@ export function validateStrategy(strategy: StrategyFile): StrategyValidation {
 }
 
 function isSupportedSearchFlowVersion(value: string): value is SearchFlowVersion {
-  return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F";
+  return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F" || value === "G";
 }
 
 export function loadStrategyFile(strategyPath: string): StrategyFile {
