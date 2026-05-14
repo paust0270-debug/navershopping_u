@@ -40,7 +40,7 @@ const CONFIG_CANDIDATES = [
 ];
 
 const DEFAULT_DESKTOP_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 const DEFAULT_DELAY_SPECS: Record<string, number | { min: number; max: number }> = {
   browserLaunch: 2000,
@@ -64,7 +64,7 @@ const DEFAULT_DELAY_SPECS: Record<string, number | { min: number; max: number }>
 
 export const MOBILE_CONTEXT_OPTIONS = {
   userAgent:
-    "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
   viewport: { width: 520, height: 860 },
   isMobile: true,
   hasTouch: true,
@@ -72,7 +72,7 @@ export const MOBILE_CONTEXT_OPTIONS = {
   locale: "ko-KR",
   timezoneId: "Asia/Seoul",
   extraHTTPHeaders: {
-    "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?1",
     "sec-ch-ua-platform": '"Android"',
   },

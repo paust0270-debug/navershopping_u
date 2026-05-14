@@ -555,7 +555,7 @@ var CONFIG_CANDIDATES = [
   path2.join(process.cwd(), "engine-config.json"),
   path2.join(__dirname, "engine-config.json")
 ];
-var DEFAULT_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
+var DEFAULT_DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 var DEFAULT_DELAY_SPECS = {
   browserLaunch: 2e3,
   browserLoad: { min: 2500, max: 4e3 },
@@ -576,7 +576,7 @@ var DEFAULT_DELAY_SPECS = {
   taskGapRest: { min: 2e3, max: 3e3 }
 };
 var MOBILE_CONTEXT_OPTIONS = {
-  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36",
+  userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
   viewport: { width: 520, height: 860 },
   isMobile: true,
   hasTouch: true,
@@ -584,7 +584,7 @@ var MOBILE_CONTEXT_OPTIONS = {
   locale: "ko-KR",
   timezoneId: "Asia/Seoul",
   extraHTTPHeaders: {
-    "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?1",
     "sec-ch-ua-platform": '"Android"'
   }
@@ -1118,23 +1118,23 @@ var ReceiptCaptchaSolverPRB = class {
 var MOBILE_STEALTH_SCRIPT = `
 // ============================================================
 // \uBAA8\uBC14\uC77C \uC2A4\uD154\uC2A4 \uC2A4\uD06C\uB9BD\uD2B8 - navigator \uBC0F API \uC624\uBC84\uB77C\uC774\uB4DC
-// Chrome 136 / Android 14 / SM-S911B (Galaxy S23)
+// Chrome 137 / Android 14 / SM-S911B (Galaxy S23)
 // ============================================================
 
 // 1. navigator.userAgentData \uC624\uBC84\uB77C\uC774\uB4DC (Client Hints API)
 Object.defineProperty(navigator, 'userAgentData', {
   get: () => ({
     brands: [
-      { brand: 'Chromium', version: '136' },
-      { brand: 'Google Chrome', version: '136' },
+      { brand: 'Chromium', version: '137' },
+      { brand: 'Google Chrome', version: '137' },
       { brand: 'Not-A.Brand', version: '99' }
     ],
     mobile: true,
     platform: 'Android',
     getHighEntropyValues: async (hints) => ({
       brands: [
-        { brand: 'Chromium', version: '136' },
-        { brand: 'Google Chrome', version: '136' },
+        { brand: 'Chromium', version: '137' },
+        { brand: 'Google Chrome', version: '137' },
         { brand: 'Not-A.Brand', version: '99' }
       ],
       mobile: true,
@@ -1143,10 +1143,10 @@ Object.defineProperty(navigator, 'userAgentData', {
       architecture: 'arm',
       bitness: '64',
       model: 'SM-S911B',
-      uaFullVersion: '136.0.0.0',
+      uaFullVersion: '137.0.0.0',
       fullVersionList: [
-        { brand: 'Chromium', version: '136.0.0.0' },
-        { brand: 'Google Chrome', version: '136.0.0.0' },
+        { brand: 'Chromium', version: '137.0.0.0' },
+        { brand: 'Google Chrome', version: '137.0.0.0' },
         { brand: 'Not-A.Brand', version: '99.0.0.0' }
       ]
     }),
