@@ -68,6 +68,7 @@ import {
   pickProxyConfig,
   buildBrowserContextOptions,
   type EngineRuntime,
+  type SearchFlowVersion,
 } from "./engine-config";
 import { connect } from "puppeteer-real-browser";
 import { ReceiptCaptchaSolverPRB } from "./captcha/ReceiptCaptchaSolverPRB";
@@ -125,12 +126,12 @@ const STRATEGY_ARG = (() => {
 // 브라우저 창 위치 (4분할 배치 - 모바일 사이트용 좁은 창)
 const BROWSER_POSITIONS: { x: number; y: number }[] = [
   { x: 0, y: 0 },      // Worker 1: 좌상단
-  { x: 480, y: 0 },    // Worker 2: 우상단
-  { x: 0, y: 540 },    // Worker 3: 좌하단
-  { x: 480, y: 540 },  // Worker 4: 우하단
+  { x: 560, y: 0 },    // Worker 2: 우상단
+  { x: 0, y: 760 },    // Worker 3: 좌하단
+  { x: 560, y: 760 },  // Worker 4: 우하단
 ];
-const BROWSER_WIDTH = 480;   // 브라우저 너비 (모바일 사이트용)
-const BROWSER_HEIGHT = 540;  // 브라우저 높이
+const BROWSER_WIDTH = 560;   // 브라우저 너비 (모바일 사이트용)
+const BROWSER_HEIGHT = 760;  // 브라우저 높이
 
 /** 엔진 설정 — engine-config.json 또는 --strategy 런타임으로 초기화 */
 let ENGINE = loadEngineConfig();
@@ -171,6 +172,14 @@ function isSecondComboBlacklisted(runtime: EngineRuntime, mid: string, secondSea
   const key = secondComboEntryKey(mid, secondSearchPhrase);
   const items = readKeywordBlacklistItems(runtime.keywordBlacklistPath);
   return items.some((e) => secondComboEntryKey(e.mid, storedComboFromItem(e)) === key);
+}
+
+function countBlacklistedSecondCombosForMid(runtime: EngineRuntime, mid: string): number {
+  if (!runtime.keywordBlacklistEnabled) return 0;
+  const targetMid = (mid || "").trim();
+  if (!targetMid) return 0;
+  const items = readKeywordBlacklistItems(runtime.keywordBlacklistPath);
+  return items.filter((e) => (e.mid || "").trim() === targetMid).length;
 }
 
 async function appendSecondComboBlacklistEntry(
@@ -448,6 +457,137 @@ async function humanScroll(page: Page, targetY: number): Promise<void> {
   }
 }
 
+/** 모바일 통합검색(m.search): 쇼핑 블록이 아래에 있을 때 window가 아닌 #ct 등이 스크롤된다. */
+async function scrollIntegratedSearchPageDown(page: Page, deltaY: number): Promise<void> {
+  await page
+    .evaluate((dy) => {
+      const hints = ["#ct", "#content", "#main_pack", ".api_subject_bx", ".sc_new", "#wrap", "main"];
+      for (const sel of hints) {
+        const el = document.querySelector(sel);
+        if (el instanceof HTMLElement) {
+          const sh = el.scrollHeight;
+          const ch = el.clientHeight;
+          if (sh > ch + 50) {
+            const max = sh - ch;
+            el.scrollTop = Math.min(max, Math.max(0, el.scrollTop + dy));
+            return true;
+          }
+        }
+      }
+      let best: HTMLElement | null = null;
+      let bestExcess = 0;
+      for (const el of document.body.querySelectorAll("div")) {
+        if (!(el instanceof HTMLElement)) continue;
+        const st = getComputedStyle(el);
+        if (st.overflowY !== "scroll" && st.overflowY !== "auto") continue;
+        const excess = el.scrollHeight - el.clientHeight;
+        if (excess > bestExcess && excess > 100) {
+          bestExcess = excess;
+          best = el;
+        }
+      }
+      if (best) {
+        const max = best.scrollHeight - best.clientHeight;
+        best.scrollTop = Math.min(max, Math.max(0, best.scrollTop + dy));
+        return true;
+      }
+      window.scrollBy(0, dy);
+      return true;
+    }, deltaY)
+    .catch(() => {});
+  await sleep(120 + Math.floor(Math.random() * 120));
+}
+
+/**
+ * 스마트스토어/브랜드 모바일 상세는 window가 아니라 내부 overflow 영역이 스크롤된다.
+ * CDP synthesizeScrollGesture만으로는 움직임이 없는 경우가 많아 scrollTop + mouse.wheel 병행.
+ */
+async function scrollSmartstoreDetailBy(page: Page, deltaY: number): Promise<void> {
+  const applied = await page
+    .evaluate((dy) => {
+      const pickScrollTarget = (): Element => {
+        const hints = ["#wrap", "main", "#content", "#__next", '[id*="layout"]', ".container"];
+        for (const sel of hints) {
+          const el = document.querySelector(sel);
+          if (el instanceof HTMLElement) {
+            const sh = el.scrollHeight;
+            const ch = el.clientHeight;
+            if (sh > ch + 60) return el;
+          }
+        }
+        let best: HTMLElement | null = null;
+        let bestExcess = 0;
+        const nodes = document.body.querySelectorAll("div, main, section, article");
+        for (const el of nodes) {
+          if (!(el instanceof HTMLElement)) continue;
+          const st = getComputedStyle(el);
+          if (st.overflowY !== "scroll" && st.overflowY !== "auto") continue;
+          const excess = el.scrollHeight - el.clientHeight;
+          if (excess > bestExcess && excess > 100) {
+            bestExcess = excess;
+            best = el;
+          }
+        }
+        return best || (document.scrollingElement as Element) || document.documentElement;
+      };
+
+      const target = pickScrollTarget();
+      const docEl = document.documentElement;
+      const body = document.body;
+      if (target === docEl || target === body || target === document.scrollingElement) {
+        window.scrollBy(0, dy);
+        return true;
+      }
+      if (target instanceof HTMLElement) {
+        const max = target.scrollHeight - target.clientHeight;
+        const next = Math.max(0, Math.min(max, target.scrollTop + dy));
+        if (next !== target.scrollTop) {
+          target.scrollTop = next;
+          return true;
+        }
+      }
+      window.scrollBy(0, dy);
+      return true;
+    }, deltaY)
+    .catch(() => false);
+  if (!applied) {
+    await page.evaluate((dy) => window.scrollBy(0, dy), deltaY).catch(() => {});
+  }
+  await sleep(160 + Math.floor(Math.random() * 140));
+}
+
+/** G모드 상세: 메인 스크롤 컨테이너 + 뷰포트 휠로 아래→위→아래 */
+async function gModeDetailPageOscillateScroll(page: Page, engine: EngineRuntime): Promise<void> {
+  const base = Math.min(520, Math.max(220, engine.explorationScrollPixels));
+  const down1 = Math.floor(base * 0.55);
+  const up = -Math.floor(base * 0.38);
+  const down2 = Math.floor(base * 0.3);
+
+  await scrollSmartstoreDetailBy(page, down1);
+  await sleep(engine.delay("explorationBetweenScrolls"));
+  await scrollSmartstoreDetailBy(page, up);
+  await sleep(engine.delay("explorationBetweenScrolls"));
+  await scrollSmartstoreDetailBy(page, down2);
+
+  const vp = page.viewportSize();
+  if (vp && vp.width > 80 && vp.height > 80) {
+    const cx = Math.max(20, Math.floor(vp.width / 2));
+    const cy = Math.max(20, Math.floor(vp.height * 0.45));
+    try {
+      await page.mouse.move(cx, cy);
+      await page.mouse.wheel(0, 340);
+      await sleep(220 + Math.floor(Math.random() * 120));
+      await page.mouse.wheel(0, -200);
+      await sleep(200 + Math.floor(Math.random() * 100));
+      await page.mouse.wheel(0, 140);
+    } catch {
+      /* 휠 미지원 환경 등 */
+    }
+  }
+
+  await sleep(200 + Math.floor(Math.random() * 160));
+}
+
 // ============ [행동 계층] 인간화 타이핑 ============
 // 봇 탐지 우회: 랜덤한 키 입력 딜레이 (30~60ms)
 async function humanizedType(page: Page, selector: string, text: string): Promise<void> {
@@ -507,7 +647,7 @@ function readNaverAccountFile(): NaverAccountRead {
   const lines = raw
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith("#"));
+    .filter((l) => l.length > 0);
   if (lines.length < 2) {
     log("[NaverLogin] naver-account.txt: 아이디·비밀번호 2줄 필요", "warn");
     return { status: "invalid" };
@@ -1032,6 +1172,29 @@ interface StrategyQueue {
 
 let strategyQueue: StrategyQueue | null = null;
 
+function buildBrowserChannelCandidates(): Array<string | undefined> {
+  const explicit = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
+  if (explicit && explicit.trim()) return [explicit.trim()];
+  return ["chrome", "msedge", undefined];
+}
+
+async function launchChromiumWithChannelFallback(browserLaunchOptions: any): Promise<Browser> {
+  let lastError: unknown;
+  for (const channel of buildBrowserChannelCandidates()) {
+    const options = { ...browserLaunchOptions };
+    if (channel) options.channel = channel;
+    else delete options.channel;
+    try {
+      return await chromium.launch(options);
+    } catch (e) {
+      lastError = e;
+      const msg = String((e as any)?.message || e || "");
+      if (!/Executable doesn't exist|Failed to launch|channel/i.test(msg)) throw e;
+    }
+  }
+  throw lastError ?? new Error("chromium launch failed");
+}
+
 function reloadEngineConfigForNextClaim(): void {
   const previous = ENGINE;
   const next = loadEngineConfig();
@@ -1153,10 +1316,38 @@ interface EngineResult {
   catalogMid?: string | null;
 }
 
+async function detectNaverShoppingAccessBlocked(page: Page): Promise<boolean> {
+  return page
+    .evaluate(() => {
+      const bodyText = document.body?.innerText || "";
+      const titleText = document.title || "";
+      const merged = `${titleText}\n${bodyText}`;
+      return (
+        merged.includes("비정상적인 접근") ||
+        merged.includes("자동화된 접근") ||
+        merged.includes("접근이 제한") ||
+        merged.includes("접속이 제한") ||
+        merged.includes("쇼핑 서비스 접속이 일시적으로 제한") ||
+        merged.includes("이용이 제한") ||
+        merged.includes("비정상적인 요청") ||
+        merged.includes("잠시 후 다시")
+      );
+    })
+    .catch(() => false);
+}
+
 /** 스마트스토어/브랜드 상세 미도달이면서, 해당 2차 조합이 실패 원인일 때만 조합 블랙리스트 (캡차/IP/타임아웃 등 제외) */
 function shouldBlacklistSecondComboAfterRun(r: EngineResult): boolean {
   if (r.productPageEntered) return false;
   return r.failReason === "NO_MID_MATCH" || r.failReason === "DETAIL_NOT_REACHED";
+}
+
+/** A: 상세 미진입·MID불일치 시 블랙리스트. G: 2차 통합검색에서 상품 미노출(PRODUCT_NOT_FOUND) 시 제외키워드(동일 파일) 누적 */
+function shouldAppendSecondComboBlacklistAfterRun(flow: SearchFlowVersion, r: EngineResult): boolean {
+  if (flow === "G" && r.failReason === "PRODUCT_NOT_FOUND" && (r.secondSearchPhraseUsed || "").trim()) {
+    return true;
+  }
+  return flow === "A" && shouldBlacklistSecondComboAfterRun(r);
 }
 
 /** 외부 엔진이 읽을 처리 결과 — engine-last-result.json (경로는 ENGINE_RESULT_FILE / engine-config) */
@@ -1350,9 +1541,12 @@ async function inspectDetailSystemError(page: Page): Promise<{ detected: boolean
 async function findTrafficMidLink(
   page: Page,
   mid: string,
-  catalogMid?: string
+  catalogMid?: string,
+  expectedProductName?: string,
+  expectedStoreAlias?: string,
+  expectedKeyword?: string
 ): Promise<{ link: any; method: string; hrefSnippet: string } | null> {
-  const linkHandle = await page.evaluateHandle(({ mid, catalogMid }) => {
+  const linkHandle = await page.evaluateHandle(({ mid, catalogMid, expectedProductName, expectedStoreAlias, expectedKeyword }) => {
     const mids = [catalogMid, mid].filter(Boolean) as string[];
     const isAdAnchor = (anchor: HTMLAnchorElement): boolean => {
       const inventory =
@@ -1381,6 +1575,70 @@ async function findTrafficMidLink(
         )
       );
     };
+    const normalize = (s: string): string =>
+      String(s || "")
+        .toLowerCase()
+        .replace(/\u00a0/g, " ")
+        .replace(/[^\wㄱ-ㅎㅏ-ㅣ가-힣]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    const normProduct = normalize(expectedProductName || "");
+    const productTokens = normProduct.split(" ").filter((t) => t.length >= 2);
+    const normStoreAlias = normalize(expectedStoreAlias || "");
+    const normKeyword = normalize(expectedKeyword || "");
+    const hasStoreAlias = (text: string): boolean => {
+      if (!normStoreAlias) return false;
+      return normalize(text).includes(normStoreAlias);
+    };
+    const collectAnchorContextText = (anchor: HTMLAnchorElement): string => {
+      const chunks: string[] = [];
+      const own = (anchor.textContent || "").trim();
+      if (own) chunks.push(own);
+      const card =
+        anchor.closest("[data-shp-contents-id]") ||
+        anchor.closest("li") ||
+        anchor.closest("article") ||
+        anchor.closest("div");
+      if (card) {
+        const cardText = (card.textContent || "").trim();
+        if (cardText) chunks.push(cardText.slice(0, 700));
+      }
+      const aria = `${anchor.getAttribute("aria-label") || ""} ${anchor.getAttribute("title") || ""}`.trim();
+      if (aria) chunks.push(aria);
+      return chunks.join(" ");
+    };
+    const isTitleStoreFallbackMatch = (anchor: HTMLAnchorElement): boolean => {
+      const href = anchor.href || anchor.getAttribute("href") || "";
+      if (!(href.includes("searchGate") || href.includes("nv_mid="))) return false;
+      if (isAdAnchor(anchor)) return false;
+      const contextText = collectAnchorContextText(anchor);
+      const normContext = normalize(contextText);
+      let hit = 0;
+      for (const token of productTokens) {
+        if (normContext.includes(token)) hit++;
+      }
+      const ratio = productTokens.length > 0 ? hit / productTokens.length : 0;
+      const keywordMatched = normKeyword && normKeyword.length >= 2 ? normContext.includes(normKeyword) : false;
+
+      // 1) 스토어 별칭이 맞을 때는 느슨하게 통과 (통검 노출 상호와 링크 도메인이 일치하는 일반 케이스)
+      if (normStoreAlias && hasStoreAlias(contextText)) {
+        if (keywordMatched) return true;
+        if (productTokens.length === 0) return true;
+        if (productTokens.length <= 2) return hit >= 1;
+        if (productTokens.length <= 4) return hit >= 2;
+        return hit >= 2 && ratio >= 0.45;
+      }
+
+      // 2) 스토어 별칭이 다르게 노출되는 케이스(예: flower-eshop vs 메인 플라워)는
+      //    상품명 강일치일 때만 통과
+      if (productTokens.length >= 5) {
+        return hit >= 4 && ratio >= 0.65;
+      }
+      if (productTokens.length >= 3) {
+        return hit >= 3 && ratio >= 0.75;
+      }
+      return false;
+    };
     const scoreAnchor = (anchor: HTMLAnchorElement): { score: number; method: string } | null => {
       if (isAdAnchor(anchor)) return null;
       const href = anchor.href || anchor.getAttribute("href") || "";
@@ -1408,6 +1666,9 @@ async function findTrafficMidLink(
       }
       for (const targetMid of mids) {
         if (directProductHref(href, targetMid)) return { score: 6, method: "direct-product" };
+      }
+      if (isTitleStoreFallbackMatch(anchor)) {
+        return { score: 7, method: "title-store-fallback" };
       }
       return null;
     };
@@ -1455,7 +1716,13 @@ async function findTrafficMidLink(
     }
 
     return { link: null, method: "", hrefSnippet: "" };
-  }, { mid, catalogMid: catalogMid ?? null });
+  }, {
+    mid,
+    catalogMid: catalogMid ?? null,
+    expectedProductName: expectedProductName ?? null,
+    expectedStoreAlias: expectedStoreAlias ?? null,
+    expectedKeyword: expectedKeyword ?? null,
+  });
 
   const props = await linkHandle.getProperties();
   const link = props.get("link")?.asElement();
@@ -1463,6 +1730,20 @@ async function findTrafficMidLink(
   const hrefSnippet = await props.get("hrefSnippet")?.jsonValue().catch(() => "");
   await linkHandle.dispose().catch(() => {});
   return link ? { link, method: String(method || "unknown"), hrefSnippet: String(hrefSnippet || "") } : null;
+}
+
+function extractStoreAliasFromLinkUrl(linkUrl?: string): string {
+  const raw = (linkUrl || "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    if (!/smartstore\.naver\.com$/i.test(u.hostname)) return "";
+    const seg = (u.pathname || "/").split("/").filter(Boolean);
+    if (seg.length > 0) return seg[0] || "";
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 async function clickTrafficMidLink(page: Page, link: any, workerId: number, method: string): Promise<boolean> {
@@ -1902,7 +2183,8 @@ async function runPatchrightEngine(
   engine: EngineRuntime,
   keywordName?: string,
   secondKeywordRaw?: string,
-  catalogMid?: string
+  catalogMid?: string,
+  linkUrl?: string
 ): Promise<EngineResult> {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log(`[Worker ${workerId}] ${msg}`));
 
@@ -1928,6 +2210,7 @@ async function runPatchrightEngine(
       log,
       sleep,
       isSecondComboBlacklisted,
+      countBlacklistedSecondCombosForMid,
     });
     if (!searchSetup.ok) {
       result.failReason = searchSetup.failReason;
@@ -1939,15 +2222,7 @@ async function runPatchrightEngine(
     }
 
     // IP 차단 체크
-    const isBlocked = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || '';
-      return bodyText.includes('비정상적인 접근') ||
-             bodyText.includes('자동화된 접근') ||
-             bodyText.includes('접근이 제한') ||
-             bodyText.includes('잠시 후 다시') ||
-             bodyText.includes('비정상적인 요청') ||
-             bodyText.includes('이용이 제한');
-    }).catch(() => false);
+    const isBlocked = await detectNaverShoppingAccessBlocked(page);
 
     if (isBlocked) {
       log(`[Worker ${workerId}] IP 차단 감지!`, "warn");
@@ -1961,12 +2236,42 @@ async function runPatchrightEngine(
       return result;
     }
 
+    // G: 2차 검색 직후 쇼핑 카드가 접힌 영역 아래에 있는 경우가 많아, MID 탐색 전에 먼저 아래로 밀어 올린다.
+    if (engine.searchFlowVersion === "G") {
+      log(`[Worker ${workerId}] G모드 2차 검색 직후 쇼핑 영역까지 페이지 스크롤(선탐색)`);
+      const step = Math.max(280, Math.floor(engine.explorationScrollPixels * 0.95));
+      for (let s = 0; s < 4; s++) {
+        await scrollIntegratedSearchPageDown(page, step);
+        await sleep(engine.delay("explorationBetweenScrolls"));
+      }
+      const vp0 = page.viewportSize();
+      if (vp0 && vp0.width > 80) {
+        try {
+          await page.mouse.move(Math.floor(vp0.width / 2), Math.floor(vp0.height * 0.38));
+          await page.mouse.wheel(0, 420);
+          await sleep(280);
+          await page.mouse.wheel(0, 320);
+        } catch {
+          /* ignore */
+        }
+      }
+      await sleep(450);
+    }
+
     // 8. 통합검색 컴포넌트 페이지네이션: 현재 페이지 MID 확인 → 없으면 다음 컴포넌트 페이지
     const MAX_SCROLL = Math.max(engine.maxScrollAttempts, INTEGRATED_SHOP_PAGE_LIMIT);
     let linkClicked = false;
     const fallbackProductTitle = productName;
 
     for (let i = 0; i < MAX_SCROLL && !linkClicked; i++) {
+      const blockedDuringPaging = await detectNaverShoppingAccessBlocked(page);
+      if (blockedDuringPaging) {
+        log(`[Worker ${workerId}] 통합검색/쇼핑 접근 제한 감지(페이지네이션 중단)`, "warn");
+        log(await collectSearchDomDiagnostics(page, mid, catalogMid), "warn");
+        result.failReason = "IP_BLOCKED";
+        result.error = "ShoppingAccessTemporarilyRestricted";
+        return result;
+      }
       const pagingState = await getIntegratedShoppingPagingState(page);
       const pagingLabel = pagingState?.current && pagingState?.total
         ? `컴포넌트 ${pagingState.current}/${pagingState.total}페이지`
@@ -1974,11 +2279,65 @@ async function runPatchrightEngine(
       log(`[Worker ${workerId}] 통합검색 ${pagingLabel} MID(${catalogMid || mid}) 확인`);
 
       // D 전략 제외 트래픽 진입: 광고 제외 후 data-shp/nv_mid/searchGate를 직접 상품 URL보다 우선 클릭
-      const midLink = await findTrafficMidLink(page, mid, catalogMid);
+      let midLink = await findTrafficMidLink(
+        page,
+        mid,
+        catalogMid,
+        productName,
+        extractStoreAliasFromLinkUrl(linkUrl),
+        keyword
+      );
+
+      if (!midLink) {
+        const probeSteps = engine.searchFlowVersion === "G" ? 3 : 1;
+        const probeStepPx = Math.max(220, Math.floor(engine.explorationScrollPixels * (engine.searchFlowVersion === "G" ? 0.8 : 0.55)));
+        log(
+          `[Worker ${workerId}] MID(${catalogMid || mid}) 1차 미발견 → 페이지 스크롤 재탐색 ${probeSteps}회`,
+          "warn"
+        );
+        for (let probe = 0; probe < probeSteps && !midLink; probe++) {
+          await scrollIntegratedSearchPageDown(page, probeStepPx);
+          await sleep(engine.delay("explorationBetweenScrolls"));
+          midLink = await findTrafficMidLink(
+            page,
+            mid,
+            catalogMid,
+            productName,
+            extractStoreAliasFromLinkUrl(linkUrl),
+            keyword
+          );
+          if (midLink) {
+            log(
+              `[Worker ${workerId}] MID(${catalogMid || mid}) 스크롤 재탐색 ${probe + 1}/${probeSteps}에서 발견`,
+              "warn"
+            );
+          }
+        }
+      }
 
       if (midLink) {
+        try {
+          await midLink.link.scrollIntoViewIfNeeded({ timeout: 8000 }).catch(() => {});
+          await midLink.link.evaluate((el: Element) => {
+            if (el instanceof HTMLElement) {
+              el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior });
+            }
+          });
+        } catch {
+          /* ignore */
+        }
+        await sleep(320 + Math.floor(Math.random() * 220));
         const isVisible = await midLink.link.isVisible().catch(() => false);
-        if (isVisible) {
+        if (!isVisible) {
+          log(
+            `[Worker ${workerId}] MID 링크 DOM 존재·스크롤 정렬 후에도 비표시 — 추가 스크롤 후 재시도`,
+            "warn"
+          );
+          await scrollIntegratedSearchPageDown(page, Math.floor(engine.explorationScrollPixels * 0.75));
+          await sleep(engine.delay("explorationBetweenScrolls"));
+        }
+        const isVisible2 = await midLink.link.isVisible().catch(() => false);
+        if (isVisible2) {
           log(`[Worker ${workerId}] MID(${mid}) 링크 발견 (${midLink.method}) → 클릭 | href=${midLink.hrefSnippet || "-"}`);
           const clicked = await clickTrafficMidLink(page, midLink.link, workerId, midLink.method);
           if (!clicked) {
@@ -2097,10 +2456,26 @@ async function runPatchrightEngine(
             result.error = "StoreDetailUrlMismatch";
           }
 
-          const dwellTime = engine.delay("stayOnProduct");
+          if (result.productPageEntered && engine.searchFlowVersion === "G") {
+            log(`[Worker ${workerId}] G모드 상세 스크롤 왔다갔다`);
+            await gModeDetailPageOscillateScroll(page, engine);
+          }
+          const dwellTime =
+            result.productPageEntered && engine.searchFlowVersion === "G"
+              ? 4000
+              : engine.delay("stayOnProduct");
           log(`[Worker ${workerId}] 체류 ${(dwellTime / 1000).toFixed(1)}초...`);
           await sleep(dwellTime);
           break;
+        }
+      }
+
+      if (midLink && !linkClicked) {
+        const stillHidden = !(await midLink.link.isVisible().catch(() => false));
+        if (stillHidden) {
+          log(`[Worker ${workerId}] MID 링크가 뷰포트 밖으로 추정 — 통합검색 스크롤로 노출 시도`, "warn");
+          await scrollIntegratedSearchPageDown(page, Math.floor(engine.explorationScrollPixels));
+          await sleep(engine.delay("explorationBetweenScrolls"));
         }
       }
 
@@ -2140,7 +2515,19 @@ async function runPatchrightEngine(
       }
 
       log(`[Worker ${workerId}] 통합검색 컴포넌트 다음 페이지 없음 — 스크롤로 추가 로딩 확인`);
-      await humanScroll(page, engine.explorationScrollPixels);
+      if (engine.searchFlowVersion === "G") {
+        await scrollIntegratedSearchPageDown(page, engine.explorationScrollPixels);
+        const vp1 = page.viewportSize();
+        if (vp1 && vp1.width > 80) {
+          try {
+            await page.mouse.move(Math.floor(vp1.width / 2), Math.floor(vp1.height * 0.42));
+            await page.mouse.wheel(0, Math.floor(engine.explorationScrollPixels * 0.9));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      await humanScroll(page, Math.floor(engine.explorationScrollPixels * (engine.searchFlowVersion === "G" ? 0.45 : 1)));
       await sleep(engine.delay("explorationBetweenScrolls"));
     }
 
@@ -2176,6 +2563,31 @@ function getPrbRankUserDataDir(workerId: number): string {
   const dir = path.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * 비정상 종료 등으로 남은 Chromium Singleton 잠금 제거.
+ * 동일 userDataDir 재실행 시 "프로필 읽는 중 중복" 완화 (실행 중 다른 프로세스가 있으면 unlink 실패로 무시).
+ */
+function removeStaleChromiumProfileLocks(userDataDir: string): void {
+  if (process.env.PRB_KEEP_PROFILE_LOCKS === "1") return;
+  const names = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"];
+  const bases = [userDataDir, path.join(userDataDir, "Default")];
+  for (const base of bases) {
+    try {
+      if (!fs.existsSync(base)) continue;
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const p = path.join(base, name);
+      try {
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      } catch {
+        /* 사용 중이면 유지 */
+      }
+    }
+  }
 }
 
 /** 작업 1건 종료 직후: 컨텍스트 쿠키 + CDP로 HTTP 캐시·쿠키 스토어 비우기 (브라우저 close 전) */
@@ -2268,11 +2680,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             `--window-size=${winW},${winH}`,
           ],
         };
-        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
-        if (browserChannel) {
-          browserLaunchOptions.channel = browserChannel;
-        }
-        browser = await chromium.launch(browserLaunchOptions);
+        browser = await launchChromiumWithChannelFallback(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(false, ua);
         context = await browser.newContext({
           ...ctxOpts,
@@ -2283,6 +2691,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
         page.setDefaultNavigationTimeout(60000);
       } else if (isRankD) {
         const userDataDir = getPrbRankUserDataDir(workerId);
+        removeStaleChromiumProfileLocks(userDataDir);
         if (ENGINE.logEngineEvents) {
           log(`[Engine] Worker ${workerId} 순위 PRB 프로필: ${userDataDir}`);
         }
@@ -2319,11 +2728,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             `--window-size=${winW},${winH}`,
           ],
         };
-        const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL || process.env.BROWSER_CHANNEL;
-        if (browserChannel) {
-          browserLaunchOptions.channel = browserChannel;
-        }
-        browser = await chromium.launch(browserLaunchOptions);
+        browser = await launchChromiumWithChannelFallback(browserLaunchOptions);
         const ctxOpts = buildBrowserContextOptions(isMobileTask, ua);
         context = await browser.newContext({
           ...ctxOpts,
@@ -2402,7 +2807,8 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             ENGINE,
             work.keywordName,
             work.secondKeywordRaw,
-            work.catalogMid
+            work.catalogMid,
+            work.linkUrl
           );
 
       // 4. 결과 처리
@@ -2444,6 +2850,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
           : engineResult.failReason === 'IP_BLOCKED' ? 'IP차단'
           : engineResult.failReason === 'NO_MID_MATCH' ? 'MID없음'
           : engineResult.failReason === 'DETAIL_NOT_REACHED' ? '상세미진입'
+          : engineResult.failReason === 'PRODUCT_NOT_FOUND' ? '상품미노출'
           : engineResult.failReason === 'TIMEOUT' ? '타임아웃'
           : engineResult.failReason === 'INVALID_TASK' ? '작업설정오류'
           : (engineResult.error || 'Unknown');
@@ -2470,10 +2877,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
           log(`[Worker ${workerId}] FAIL(${engineResult.error || 'Unknown'}) | ${productShort}...`, "warn");
         }
 
-        if (
-          ENGINE.searchFlowVersion === "A" &&
-          shouldBlacklistSecondComboAfterRun(engineResult)
-        ) {
+        if (shouldAppendSecondComboBlacklistAfterRun(ENGINE.searchFlowVersion, engineResult)) {
           await appendSecondComboBlacklistEntry(
             ENGINE,
             work.mid,
@@ -2495,8 +2899,10 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
       await sleep(5000);  // 에러 시 5초 대기
     } finally {
       if (rankPrbBrowser) {
-        await sleep(randomBetween(100, 500));
+        await sleep(randomBetween(200, 500));
         await rankPrbBrowser.close().catch(() => {});
+        // Windows: 프로필 디렉터리 잠금 해제까지 짧으면 다음 작업에서 동일 폴더 재진입 시 Chromium이 중복 프로필 오류 표시
+        await sleep(randomBetween(800, 1500));
       } else {
         if (context) {
           await clearBrowserContextCookiesAndCache(context, workerId);

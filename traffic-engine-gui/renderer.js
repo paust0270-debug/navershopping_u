@@ -318,14 +318,22 @@ async function applyConfigToForm(cfg) {
   document.getElementById("maxScroll").value = cfg.search?.maxScrollAttempts ?? 4;
   const flow = cfg.search?.searchFlowVersion;
   document.getElementById("searchFlowVersion").value =
-    ["A","B","C","D","E","F"].includes(flow) ? flow : "A";
+    ["A","B","C","D","E","F","G"].includes(flow) ? flow : "G";
   const wm = cfg.workMode || "mobile";
   document.getElementById("workMode").value =
     wm === "mobile" || wm === "desktop" || wm === "random" ? wm : "mobile";
   // 2차 키워드 헤더 동적 업데이트
   const thSec = document.getElementById("thSecondKeyword");
   if (thSec) {
-    const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
+    const labels = {
+      A: "2차 키워드 (선택)",
+      B: "2차 키워드 (미사용)",
+      C: "2차 키워드 (필수)",
+      D: "2차 키워드 (미사용)",
+      E: "2차 키워드 (선택)",
+      F: "2차 키워드 (선택)",
+      G: "2차 키워드 (단어 풀·4개 추첨)",
+    };
     const activeFlow = document.getElementById("searchFlowVersion").value;
     thSec.textContent = labels[activeFlow] || "2차 키워드";
   }
@@ -575,6 +583,10 @@ function validateCheckedRows() {
     if (!extractMid(r.linkUrl)) return `"${r.keyword}": URL에서 MID를 추출할 수 없습니다 (/products/숫자 형식 필요)`;
   }
   const flow = document.getElementById("searchFlowVersion").value;
+  if (flow === "G") {
+    const lack = checked.find((r) => !String(r.keywordName || "").trim());
+    if (lack) return `"${lack.keyword}": G모드는 2차 키워드(단어 풀)가 필요합니다`;
+  }
   if (flow !== "D") {
     const noTarget = checked.filter((r) => !r.targetCount || r.targetCount <= 0);
     if (noTarget.length) return `"${noTarget[0].keyword}": 실행 횟수를 입력하세요 (0=무제한은 불가)`;
@@ -1061,6 +1073,48 @@ async function initApp() {
     await saveConfigToDisk();
     logLine("전체 삭제 완료");
   };
+
+  document.getElementById("btnImportTaskRows").onclick = async () => {
+    syncAllTaskRowsFromDom();
+    try {
+      const res = await window.engineApi.pickImportTaskRows();
+      if (!res?.ok) {
+        if (res?.canceled) return;
+        logLine(`불러오기 실패: ${res?.error || "알 수 없음"}`);
+        return;
+      }
+      const append = confirm(
+        "선택한 파일을 어떻게 적용할까요?\n\n[확인] 현재 표 아래에 추가\n[취소] 현재 표를 파일 내용으로 교체(통계일 포함)"
+      );
+      const imported = res.rows.map(normalizeTaskRow);
+      if (append) {
+        taskRows = [...taskRows, ...imported];
+      } else {
+        taskRows = imported;
+        taskRowsStatsDate = res.statsDate || localDateYmd();
+      }
+      selectedTaskRow = 0;
+      renderTaskTable();
+      await saveConfigToDisk();
+      logLine(
+        `파일에서 불러옴: ${imported.length}행 (${append ? "추가" : "교체"}) ${res.path ? ` — ${res.path}` : ""}`
+      );
+    } catch (e) {
+      logLine("불러오기 오류: " + (e?.message || String(e)));
+    }
+  };
+
+  document.getElementById("btnExportKeywordsPreset").onclick = async () => {
+    syncAllTaskRowsFromDom();
+    try {
+      const rows = taskRows.map(normalizeTaskRow);
+      const r = await window.engineApi.exportTaskKeywordsPreset({ rows });
+      if (r?.ok && r.path) logLine(`키워드만 내보내기 완료: ${r.path}`);
+      else if (!r?.canceled) logLine("키워드만 내보내기 실패");
+    } catch (e) {
+      logLine("키워드만 내보내기 오류: " + (e?.message || String(e)));
+    }
+  };
   document.getElementById("btnResetStats").onclick = async () => {
     if (!confirm("모든 행의 트래픽·어제 카운터를 0으로 초기화할까요?")) {
       return;
@@ -1133,7 +1187,15 @@ async function initApp() {
     const flow = document.getElementById("searchFlowVersion").value;
     const th = document.getElementById("thSecondKeyword");
     if (!th) return;
-    const labels = { A: "2차 키워드 (선택)", B: "2차 키워드 (미사용)", C: "2차 키워드 (필수)", D: "2차 키워드 (미사용)" };
+    const labels = {
+      A: "2차 키워드 (선택)",
+      B: "2차 키워드 (미사용)",
+      C: "2차 키워드 (필수)",
+      D: "2차 키워드 (미사용)",
+      E: "2차 키워드 (선택)",
+      F: "2차 키워드 (선택)",
+      G: "2차 키워드 (단어 풀·4개 추첨)",
+    };
     th.textContent = labels[flow] || "2차 키워드 (선택)";
   }
   document.getElementById("searchFlowVersion").addEventListener("change", updateSecondKeywordHeader);

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
@@ -141,6 +141,98 @@ function ymdToday() {
   return `${y}-${m}-${day}`;
 }
 
+/** tasks.txt / 동일 탭구분 포맷 파싱 (불러오기·자동 로드 공통) */
+function parseTaskRowsTextContent(raw) {
+  let text = String(raw);
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  let lines = text
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (!lines.length) return { rows: [], statsDate: ymdToday() };
+
+  let statsDate = ymdToday();
+  if (lines[0].startsWith("#date\t")) {
+    const parts = lines[0].split("\t");
+    if (parts[1]) statsDate = parts[1].trim();
+    lines = lines.slice(1);
+  }
+  if (lines[0]?.includes("검색 키워드")) lines = lines.slice(1);
+
+  const rows = lines.map((line) => {
+    const p = line.split("\t");
+    const keyword = p[0] ?? "";
+    const linkUrl = p[1] ?? "";
+    const keywordName = p[2] ?? "";
+    if (p.length >= 14) {
+      return {
+        keyword,
+        linkUrl,
+        keywordName,
+        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
+        productTitle: p[4] ?? "",
+        currentRank: p[5] ?? "",
+        startRank: p[6] ?? "",
+        trafficOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
+        trafficFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
+        yesterdayOk: Math.max(0, Math.floor(Number(p[9]) || 0)),
+        yesterdayFail: Math.max(0, Math.floor(Number(p[10]) || 0)),
+        reviewCount: p[11] ?? "",
+        starRating: p[12] ?? "",
+        mid: p[13] ?? "",
+      };
+    }
+    if (p.length >= 13) {
+      return {
+        keyword,
+        linkUrl,
+        keywordName,
+        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
+        productTitle: "",
+        currentRank: p[4] ?? "",
+        startRank: p[5] ?? "",
+        trafficOk: Math.max(0, Math.floor(Number(p[6]) || 0)),
+        trafficFail: Math.max(0, Math.floor(Number(p[7]) || 0)),
+        yesterdayOk: Math.max(0, Math.floor(Number(p[8]) || 0)),
+        yesterdayFail: Math.max(0, Math.floor(Number(p[9]) || 0)),
+        reviewCount: p[10] ?? "",
+        starRating: p[11] ?? "",
+      };
+    }
+    if (p.length >= 11) {
+      return {
+        keyword,
+        linkUrl,
+        keywordName,
+        targetCount: 0,
+        currentRank: p[3] ?? "",
+        startRank: p[4] ?? "",
+        trafficOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
+        trafficFail: Math.max(0, Math.floor(Number(p[6]) || 0)),
+        yesterdayOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
+        yesterdayFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
+        reviewCount: p[9] ?? "",
+        starRating: p[10] ?? "",
+      };
+    }
+    return {
+      keyword,
+      linkUrl,
+      keywordName,
+      targetCount: 0,
+      currentRank: "",
+      startRank: "",
+      trafficOk: 0,
+      trafficFail: 0,
+      yesterdayOk: 0,
+      yesterdayFail: 0,
+      reviewCount: "",
+      starRating: "",
+    };
+  });
+  return { rows, statsDate };
+}
+
 function createWindow() {
   fs.mkdirSync(DATA_ROOT, { recursive: true });
   mainWindow = new BrowserWindow({
@@ -239,87 +331,51 @@ ipcMain.handle("load-task-rows-text", () => {
     return { ok: true, rows: [], statsDate: ymdToday() };
   }
   const raw = fs.readFileSync(TASKS_TEXT_PATH, "utf-8");
-  let lines = raw
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!lines.length) return { ok: true, rows: [], statsDate: ymdToday() };
-
-  let statsDate = ymdToday();
-  if (lines[0].startsWith("#date\t")) {
-    const parts = lines[0].split("\t");
-    if (parts[1]) statsDate = parts[1].trim();
-    lines = lines.slice(1);
-  }
-  if (lines[0]?.includes("검색 키워드")) lines = lines.slice(1);
-
-  const rows = lines.map((line) => {
-    const p = line.split("\t");
-    const keyword = p[0] ?? "";
-    const linkUrl = p[1] ?? "";
-    const keywordName = p[2] ?? "";
-    // 신 포맷 v3 (14컬럼): keyword url kw2 target productTitle curRank startRank ok fail yOk yFail review star mid
-    if (p.length >= 14) {
-      return {
-        keyword, linkUrl, keywordName,
-        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
-        productTitle: p[4] ?? "",
-        currentRank: p[5] ?? "",
-        startRank: p[6] ?? "",
-        trafficOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[9]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[10]) || 0)),
-        reviewCount: p[11] ?? "",
-        starRating: p[12] ?? "",
-        mid: p[13] ?? "",
-      };
-    }
-    // 신 포맷 v1 (13컬럼): keyword url kw2 target curRank startRank ok fail yOk yFail review star
-    if (p.length >= 13) {
-      return {
-        keyword, linkUrl, keywordName,
-        targetCount: Math.max(0, Math.floor(Number(p[3]) || 0)),
-        productTitle: "",
-        currentRank: p[4] ?? "",
-        startRank: p[5] ?? "",
-        trafficOk: Math.max(0, Math.floor(Number(p[6]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[7]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[8]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[9]) || 0)),
-        reviewCount: p[10] ?? "",
-        starRating: p[11] ?? "",
-      };
-    }
-    // 구 포맷 (11~12컬럼): keyword url kw2 curRank startRank ok fail yOk yFail review star
-    if (p.length >= 11) {
-      return {
-        keyword, linkUrl, keywordName,
-        targetCount: 0,
-        currentRank: p[3] ?? "",
-        startRank: p[4] ?? "",
-        trafficOk: Math.max(0, Math.floor(Number(p[5]) || 0)),
-        trafficFail: Math.max(0, Math.floor(Number(p[6]) || 0)),
-        yesterdayOk: Math.max(0, Math.floor(Number(p[7]) || 0)),
-        yesterdayFail: Math.max(0, Math.floor(Number(p[8]) || 0)),
-        reviewCount: p[9] ?? "",
-        starRating: p[10] ?? "",
-      };
-    }
-    return {
-      keyword, linkUrl, keywordName,
-      targetCount: 0,
-      currentRank: "",
-      startRank: "",
-      trafficOk: 0,
-      trafficFail: 0,
-      yesterdayOk: 0,
-      yesterdayFail: 0,
-      reviewCount: "",
-      starRating: "",
-    };
-  });
+  const { rows, statsDate } = parseTaskRowsTextContent(raw);
   return { ok: true, rows, statsDate, path: TASKS_TEXT_PATH };
+});
+
+ipcMain.handle("pick-import-task-rows", async () => {
+  if (!mainWindow) return { ok: false, error: "윈도우 없음" };
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: "작업 키워드 파일 선택 (저장·결과와 동일 탭구분 형식)",
+    filters: [
+      { name: "탭 구분 텍스트", extensions: ["txt", "tsv", "tab"] },
+      { name: "모든 파일", extensions: ["*"] },
+    ],
+    properties: ["openFile"],
+  });
+  if (r.canceled || !r.filePaths?.length) return { ok: false, canceled: true };
+  try {
+    const raw = fs.readFileSync(r.filePaths[0], "utf-8");
+    const parsed = parseTaskRowsTextContent(raw);
+    if (!parsed.rows.length) {
+      return { ok: false, error: "파일에 유효한 행이 없습니다." };
+    }
+    return { ok: true, ...parsed, path: r.filePaths[0] };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle("export-task-keywords-preset", async (_e, payload) => {
+  if (!mainWindow) return { ok: false, error: "윈도우 없음" };
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const r = await dialog.showSaveDialog(mainWindow, {
+    title: "검색 키워드·URL·2차 키워드만 저장",
+    defaultPath: "작업키워드-프리셋.txt",
+    filters: [
+      { name: "탭 구분 텍스트", extensions: ["txt", "tsv"] },
+      { name: "모든 파일", extensions: ["*"] },
+    ],
+  });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+  const esc = (s) => String(s ?? "").replace(/\r?\n/g, " ").trim();
+  const lines = rows.map((row) => `${esc(row.keyword)}\t${esc(row.linkUrl)}\t${esc(row.keywordName)}`);
+  const header = "검색 키워드\t상품 URL\t2차 키워드";
+  const body = `${header}\n${lines.join("\n")}`;
+  fs.writeFileSync(r.filePath, `\uFEFF${body}`, "utf-8");
+  return { ok: true, path: r.filePath };
 });
 
 ipcMain.handle("write-task-file", (_e, taskObj) => {

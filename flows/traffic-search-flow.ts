@@ -4,13 +4,15 @@ import { runTrafficFlowB } from "./flow-b-traffic";
 import { runTrafficFlowC } from "./flow-c-traffic";
 import { runTrafficFlowE } from "./flow-e-traffic";
 import { runTrafficFlowF } from "./flow-f-traffic";
+import { runTrafficFlowG } from "./flow-g-traffic";
 
 function trafficFlowLabel(flow: string): string {
   return flow === "A" ? "A 통합1+2차" :
     flow === "B" ? "B 통합메인" :
     flow === "C" ? "C 통합2차" :
     flow === "E" ? "E ackey위장URL" :
-    flow === "F" ? "F 통합상품명" : flow;
+    flow === "F" ? "F 통합상품명" :
+    flow === "G" ? "G 통합5단어+제외키워드" : flow;
 }
 
 export async function prepareTrafficSearchFlow(
@@ -26,5 +28,6 @@ export async function prepareTrafficSearchFlow(
   if (flow === "C") return runTrafficFlowC(input, deps, flowLabel);
   if (flow === "E") return runTrafficFlowE(input, deps, flowLabel);
   if (flow === "F") return runTrafficFlowF(input, deps, flowLabel);
+  if (flow === "G") return runTrafficFlowG(input, deps, flowLabel);
   return runTrafficFlowB(input, deps, flowLabel);
 }

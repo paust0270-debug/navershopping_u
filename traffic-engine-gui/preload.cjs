@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("engineApi", {
   loadNaverAccount: () => ipcRenderer.invoke("load-naver-account"),
   saveTaskRowsText: (rows) => ipcRenderer.invoke("save-task-rows-text", rows),
   loadTaskRowsText: () => ipcRenderer.invoke("load-task-rows-text"),
+  pickImportTaskRows: () => ipcRenderer.invoke("pick-import-task-rows"),
+  exportTaskKeywordsPreset: (data) => ipcRenderer.invoke("export-task-keywords-preset", data),
   writeTaskFile: (task) => ipcRenderer.invoke("write-task-file", task),
   readLastResult: () => ipcRenderer.invoke("read-last-result"),
   saveResultsTable: (rows) => ipcRenderer.invoke("save-results-table", rows),

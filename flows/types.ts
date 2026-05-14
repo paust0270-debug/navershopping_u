@@ -80,4 +80,5 @@ export interface TrafficSearchFlowInput {
 
 export interface TrafficSearchFlowDeps extends FlowRunDeps {
   isSecondComboBlacklisted: (engine: EngineRuntime, mid: string, secondSearchPhrase: string) => boolean;
+  countBlacklistedSecondCombosForMid: (engine: EngineRuntime, mid: string) => number;
 }

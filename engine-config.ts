@@ -4,7 +4,7 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export type SearchFlowVersion = "A" | "B" | "C" | "D" | "E" | "F";
+export type SearchFlowVersion = "A" | "B" | "C" | "D" | "E" | "F" | "G";
 
 export interface EngineConfigFile {
   delays?: Record<string, number | { min: number; max: number }>;
@@ -20,7 +20,7 @@ export interface EngineConfigFile {
     explorationScrollPixels?: number;
     keywordBlacklistEnabled?: boolean;
     keywordBlacklistFile?: string;
-    /** A=통합검색 1차+2차 조합(기본), B=통합검색 메인키워드만, C=통합검색 2차만, D=통합검색 순위체크, E=통합검색 ackey 위장, F=통합검색 상품명 전체 */
+    /** A=통합검색 1차+2차 조합(기본), B=통합검색 메인키워드만, C=통합검색 2차만, D=통합검색 순위체크, E=통합검색 ackey 위장, F=통합검색 상품명 전체, G=통합검색 메인1단어+2차풀4단어(제외키워드) */
     searchFlowVersion?: SearchFlowVersion;
   };
   airplaneMode?: { toggleBeforeEachTask?: boolean; offOnCycles?: number };
@@ -40,7 +40,7 @@ const CONFIG_CANDIDATES = [
 ];
 
 const DEFAULT_DESKTOP_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 const DEFAULT_DELAY_SPECS: Record<string, number | { min: number; max: number }> = {
   browserLaunch: 2000,
@@ -64,15 +64,15 @@ const DEFAULT_DELAY_SPECS: Record<string, number | { min: number; max: number }>
 
 export const MOBILE_CONTEXT_OPTIONS = {
   userAgent:
-    "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Mobile Safari/537.36",
-  viewport: { width: 400, height: 700 },
+    "Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+  viewport: { width: 520, height: 860 },
   isMobile: true,
   hasTouch: true,
   deviceScaleFactor: 3,
   locale: "ko-KR",
   timezoneId: "Asia/Seoul",
   extraHTTPHeaders: {
-    "sec-ch-ua": '"Chromium";v="144", "Google Chrome";v="144", "Not-A.Brand";v="99"',
+    "sec-ch-ua": '"Chromium";v="137", "Google Chrome";v="137", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?1",
     "sec-ch-ua-platform": '"Android"',
   },
@@ -101,8 +101,8 @@ function delayMs(spec: number | { min: number; max: number } | undefined, fallba
 }
 
 function parseSearchFlowVersion(v: unknown): SearchFlowVersion {
-  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F") return v;
-  return "A";
+  if (v === "B" || v === "C" || v === "D" || v === "E" || v === "F" || v === "G") return v;
+  return "G";
 }
 
 function resolveEngineTaskFilePath(file: EngineConfigFile): string {
@@ -191,7 +191,7 @@ export function loadEngineConfig(): EngineRuntime {
 }
 
 export function resolveMobileForTask(runtime: EngineRuntime): boolean {
-  if (runtime.searchFlowVersion === "E") return true;
+  if (runtime.searchFlowVersion === "E" || runtime.searchFlowVersion === "G") return true;
   if (runtime.workMode === "mobile") return true;
   if (runtime.workMode === "desktop") return false;
   return Math.random() < 0.5;
@@ -226,7 +226,7 @@ export function buildBrowserContextOptions(isMobile: boolean, userAgent: string)
     };
   }
   return {
-    viewport: { width: 400, height: 700 },
+    viewport: { width: 520, height: 860 },
     locale: "ko-KR",
     timezoneId: "Asia/Seoul",
     userAgent,
