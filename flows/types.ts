@@ -76,6 +76,11 @@ export interface TrafficSearchFlowInput {
   keywordName?: string;
   secondKeywordRaw?: string;
   catalogMid?: string;
+  /**
+   * G 전용: `profiles/*.storage-state.json` 등 Playwright storageState 경로.
+   * 있으면 m.naver.com 진입 → 네이버 도메인 쿠키 제거 후 파일 쿠키 재주입 → 로그인 검증 후 통합검색 진행.
+   */
+  naverStorageStatePathForFlowG?: string | null;
 }
 
 export interface TrafficSearchFlowDeps extends FlowRunDeps {

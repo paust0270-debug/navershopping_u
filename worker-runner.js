@@ -96,8 +96,8 @@ var require_package = __commonJS({
 // node_modules/dotenv/lib/main.js
 var require_main = __commonJS({
   "node_modules/dotenv/lib/main.js"(exports2, module2) {
-    var fs5 = require("fs");
-    var path4 = require("path");
+    var fs6 = require("fs");
+    var path5 = require("path");
     var os2 = require("os");
     var crypto = require("crypto");
     var packageJson = require_package();
@@ -205,7 +205,7 @@ var require_main = __commonJS({
       if (options && options.path && options.path.length > 0) {
         if (Array.isArray(options.path)) {
           for (const filepath of options.path) {
-            if (fs5.existsSync(filepath)) {
+            if (fs6.existsSync(filepath)) {
               possibleVaultPath = filepath.endsWith(".vault") ? filepath : `${filepath}.vault`;
             }
           }
@@ -213,15 +213,15 @@ var require_main = __commonJS({
           possibleVaultPath = options.path.endsWith(".vault") ? options.path : `${options.path}.vault`;
         }
       } else {
-        possibleVaultPath = path4.resolve(process.cwd(), ".env.vault");
+        possibleVaultPath = path5.resolve(process.cwd(), ".env.vault");
       }
-      if (fs5.existsSync(possibleVaultPath)) {
+      if (fs6.existsSync(possibleVaultPath)) {
         return possibleVaultPath;
       }
       return null;
     }
     function _resolveHome(envPath) {
-      return envPath[0] === "~" ? path4.join(os2.homedir(), envPath.slice(1)) : envPath;
+      return envPath[0] === "~" ? path5.join(os2.homedir(), envPath.slice(1)) : envPath;
     }
     function _configVault(options) {
       const debug = Boolean(options && options.debug);
@@ -238,7 +238,7 @@ var require_main = __commonJS({
       return { parsed };
     }
     function configDotenv(options) {
-      const dotenvPath = path4.resolve(process.cwd(), ".env");
+      const dotenvPath = path5.resolve(process.cwd(), ".env");
       let encoding = "utf8";
       const debug = Boolean(options && options.debug);
       const quiet = options && "quiet" in options ? options.quiet : true;
@@ -262,13 +262,13 @@ var require_main = __commonJS({
       }
       let lastError;
       const parsedAll = {};
-      for (const path5 of optionPaths) {
+      for (const path6 of optionPaths) {
         try {
-          const parsed = DotenvModule.parse(fs5.readFileSync(path5, { encoding }));
+          const parsed = DotenvModule.parse(fs6.readFileSync(path6, { encoding }));
           DotenvModule.populate(parsedAll, parsed, options);
         } catch (e) {
           if (debug) {
-            _debug(`Failed to load ${path5} ${e.message}`);
+            _debug(`Failed to load ${path6} ${e.message}`);
           }
           lastError = e;
         }
@@ -283,7 +283,7 @@ var require_main = __commonJS({
         const shortPaths = [];
         for (const filePath of optionPaths) {
           try {
-            const relative = path4.relative(process.cwd(), filePath);
+            const relative = path5.relative(process.cwd(), filePath);
             shortPaths.push(relative);
           } catch (e) {
             if (debug) {
@@ -385,8 +385,8 @@ var require_main = __commonJS({
 
 // unified-runner.ts
 var dotenv = __toESM(require_main());
-var path3 = __toESM(require("path"));
-var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+var fs5 = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var import_child_process2 = require("child_process");
 
@@ -2146,7 +2146,140 @@ async function runTrafficFlowF(input, deps, flowLabel) {
 }
 
 // flows/flow-g-traffic.ts
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
 var G_FORCE_FULL_SECOND_SEARCH_AFTER_MISSES = 10;
+function cookieDomainIsNaver(domain) {
+  const d = String(domain || "").trim().replace(/^\./, "").toLowerCase();
+  if (!d)
+    return false;
+  return d === "naver.com" || d.endsWith(".naver.com");
+}
+function readStorageStateCookiesForPlaywright(filePath) {
+  const text = fs3.readFileSync(filePath, "utf-8");
+  const parsed = JSON.parse(text);
+  const list = Array.isArray(parsed.cookies) ? parsed.cookies : [];
+  const out = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object")
+      continue;
+    const c = raw;
+    const name = String(c.name || "");
+    const domain = String(c.domain || "");
+    const p = String(c.path || "/");
+    if (!name || !domain)
+      continue;
+    const row = {
+      name,
+      value: String(c.value ?? ""),
+      domain,
+      path: p || "/"
+    };
+    const exp = c.expires;
+    if (typeof exp === "number" && exp > 0) {
+      row.expires = exp;
+    }
+    if (typeof c.httpOnly === "boolean")
+      row.httpOnly = c.httpOnly;
+    if (typeof c.secure === "boolean")
+      row.secure = c.secure;
+    const ss = c.sameSite;
+    if (ss === "Strict" || ss === "Lax" || ss === "None") {
+      row.sameSite = ss;
+    }
+    out.push(row);
+  }
+  return out;
+}
+async function stripNaverCookiesKeepOthers(context) {
+  const all = await context.cookies();
+  const keep = all.filter((c) => !cookieDomainIsNaver(c.domain));
+  await context.clearCookies();
+  if (keep.length > 0) {
+    await context.addCookies(keep);
+  }
+}
+async function verifyGFlowNaverLoggedIn(page) {
+  const ctx = page.context();
+  const urls = ["https://m.naver.com/", "https://www.naver.com/"];
+  const names = /* @__PURE__ */ new Set();
+  for (const u of urls) {
+    try {
+      for (const c of await ctx.cookies(u)) {
+        names.add(c.name);
+      }
+    } catch {
+    }
+  }
+  const hasSessionCookie = names.has("NID_SES") || names.has("NID_AUT");
+  if (hasSessionCookie)
+    return true;
+  const domHint = await page.locator(
+    'a[href*="nidlogin.logout"], a[href*="logout"], a[href*="LOGOUT"], [class*="MyView"] a[href*="my"]'
+  ).first().isVisible().catch(() => false);
+  return domHint;
+}
+async function runFlowGPortalCookieLoginSequence(page, workerId, engine, deps, storagePathAbs, flowLabel) {
+  const context = page.context();
+  deps.log(
+    `[Worker ${workerId}] G\uBAA8\uB4DC: \uB124\uC774\uBC84 \uCFE0\uD0A4 \uCD08\uAE30\uD654 \u2192 m.naver.com \uC9C4\uC785 \u2192 \uC800\uC7A5 \uC138\uC158 \uCFE0\uD0A4 \uC8FC\uC785 \u2192 \uB85C\uADF8\uC778 \uAC80\uC99D`
+  );
+  await stripNaverCookiesKeepOthers(context);
+  await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 6e4 });
+  await deps.sleep(engine.delay("portalAfterOpen"));
+  let rows;
+  try {
+    rows = readStorageStateCookiesForPlaywright(storagePathAbs);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC storage-state \uC77D\uAE30 \uC2E4\uD328: ${msg}`, "warn");
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "LOGIN_FAILED",
+      error: "G flow: invalid storage state file"
+    };
+  }
+  if (rows.length === 0) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC storage-state\uC5D0 \uC720\uD6A8\uD55C cookies \uD56D\uBAA9\uC774 \uC5C6\uC74C`, "warn");
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "LOGIN_FAILED",
+      error: "G flow: empty cookies in storage state"
+    };
+  }
+  try {
+    await context.addCookies(rows);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC addCookies \uC2E4\uD328: ${msg}`, "warn");
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "LOGIN_FAILED",
+      error: `G flow: addCookies failed: ${msg}`
+    };
+  }
+  try {
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 6e4 });
+  } catch {
+    await page.goto("https://m.naver.com/", { waitUntil: "domcontentloaded", timeout: 6e4 });
+  }
+  await deps.sleep(engine.delay("browserLoad"));
+  const loggedIn = await verifyGFlowNaverLoggedIn(page);
+  if (!loggedIn) {
+    deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC \uB85C\uADF8\uC778 \uAC80\uC99D \uC2E4\uD328(NID_SES/NID_AUT\xB7DOM)`, "warn");
+    return {
+      ok: false,
+      flowLabel,
+      failReason: "LOGIN_FAILED",
+      error: "G flow: login verification failed after cookie inject"
+    };
+  }
+  deps.log(`[Worker ${workerId}] G\uBAA8\uB4DC \uB124\uC774\uBC84 \uB85C\uADF8\uC778 \uAC80\uC99D \uC644\uB8CC \u2192 \uD1B5\uD569\uAC80\uC0C9 1\uCC28 \uC9C4\uD589`);
+  return { ok: true, flowLabel };
+}
 async function resolveMobileIntegratedSearchInput(page) {
   const combined = "#nx_query, input#query, input[name='query'][type='search'], input[name='query'], form[role='search'] input[type='text'], .search_input input[type='text'], header input[type='text']";
   const loc = page.locator(combined).first();
@@ -2238,6 +2371,13 @@ async function integratedSearchClearAllAndSubmitNewQuery(page, engine, workerId,
 }
 async function runTrafficFlowG(input, deps, flowLabel) {
   const { page, mid, productName, keyword, workerId, engine, keywordName, catalogMid, secondKeywordRaw } = input;
+  const gStorage = (input.naverStorageStatePathForFlowG || "").trim();
+  if (gStorage && fs3.existsSync(gStorage)) {
+    const abs = path3.isAbsolute(gStorage) ? gStorage : path3.join(process.cwd(), gStorage);
+    const gate = await runFlowGPortalCookieLoginSequence(page, workerId, engine, deps, abs, flowLabel);
+    if (!gate.ok)
+      return gate;
+  }
   const firstKeyword = (keyword || "").trim() || "\uC0C1\uD488";
   const secondaryText = (secondKeywordRaw || keywordName || productName || "").trim() || firstKeyword;
   const firstPhrase = buildGIntegratedFiveWordQuery(firstKeyword, secondaryText);
@@ -2315,7 +2455,7 @@ async function prepareTrafficSearchFlow(input, deps) {
 }
 
 // strategy-sync.ts
-var fs3 = __toESM(require("fs"));
+var fs4 = __toESM(require("fs"));
 function toNonNegativeInt(value) {
   return Math.max(0, Math.floor(Number(value) || 0));
 }
@@ -2413,14 +2553,14 @@ function isSupportedSearchFlowVersion(value) {
   return value === "A" || value === "B" || value === "C" || value === "D" || value === "E" || value === "F" || value === "G";
 }
 function loadStrategyFile(strategyPath) {
-  const raw = fs3.readFileSync(strategyPath, "utf-8");
+  const raw = fs4.readFileSync(strategyPath, "utf-8");
   return JSON.parse(raw);
 }
 
 // unified-runner.ts
 var getDriveLetter = () => {
   try {
-    if (fs4.existsSync("D:\\")) {
+    if (fs5.existsSync("D:\\")) {
       return "D:\\temp";
     }
   } catch (e) {
@@ -2429,8 +2569,8 @@ var getDriveLetter = () => {
 };
 var TEMP_DIR = getDriveLetter();
 try {
-  if (!fs4.existsSync(TEMP_DIR)) {
-    fs4.mkdirSync(TEMP_DIR, { recursive: true });
+  if (!fs5.existsSync(TEMP_DIR)) {
+    fs5.mkdirSync(TEMP_DIR, { recursive: true });
   }
   process.env.TEMP = TEMP_DIR;
   process.env.TMP = TEMP_DIR;
@@ -2441,9 +2581,9 @@ try {
   console.error(`[TEMP] Using system default temp dir`);
 }
 var envPaths = [
-  path3.join(process.cwd(), ".env.local"),
-  path3.join(process.cwd(), ".env"),
-  path3.join(__dirname, ".env"),
+  path4.join(process.cwd(), ".env.local"),
+  path4.join(process.cwd(), ".env"),
+  path4.join(__dirname, ".env"),
   "C:\\turafic\\.env"
 ];
 for (const envPath of envPaths) {
@@ -2483,9 +2623,9 @@ function storedComboFromItem(e) {
 }
 function readKeywordBlacklistItems(filePath) {
   try {
-    if (!fs4.existsSync(filePath))
+    if (!fs5.existsSync(filePath))
       return [];
-    const raw = fs4.readFileSync(filePath, "utf-8");
+    const raw = fs5.readFileSync(filePath, "utf-8");
     const j = JSON.parse(raw);
     return Array.isArray(j.items) ? j.items : [];
   } catch {
@@ -2515,7 +2655,7 @@ async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase)
   if (!mid || !norm)
     return;
   const filePath = runtime.keywordBlacklistPath;
-  const dir = path3.dirname(filePath);
+  const dir = path4.dirname(filePath);
   for (let attempt = 0; attempt < 10; attempt++) {
     try {
       const items = readKeywordBlacklistItems(filePath);
@@ -2531,10 +2671,10 @@ async function appendSecondComboBlacklistEntry(runtime, mid, secondSearchPhrase)
           { mid, secondCombo: norm, addedAt: (/* @__PURE__ */ new Date()).toISOString() }
         ]
       };
-      if (!fs4.existsSync(dir)) {
-        fs4.mkdirSync(dir, { recursive: true });
+      if (!fs5.existsSync(dir)) {
+        fs5.mkdirSync(dir, { recursive: true });
       }
-      fs4.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
+      fs5.writeFileSync(filePath, JSON.stringify(next, null, 2), "utf-8");
       log2(
         `[KeywordBlacklist] 2\uCC28 \uC870\uD569 \uB4F1\uB85D: mid=${mid} combo="${norm.substring(0, 48)}${norm.length > 48 ? "..." : ""}" \u2192 ${filePath}`
       );
@@ -2782,18 +2922,18 @@ async function gModeDetailPageOscillateScroll(page, engine) {
 }
 var NAVER_LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https://www.naver.com/";
 var NAVER_ACCOUNT_PATHS = [
-  path3.join(process.cwd(), "naver-account.txt"),
-  path3.join(__dirname, "naver-account.txt")
+  path4.join(process.cwd(), "naver-account.txt"),
+  path4.join(__dirname, "naver-account.txt")
 ];
 function getNaverLoginStorageStatePaths(profileName) {
   return [
-    path3.join(process.cwd(), "profiles", `${profileName}.storage-state.json`),
-    path3.join(__dirname, "profiles", `${profileName}.storage-state.json`)
+    path4.join(process.cwd(), "profiles", `${profileName}.storage-state.json`),
+    path4.join(__dirname, "profiles", `${profileName}.storage-state.json`)
   ];
 }
 function resolveExistingNaverLoginStorageStatePath(profileName) {
   for (const p of getNaverLoginStorageStatePaths(profileName)) {
-    if (fs4.existsSync(p))
+    if (fs5.existsSync(p))
       return p;
   }
   return null;
@@ -2804,14 +2944,14 @@ function resolveWritableNaverLoginStorageStatePath(profileName) {
 function readNaverAccountFile() {
   let found = null;
   for (const p of NAVER_ACCOUNT_PATHS) {
-    if (fs4.existsSync(p)) {
+    if (fs5.existsSync(p)) {
       found = p;
       break;
     }
   }
   if (!found)
     return { status: "absent" };
-  const raw = fs4.readFileSync(found, "utf-8");
+  const raw = fs5.readFileSync(found, "utf-8");
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length < 2) {
     log2("[NaverLogin] naver-account.txt: \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638 2\uC904 \uD544\uC694", "warn");
@@ -2850,10 +2990,10 @@ async function persistNaverLoginStorageState(context, profileName, workerId) {
   if (!context)
     return;
   const targetPath = resolveWritableNaverLoginStorageStatePath(profileName);
-  const dir = path3.dirname(targetPath);
+  const dir = path4.dirname(targetPath);
   try {
-    if (!fs4.existsSync(dir)) {
-      fs4.mkdirSync(dir, { recursive: true });
+    if (!fs5.existsSync(dir)) {
+      fs5.mkdirSync(dir, { recursive: true });
     }
     await context.storageState({ path: targetPath });
     log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC138\uC158 \uC800\uC7A5 \uC644\uB8CC: ${targetPath}`);
@@ -2958,15 +3098,15 @@ function cleanupChromeTempFolders() {
   const tempDirs = ["D:\\temp", "D:\\tmp"];
   let totalCleaned = 0;
   for (const tempDir of tempDirs) {
-    if (!fs4.existsSync(tempDir))
+    if (!fs5.existsSync(tempDir))
       continue;
     try {
-      const entries = fs4.readdirSync(tempDir, { withFileTypes: true });
+      const entries = fs5.readdirSync(tempDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && (entry.name.startsWith("puppeteer_") || entry.name.startsWith("lighthouse") || entry.name.startsWith("chrome_") || entry.name.startsWith(".org.chromium.") || entry.name.startsWith("scoped_dir"))) {
-          const folderPath = path3.join(tempDir, entry.name);
+          const folderPath = path4.join(tempDir, entry.name);
           try {
-            fs4.rmSync(folderPath, { recursive: true, force: true });
+            fs5.rmSync(folderPath, { recursive: true, force: true });
             totalCleaned++;
           } catch {
           }
@@ -2980,9 +3120,9 @@ function cleanupChromeTempFolders() {
   }
 }
 function loadProfile(profileName) {
-  const profilePath = path3.join(__dirname, "profiles", `${profileName}.json`);
-  if (fs4.existsSync(profilePath)) {
-    const content = fs4.readFileSync(profilePath, "utf-8");
+  const profilePath = path4.join(__dirname, "profiles", `${profileName}.json`);
+  if (fs5.existsSync(profilePath)) {
+    const content = fs5.readFileSync(profilePath, "utf-8");
     return JSON.parse(content);
   }
   return {
@@ -3023,16 +3163,16 @@ function tryClaimWorkItemFromEngineFile() {
   const filePath = ENGINE.engineTaskFilePath;
   const processingPath = `${filePath}.processing`;
   try {
-    fs4.renameSync(filePath, processingPath);
+    fs5.renameSync(filePath, processingPath);
   } catch {
     return null;
   }
   let raw;
   try {
-    raw = fs4.readFileSync(processingPath, "utf-8");
+    raw = fs5.readFileSync(processingPath, "utf-8");
   } catch {
     try {
-      fs4.unlinkSync(processingPath);
+      fs5.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -3043,7 +3183,7 @@ function tryClaimWorkItemFromEngineFile() {
   } catch {
     log2(`[EngineFile] JSON \uD30C\uC2F1 \uC2E4\uD328: ${processingPath}`, "warn");
     try {
-      fs4.unlinkSync(processingPath);
+      fs5.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -3055,7 +3195,7 @@ function tryClaimWorkItemFromEngineFile() {
   if (!keyword || !linkUrl) {
     log2(`[EngineFile] keyword\xB7linkUrl \uD544\uC218 \u2014 \uCC98\uB9AC\uBCF8 \uC0AD\uC81C`, "warn");
     try {
-      fs4.unlinkSync(processingPath);
+      fs5.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -3064,7 +3204,7 @@ function tryClaimWorkItemFromEngineFile() {
   if (!mid) {
     log2(`[EngineFile] linkUrl\uC5D0\uC11C mid \uCD94\uCD9C \uBD88\uAC00 \u2014 ${linkUrl}`, "warn");
     try {
-      fs4.unlinkSync(processingPath);
+      fs5.unlinkSync(processingPath);
     } catch {
     }
     return null;
@@ -3083,10 +3223,10 @@ function tryClaimWorkItemFromEngineFile() {
         "warn"
       );
       try {
-        fs4.renameSync(processingPath, filePath);
+        fs5.renameSync(processingPath, filePath);
       } catch {
         try {
-          fs4.unlinkSync(processingPath);
+          fs5.unlinkSync(processingPath);
         } catch {
         }
       }
@@ -3095,7 +3235,7 @@ function tryClaimWorkItemFromEngineFile() {
     markCombinedKeywordUsedToday(combined);
   }
   try {
-    fs4.unlinkSync(processingPath);
+    fs5.unlinkSync(processingPath);
   } catch {
   }
   const taskId = Date.now();
@@ -3260,7 +3400,7 @@ function writeEngineTaskResult(work, result) {
     catalogMid: result.catalogMid ?? null
   };
   try {
-    fs4.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
+    fs5.writeFileSync(ENGINE.engineResultFilePath, JSON.stringify(payload, null, 2), "utf-8");
     log2(`[EngineFile] \uACB0\uACFC \uC800\uC7A5: ${ENGINE.engineResultFilePath} ok=${payload.ok}`);
   } catch (e) {
     log2(`[EngineFile] \uACB0\uACFC \uD30C\uC77C \uAE30\uB85D \uC2E4\uD328: ${e.message}`, "warn");
@@ -3889,7 +4029,7 @@ async function solveCaptchaIfPresent(page, solver, result, workerId, scopeLabel,
   result.failReason = "CAPTCHA_UNSOLVED";
   return false;
 }
-async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid, linkUrl) {
+async function runPatchrightEngine(page, mid, productName, keyword, workerId, engine, keywordName, secondKeywordRaw, catalogMid, linkUrl, naverStorageStatePathForFlowG) {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log2(`[Worker ${workerId}] ${msg}`));
   const result = {
     productPageEntered: false,
@@ -3907,7 +4047,8 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
       engine,
       keywordName,
       secondKeywordRaw,
-      catalogMid
+      catalogMid,
+      naverStorageStatePathForFlowG: engine.searchFlowVersion === "G" ? naverStorageStatePathForFlowG ?? null : null
     }, {
       log: log2,
       sleep: sleep2,
@@ -4227,27 +4368,27 @@ async function runPatchrightEngine(page, mid, productName, keyword, workerId, en
   }
 }
 function getPrbRankUserDataDir(workerId) {
-  const dir = path3.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
-  fs4.mkdirSync(dir, { recursive: true });
+  const dir = path4.join(os.tmpdir(), `prb-rank-worker-${workerId}`);
+  fs5.mkdirSync(dir, { recursive: true });
   return dir;
 }
 function removeStaleChromiumProfileLocks(userDataDir) {
   if (process.env.PRB_KEEP_PROFILE_LOCKS === "1")
     return;
   const names = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"];
-  const bases = [userDataDir, path3.join(userDataDir, "Default")];
+  const bases = [userDataDir, path4.join(userDataDir, "Default")];
   for (const base of bases) {
     try {
-      if (!fs4.existsSync(base))
+      if (!fs5.existsSync(base))
         continue;
     } catch {
       continue;
     }
     for (const name of names) {
-      const p = path3.join(base, name);
+      const p = path4.join(base, name);
       try {
-        if (fs4.existsSync(p))
-          fs4.unlinkSync(p);
+        if (fs5.existsSync(p))
+          fs5.unlinkSync(p);
       } catch {
       }
     }
@@ -4303,10 +4444,9 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
       const proxy = pickProxyConfig(ENGINE);
       const profileName = profile.name;
       const manualNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "manual" || process.env.NAVER_MANUAL_LOGIN === "1";
-      const guiNaverLogin = (process.env.NAVER_LOGIN_MODE || "").toLowerCase() === "gui";
       const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
       const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin && !guiNaverLogin;
+      const loadNaverCookieStorageAtLaunch = !!storedNaverStatePath && !forceRefreshNaverState;
       if (ENGINE.logEngineEvents) {
         log2(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat\xB7puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -4375,7 +4515,7 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         context = await browser.newContext({
           ...ctxOpts,
           ...proxy ? { proxy } : {},
-          ...useStoredNaverState ? { storageState: storedNaverStatePath } : {}
+          ...loadNaverCookieStorageAtLaunch ? { storageState: storedNaverStatePath } : {}
         });
         if (isMobileTask) {
           await applyMobileStealth(context);
@@ -4393,7 +4533,15 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         await sleep2(ENGINE.delay("proxySetup"));
       }
       totalRuns++;
-      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : useStoredNaverState ? (log2(`[Worker ${workerId}] \uB124\uC774\uBC84 \uC800\uC7A5 \uC138\uC158 \uB85C\uB4DC \uC644\uB8CC: ${storedNaverStatePath}`), true) : await ensureNaverLoginIfConfigured(page, workerId, context, profileName, guiNaverLogin);
+      const loginOk = !ENGINE.naverLoginEnabled ? true : isRankD && process.env.NAVER_LOGIN_ON_RANK !== "1" ? true : isRankD ? await ensureNaverLoginPrbPage(page, workerId) : loadNaverCookieStorageAtLaunch ? (log2(
+        `[Worker ${workerId}] \uB124\uC774\uBC84 \uCFE0\uD0A4 \uC138\uC158 \uC0AC\uC6A9(storage-state, \uD3FC \uB85C\uADF8\uC778 \uC0DD\uB7B5): ${storedNaverStatePath}`
+      ), true) : manualNaverLogin ? await ensureNaverLoginManually(page, workerId, context, profileName) : await ensureNaverLoginIfConfigured(
+        page,
+        workerId,
+        context,
+        profileName,
+        forceRefreshNaverState
+      );
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -4425,7 +4573,8 @@ async function runIndependentWorker(workerId, profile, onceMode = false) {
         work.keywordName,
         work.secondKeywordRaw,
         work.catalogMid,
-        work.linkUrl
+        work.linkUrl,
+        ENGINE.searchFlowVersion === "G" ? resolveExistingNaverLoginStorageStatePath(profileName) : null
       );
       if (isRankD) {
         if (engineResult.rankCheckOk) {
@@ -4541,7 +4690,7 @@ async function main() {
   } catch (e) {
   }
   if (STRATEGY_ARG) {
-    const strategyPath = path3.isAbsolute(STRATEGY_ARG) ? STRATEGY_ARG : path3.resolve(process.cwd(), STRATEGY_ARG);
+    const strategyPath = path4.isAbsolute(STRATEGY_ARG) ? STRATEGY_ARG : path4.resolve(process.cwd(), STRATEGY_ARG);
     log2(`[Strategy] \uC804\uB7B5 \uD30C\uC77C \uB85C\uB4DC: ${strategyPath}`);
     const rawStrategy = loadStrategyFile(strategyPath);
     const validation = validateStrategy(rawStrategy);
