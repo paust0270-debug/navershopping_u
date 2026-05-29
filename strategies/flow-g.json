@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "flow-g-template",
+  "description": "G 전략 템플릿. 메인 키워드 1단어와 2차 키워드 풀 4단어를 조합한 5단어 통합검색 후 MID 상품을 탐색하는 기본 운영 흐름.",
+  "runtime": {
+    "workMode": "mobile",
+    "search": {
+      "searchFlowVersion": "G",
+      "maxScrollAttempts": 4,
+      "keywordBlacklistEnabled": true
+    },
+    "taskSource": {
+      "taskFilePath": "engine-next-task.json",
+      "resultFilePath": "engine-last-result.json"
+    },
+    "logging": {
+      "engineEvents": true
+    }
+  },
+  "tasks": [
+    {
+      "checked": true,
+      "keyword": "예시 메인 키워드",
+      "linkUrl": "https://smartstore.naver.com/example/products/1234567890",
+      "keywordName": "예시 상품명 단어 풀 프리미엄 추천 인기 최저가 후기",
+      "targetCount": 10
+    }
+  ]
+}

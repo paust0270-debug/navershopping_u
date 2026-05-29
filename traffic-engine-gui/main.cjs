@@ -31,11 +31,6 @@ loadEnvFile();
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 let supabase = null;
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false },
-  });
-}
 
 // ============ HWID ============
 const { execSync } = require("child_process");
@@ -74,7 +69,7 @@ async function verifyHwid(userId) {
     // 미등록 → 최초 등록
     const { error: insertErr } = await supabase
       .from("user_devices")
-      .insert({ user_id: userId, hwid });
+      .insert({ user_id: userId, hwid, last_seen_at: new Date().toISOString() });
     if (insertErr) return { ok: false, error: "기기 등록 실패: " + insertErr.message };
     return { ok: true };
   }
@@ -85,6 +80,40 @@ async function verifyHwid(userId) {
   if (data.hwid !== hwid) {
     return { ok: false, error: "다른 PC에서 등록된 계정입니다. 관리자에게 문의하세요." };
   }
+
+  await supabase
+    .from("user_devices")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("hwid", hwid);
+
+  return { ok: true };
+}
+
+/**
+ * TrafficEngine 라이선스 검증: adpang-production 최고관리자가 발급한 계정만 허용
+ * @returns {{ ok: boolean, error?: string }}
+ */
+async function verifyTrafficEngineLicense(userId) {
+  const { data, error } = await supabase
+    .from("traffic_engine_licenses")
+    .select("status,expires_at,device_limit")
+    .eq("user_id", userId)
+    .single();
+
+  if (error && error.code === "PGRST116") {
+    return { ok: false, error: "발급된 프로그램 라이선스가 없습니다. 관리자에게 문의하세요." };
+  }
+  if (error) return { ok: false, error: "라이선스 확인 실패: " + error.message };
+
+  if (data.status !== "active") {
+    return { ok: false, error: "사용 중지된 라이선스입니다. 관리자에게 문의하세요." };
+  }
+
+  if (data.expires_at && new Date(data.expires_at).getTime() < Date.now()) {
+    return { ok: false, error: "만료된 라이선스입니다. 관리자에게 문의하세요." };
+  }
+
   return { ok: true };
 }
 
@@ -101,6 +130,51 @@ const TASKS_TEXT_PATH = app.isPackaged
   : path.join(RUNNER_ROOT, "traffic-engine-gui", "tasks.txt");
 const RESULTS_SAVE_PATH = path.join(path.dirname(TASKS_TEXT_PATH), "results-save.txt");
 const RUNNER_LIVE_LOG_PATH = path.join(path.dirname(TASKS_TEXT_PATH), "runner-live.log");
+const AUTH_SESSION_PATH = path.join(DATA_ROOT, "auth-session.json");
+
+function ensureDataRootDir() {
+  fs.mkdirSync(DATA_ROOT, { recursive: true });
+}
+
+const authStorage = {
+  getItem(key) {
+    try {
+      const data = JSON.parse(fs.readFileSync(AUTH_SESSION_PATH, "utf-8"));
+      return typeof data?.[key] === "string" ? data[key] : null;
+    } catch {
+      return null;
+    }
+  },
+  setItem(key, value) {
+    ensureDataRootDir();
+    let data = {};
+    try {
+      data = JSON.parse(fs.readFileSync(AUTH_SESSION_PATH, "utf-8"));
+    } catch { /* empty */ }
+    data[key] = value;
+    fs.writeFileSync(AUTH_SESSION_PATH, JSON.stringify(data, null, 2), "utf-8");
+  },
+  removeItem(key) {
+    let data = {};
+    try {
+      data = JSON.parse(fs.readFileSync(AUTH_SESSION_PATH, "utf-8"));
+    } catch { /* empty */ }
+    delete data[key];
+    ensureDataRootDir();
+    fs.writeFileSync(AUTH_SESSION_PATH, JSON.stringify(data, null, 2), "utf-8");
+  },
+};
+
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      storage: authStorage,
+    },
+  });
+}
 
 let mainWindow = null;
 let runnerChild = null;
@@ -234,7 +308,7 @@ function parseTaskRowsTextContent(raw) {
 }
 
 function createWindow() {
-  fs.mkdirSync(DATA_ROOT, { recursive: true });
+  ensureDataRootDir();
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -604,7 +678,13 @@ ipcMain.handle("auth-login", async (_e, { email, password }) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { ok: false, error: error.message };
 
-    // HWID 검증
+    // 라이선스 검증 후 HWID 검증
+    const licenseResult = await verifyTrafficEngineLicense(data.user.id);
+    if (!licenseResult.ok) {
+      await supabase.auth.signOut();
+      return { ok: false, error: licenseResult.error };
+    }
+
     const hwidResult = await verifyHwid(data.user.id);
     if (!hwidResult.ok) {
       await supabase.auth.signOut();
@@ -628,13 +708,31 @@ ipcMain.handle("auth-logout", async () => {
 ipcMain.handle("auth-check", async () => {
   if (!supabase) return null; // Supabase 미설정 시 인증 건너뜀
   try {
-    const { data } = await supabase.auth.getUser();
-    if (data?.user) return { email: data.user.email, id: data.user.id };
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user) return null;
+
+    // 저장된 세션도 라이선스와 현재 PC 귀속 검증을 다시 통과해야 앱 진입 허용.
+    const licenseResult = await verifyTrafficEngineLicense(data.user.id);
+    if (!licenseResult.ok) {
+      await supabase.auth.signOut();
+      return null;
+    }
+
+    const hwidResult = await verifyHwid(data.user.id);
+    if (!hwidResult.ok) {
+      await supabase.auth.signOut();
+      return null;
+    }
+
+    return { email: data.user.email, id: data.user.id };
   } catch { /* ignore */ }
   return null;
 });
 
 ipcMain.handle("auth-available", () => {
   if (DEBUG_SKIP_AUTH) return false;
+  // 배포(prod)에서는 Supabase 설정 누락 시에도 앱 진입을 허용하지 않는다.
+  // 로그인 오버레이를 표시하고 auth-login에서 설정 오류를 보여주는 fail-closed 동작.
+  if (app.isPackaged) return true;
   return !!supabase;
 });

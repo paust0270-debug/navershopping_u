@@ -997,7 +997,14 @@ async function init() {
   // Supabase 설정 여부 확인
   const authAvailable = await window.engineApi.isAuthAvailable();
   if (authAvailable) {
-    // 매번 로그인 요구 (세션 미저장)
+    // 저장된 앱 로그인 세션이 현재 PC 귀속 검증을 통과하면 재로그인 없이 진입
+    const user = await window.engineApi.getAuthUser();
+    if (user) {
+      hideLoginOverlay();
+      logLine(`저장된 로그인 세션 사용: ${user.email}`);
+      await initApp();
+      return;
+    }
     showLoginOverlay();
     return;
   }
