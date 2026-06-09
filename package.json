@@ -11,7 +11,8 @@
     "strategy:apply": "npx tsx scripts/strategy-cli.ts apply",
     "strategy:test": "npx tsx tests/strategy-sync.test.ts",
     "build:worker": "esbuild unified-runner.ts --bundle --platform=node --target=node18 --format=cjs --external:patchright --external:@anthropic-ai/sdk --external:puppeteer-real-browser --outfile=worker-runner.js",
-    "build:gui-exe": "npm run build:worker && cd traffic-engine-gui && npm install && npm run pack"
+    "sync:gui-assets": "node scripts/sync-gui-assets.cjs",
+    "build:gui-exe": "npm run build:worker && npm run sync:gui-assets && cd traffic-engine-gui && npm install && npm run pack"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

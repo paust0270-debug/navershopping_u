@@ -10,11 +10,13 @@ const { createClient } = require("@supabase/supabase-js");
 // ============ Supabase Auth ============
 function loadEnvFile() {
   const candidates = [
+    process.resourcesPath ? path.join(process.resourcesPath, ".env.local") : null,
+    process.resourcesPath ? path.join(process.resourcesPath, ".env") : null,
     path.join(__dirname, "..", ".env.local"),
     path.join(__dirname, "..", ".env"),
     path.join(__dirname, ".env"),
     "C:\\turafic\\.env",
-  ];
+  ].filter(Boolean);
   for (const p of candidates) {
     try {
       if (!fs.existsSync(p)) continue;
@@ -29,7 +31,10 @@ function loadEnvFile() {
 loadEnvFile();
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+const SUPABASE_CLIENT_KEY =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  "";
 let supabase = null;
 
 // ============ HWID ============
@@ -165,8 +170,8 @@ const authStorage = {
   },
 };
 
-if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+if (SUPABASE_URL && SUPABASE_CLIENT_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_CLIENT_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -494,7 +499,11 @@ ipcMain.handle("runner-start", (_e, { once }) => {
     return { ok: false, error: "이미 실행 중" };
   }
   const isWin = process.platform === "win32";
-  const bundledRunner = path.join(RUNNER_ROOT, "worker-runner.js");
+  const bundledRunnerCandidates = [
+    path.join(RUNNER_ROOT, "worker-runner.js"),
+    app.isPackaged ? path.join(app.getAppPath(), "runner", "worker-runner.js") : null,
+  ].filter(Boolean);
+  const bundledRunner = bundledRunnerCandidates.find((p) => fs.existsSync(p));
   /** 포터블 EXE는 %TEMP% 아래에 풀리므로, 러너 스크립트는 실행 파일 옆 traffic-engine-data 로 매번 복사해 두고 NODE_PATH 로 패치라이트 해석 */
   const dataRunner = path.join(DATA_ROOT, "worker-runner.js");
   let runnerJs = app.isPackaged ? dataRunner : bundledRunner;
@@ -504,10 +513,10 @@ ipcMain.handle("runner-start", (_e, { once }) => {
   let env = { ...process.env, FORCE_COLOR: "0" };
 
   if (app.isPackaged) {
-    if (!fs.existsSync(bundledRunner)) {
+    if (!bundledRunner) {
       return {
         ok: false,
-        error: `worker-runner.js 없음: ${bundledRunner} — 빌드 시 번들 누락`,
+        error: `worker-runner.js 없음: ${bundledRunnerCandidates.join(", ")} — 빌드 시 번들 누락`,
       };
     }
     try {
@@ -672,7 +681,7 @@ ipcMain.handle("runner-status", () => ({ running: !!runnerChild }));
 // ============ Auth IPC Handlers ============
 ipcMain.handle("auth-login", async (_e, { email, password }) => {
   if (!supabase) {
-    return { ok: false, error: "SUPABASE_URL / SUPABASE_ANON_KEY 미설정" };
+    return { ok: false, error: "SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY 미설정" };
   }
   try {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

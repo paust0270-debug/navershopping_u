@@ -23,6 +23,10 @@
     "asar": true,
     "extraResources": [
       {
+        "from": "../.env",
+        "to": ".env"
+      },
+      {
         "from": "../worker-runner.js",
         "to": "runner/worker-runner.js"
       },
