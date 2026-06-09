@@ -2184,7 +2184,8 @@ async function runPatchrightEngine(
   keywordName?: string,
   secondKeywordRaw?: string,
   catalogMid?: string,
-  linkUrl?: string
+  linkUrl?: string,
+  naverStorageStatePathForFlowG?: string | null
 ): Promise<EngineResult> {
   const captchaSolver = new ReceiptCaptchaSolverPRB((msg) => log(`[Worker ${workerId}] ${msg}`));
 
@@ -2206,6 +2207,8 @@ async function runPatchrightEngine(
       keywordName,
       secondKeywordRaw,
       catalogMid,
+      naverStorageStatePathForFlowG:
+        engine.searchFlowVersion === "G" ? naverStorageStatePathForFlowG ?? null : null,
     }, {
       log,
       sleep,
@@ -2662,7 +2665,9 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
         process.env.NAVER_MANUAL_LOGIN === "1";
       const storedNaverStatePath = resolveExistingNaverLoginStorageStatePath(profileName);
       const forceRefreshNaverState = process.env.NAVER_LOGIN_FORCE_REFRESH === "1";
-      const useStoredNaverState = !!storedNaverStatePath && !forceRefreshNaverState && !manualNaverLogin;
+      /** 저장된 네이버 쿠키(storage-state)가 있으면 브라우저 시작 시 항상 주입(폼 로그인 대신). `NAVER_LOGIN_FORCE_REFRESH=1`일 때만 재로그인 폼 허용 */
+      const loadNaverCookieStorageAtLaunch =
+        !!storedNaverStatePath && !forceRefreshNaverState;
       if (ENGINE.logEngineEvents) {
         log(
           `[Engine] Worker ${workerId} mode=${isRankD ? "rankCheck(start.bat·puppeteer-real-browser)" : isMobileTask ? "mobile" : "desktop"} proxy=${proxy ? proxy.server : "none"}`
@@ -2733,7 +2738,7 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
         context = await browser.newContext({
           ...ctxOpts,
           ...(proxy ? { proxy } : {}),
-          ...(useStoredNaverState ? { storageState: storedNaverStatePath! } : {}),
+          ...(loadNaverCookieStorageAtLaunch ? { storageState: storedNaverStatePath! } : {}),
         });
         if (isMobileTask) {
           await applyMobileStealth(context);
@@ -2765,15 +2770,20 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
           ? true
           : isRankD
             ? await ensureNaverLoginPrbPage(page, workerId)
-            : manualNaverLogin
-              ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
-              : await ensureNaverLoginIfConfigured(
-                  page as Page,
-                  workerId,
-                  context,
-                  profileName,
-                  forceRefreshNaverState
-                );
+            : loadNaverCookieStorageAtLaunch
+              ? (log(
+                  `[Worker ${workerId}] 네이버 쿠키 세션 사용(storage-state, 폼 로그인 생략): ${storedNaverStatePath}`
+                ),
+                true)
+              : manualNaverLogin
+                ? await ensureNaverLoginManually(page as Page, workerId, context, profileName)
+                : await ensureNaverLoginIfConfigured(
+                    page as Page,
+                    workerId,
+                    context,
+                    profileName,
+                    forceRefreshNaverState
+                  );
       if (!loginOk) {
         totalFailed++;
         writeEngineTaskResult(work, {
@@ -2808,7 +2818,10 @@ async function runIndependentWorker(workerId: number, profile: Profile, onceMode
             work.keywordName,
             work.secondKeywordRaw,
             work.catalogMid,
-            work.linkUrl
+            work.linkUrl,
+            ENGINE.searchFlowVersion === "G"
+              ? resolveExistingNaverLoginStorageStatePath(profileName)
+              : null
           );
 
       // 4. 결과 처리
